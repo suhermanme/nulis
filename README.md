@@ -258,7 +258,7 @@ This type-checks and bundles the interface, compiles the Rust code in release mo
 
 | Platform | Output |
 | --- | --- |
-| macOS | `macos/Nulis.app` and `dmg/Nulis_<version>_<arch>.dmg` |
+| macOS | `macos/Nulis.app` and `dmg/Nulis_<version>_<arch>.dmg`, ad-hoc signed |
 | Windows | An NSIS installer under `nsis/` and an MSI under `msi/` |
 | Linux | `.deb`, `.rpm`, and AppImage packages |
 
@@ -283,6 +283,17 @@ Users install nothing besides Nulis. The core, the interface, the themes, the he
 | Linux AppImage | Bundled | Nothing to install. |
 
 On macOS you can confirm that a build links only to system libraries with `otool -L target/release/nulis-desktop`.
+
+### Installing an unsigned macOS build
+
+macOS builds are *ad-hoc signed*: the application is sealed so macOS can check it has not been altered, but the signature is not from an Apple Developer ID and the app is not notarized by Apple. The first time you open a downloaded copy, macOS blocks it with a message that it cannot verify the app. To allow it:
+
+1. Open the `.dmg` and drag **Nulis** into **Applications**.
+2. Open Nulis once. macOS refuses and shows a message; click **Done**.
+3. Open **System Settings ▸ Privacy & Security**, scroll to **Security**, and click **Open Anyway** next to the message about Nulis.
+4. Confirm with **Open Anyway** and your password. From then on Nulis opens normally.
+
+Without the ad-hoc signature, macOS would instead report the app as "damaged" and offer no way to open it. Builds signed with a Developer ID and notarized avoid these steps; see [docs/RELEASE.md](docs/RELEASE.md).
 
 ### Build parts separately
 

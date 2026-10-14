@@ -43,14 +43,7 @@ cd apps/desktop
 npx tauri build --bundles app --ci
 ```
 
-This local command currently produces an unsigned bundle. Tauri can sign and
-notarize macOS distribution builds using an Apple Developer ID certificate
-and notarization credentials (`APPLE_SIGNING_IDENTITY`, `APPLE_ID`,
-`APPLE_PASSWORD`, and `APPLE_TEAM_ID`, or the documented API-key alternative).
-Windows NSIS distribution needs a trusted code-signing certificate or signing
-service. Keep credentials in the platform keychain or CI secrets, never in the
-repository. Release signing configuration should be verified on hosted runners
-after credentials are supplied.
+macOS bundles are ad-hoc signed (`bundle.macOS.signingIdentity` is `"-"` in `tauri.conf.json`), locally and in CI. That seals the bundle so Gatekeeper can offer **Open Anyway** under System Settings ▸ Privacy & Security for a downloaded copy, instead of reporting it as damaged; CI verifies the signature on the app and on the copy inside the `.dmg`. For a release without that step, replace `"-"` with an Apple Developer ID identity and provide notarization credentials (`APPLE_SIGNING_IDENTITY`, `APPLE_ID`, and related variables). The installers do not show the license as a click-through agreement: the GPL does not require acceptance to run the program, and its full text is in the application under Help ▸ About Nulis ▸ View License.
 
 ## Manual interaction checks (M15–M18)
 

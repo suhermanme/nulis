@@ -37,9 +37,11 @@
     ],
     "category": "DeveloperTool",
     "license": "GPL-3.0-or-later",
-    "licenseFile": "../../../LICENSE",
     "copyright": "Copyright © 2026 Muhammad Edy Suherman",
     "shortDescription": "High-performance editor for text, code, and large files",
-    "longDescription": "Nulis is an extensible cross-platform editor for text, source code, hexadecimal data, and extremely large files."
+    "longDescription": "Nulis is an extensible cross-platform editor for text, source code, hexadecimal data, and extremely large files.",
+    "macOS": {
+      "signingIdentity": "-"
+    }
   }
 }

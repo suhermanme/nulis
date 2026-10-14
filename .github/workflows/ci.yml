@@ -96,7 +96,7 @@ jobs:
           - os: ubuntu-latest
             bundles: deb,rpm
           - os: macos-latest
-            bundles: app
+            bundles: app,dmg
           - os: windows-latest
             bundles: nsis
     runs-on: ${{ matrix.os }}
@@ -137,6 +137,17 @@ jobs:
             echo "::error::Nulis.app links to libraries that are not part of macOS"
             exit 1
           fi
+          # Ad-hoc signed (bundle.macOS.signingIdentity "-"), so a user can
+          # allow it under Privacy & Security > Open Anyway. An unsigned or
+          # inconsistently signed app is reported as damaged instead.
+          codesign -dv "$app" 2>&1 | grep 'Signature=adhoc'
+          codesign --verify --deep --strict --verbose=2 "$app"
+          dmg=$(ls target/release/bundle/dmg/*.dmg)
+          hdiutil verify "$dmg"
+          mount=$(hdiutil attach -readonly -nobrowse "$dmg" | tail -1 | awk -F'\t' '{print $NF}')
+          ls "$mount"
+          codesign --verify --deep --strict "$mount/Nulis.app"
+          hdiutil detach "$mount"
           "$bin" & pid=$!
           sleep 15
           if ! kill -0 "$pid" 2>/dev/null; then
@@ -240,6 +251,7 @@ jobs:
             target/release/bundle/rpm/*.rpm
             target/release/bundle/nsis/*.exe
             target/release/bundle/macos/
+            target/release/bundle/dmg/*.dmg
           if-no-files-found: error
 
   fuzz:
