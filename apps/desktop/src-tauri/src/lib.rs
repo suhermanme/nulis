@@ -804,6 +804,8 @@ fn on_second_launch(app: &tauri::AppHandle, arguments: Vec<String>, directory: S
 }
 
 /// Handles application lifecycle events, including files the system asks Nulis to open.
+// Tauri passes the event by value; only macOS consumes it (its file list).
+#[allow(clippy::needless_pass_by_value)]
 fn handle_run_event(app: &tauri::AppHandle, event: tauri::RunEvent) {
     match event {
         tauri::RunEvent::Ready => {
