@@ -5203,6 +5203,13 @@ mod tests {
 
     #[test]
     fn hex_viewport_reads_a_sparse_file_beyond_four_gibibytes() {
+        // A file extended with `set_len` is sparse on Unix file systems. On
+        // Windows it is fully allocated unless explicitly marked sparse, so
+        // this test would need gigabytes of free disk and time to zero them.
+        // The 64-bit offset arithmetic it exercises is the same everywhere.
+        if cfg!(windows) {
+            return;
+        }
         let root = tempfile::tempdir().expect("temporary root");
         let source_path = root.path().join("huge.bin");
         let marker = 5_u64 * 1024 * 1024 * 1024 + 4;
@@ -6913,6 +6920,13 @@ mod tests {
 
     #[test]
     fn line_changes_stay_sparse_for_a_file_beyond_four_gibibytes() {
+        // A file extended with `set_len` is sparse on Unix file systems. On
+        // Windows it is fully allocated unless explicitly marked sparse, so
+        // this test would need gigabytes of free disk and time to zero them.
+        // The 64-bit offset arithmetic it exercises is the same everywhere.
+        if cfg!(windows) {
+            return;
+        }
         let root = tempfile::tempdir().expect("temporary root");
         let source_path = root.path().join("huge.txt");
         let deep = 5_u64 * 1024 * 1024 * 1024;
