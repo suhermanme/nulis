@@ -79,6 +79,8 @@ Nulis never overwrites a file in place. It writes the new content to a temporary
 
 ### Sessions and recovery
 
+Nulis runs as a single copy. Starting it again while it is open brings the existing window to the front instead of opening a second one, so two copies never compete over the same session and recovery data.
+
 When you quit, Nulis remembers the open files, the tabs and workspaces with their pane layout, the opened folder, and the side bar. They are restored at the next start. A file that no longer exists is skipped, and the status bar says how many could not be restored.
 
 While you work, Nulis records unsaved edits of local and untitled documents shortly after you make them. If the application or the computer stops unexpectedly, the next start offers to **recover** each document that had unsaved work, including untitled ones. You can restore or discard each one. A recovered document counts as unsaved until you save it.

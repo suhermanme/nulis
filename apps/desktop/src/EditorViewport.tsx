@@ -596,19 +596,46 @@ export function EditorViewport({
     return true;
   }, [onStatus, readOnly]);
 
+  // Typed edits run strictly one after another. Each must name the revision
+  // it follows, and a key pressed before the previous edit has returned would
+  // otherwise name a stale one and be refused, dropping the character.
+  const editChainRef = useRef<Promise<unknown>>(Promise.resolve());
+  const editRevisionRef = useRef<string | null>(null);
+  useEffect(() => { editRevisionRef.current = snapshot?.revision ?? null; }, [snapshot]);
+  const refreshRef = useRef(refresh);
+  refreshRef.current = refresh;
+  const queueEdit = useCallback(
+    (id: "editor.insertText" | "editor.deleteBackward", details: Record<string, unknown>) => {
+      const run = async () => {
+        const revision = editRevisionRef.current;
+        if (revision === null) return false;
+        const updated = await executeCommand<DocumentSummary>({
+          id,
+          context: { windowId: "main", documentId: document.documentId },
+          arguments: { expectedRevision: revision, ...details },
+        });
+        editRevisionRef.current = updated.revision;
+        onDocumentChange(updated);
+        await refreshRef.current();
+        return true;
+      };
+      const result = editChainRef.current.then(run, run);
+      editChainRef.current = result.catch(() => undefined);
+      return result;
+    },
+    [document.documentId, onDocumentChange],
+  );
+
   const insertText = useCallback(
     async (text: string) => {
-      if (!snapshot || refuseEdit()) return;
-      const updated = await executeCommand<DocumentSummary>({
-        id: "editor.insertText",
-        context: { windowId: "main", documentId: document.documentId },
-        arguments: { expectedRevision: snapshot.revision, text, overwrite },
-      });
-      onDocumentChange(updated);
-      await refresh();
-      onStatus("Edited");
+      if (refuseEdit()) return;
+      try {
+        if (await queueEdit("editor.insertText", { text, overwrite })) onStatus("Edited");
+      } catch (error: unknown) {
+        onStatus(error instanceof Error ? error.message : "Could not insert text");
+      }
     },
-    [document.documentId, onDocumentChange, onStatus, overwrite, refresh, refuseEdit, snapshot],
+    [onStatus, overwrite, queueEdit, refuseEdit],
   );
 
   const transferSelection = useCallback(
@@ -1208,15 +1235,9 @@ export function EditorViewport({
       void insertText("\t");
     } else if (event.key === "Backspace") {
       event.preventDefault();
-      if (!snapshot || refuseEdit()) return;
-      void executeCommand<DocumentSummary>({
-        id: "editor.deleteBackward",
-        context: { windowId: "main", documentId: document.documentId },
-        arguments: { expectedRevision: snapshot.revision },
-      }).then((updated) => {
-        onDocumentChange(updated);
-        return refresh();
-      });
+      if (refuseEdit()) return;
+      void queueEdit("editor.deleteBackward", {}).catch((error: unknown) => onStatus(
+        error instanceof Error ? error.message : "Could not delete"));
     } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
       event.preventDefault();
       void moveHorizontal(event.key === "ArrowLeft" ? "left" : "right", event.shiftKey);

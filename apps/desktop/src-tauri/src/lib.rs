@@ -899,6 +899,19 @@ pub fn run() {
     #[cfg(target_os = "macos")]
     disable_webview_autofill_menu();
     tauri::Builder::default()
+        // Registered first, as the plugin requires. Two copies of Nulis would
+        // share one session file and one set of recovery checkpoints, and
+        // each would overwrite the other's. A second launch brings the
+        // running window forward instead.
+        .plugin(tauri_plugin_single_instance::init(
+            |app, _arguments, _directory| {
+                if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+                    let _ = window.unminimize();
+                    let _ = window.show();
+                    let _ = window.set_focus();
+                }
+            },
+        ))
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -937,6 +950,19 @@ pub fn run() {
                 persist_settings_frame(app);
                 // Any unapplied preview ends with the window that showed it.
                 let _ = app.emit_to(MAIN_WINDOW_LABEL, APPEARANCE_PREVIEW_EVENT, Value::Null);
+            }
+            // With nothing unsaved the window closes at once. This does not
+            // wait for the page, so the application can always be closed even
+            // if the page has stopped answering. With unsaved documents the
+            // page asks what to do with them, as before.
+            (MAIN_WINDOW_LABEL, tauri::WindowEvent::CloseRequested { .. }) => {
+                let clean = window
+                    .app_handle()
+                    .try_state::<NulisCore>()
+                    .is_some_and(|core| matches!(core.has_dirty_documents(), Ok(false)));
+                if clean {
+                    let _ = window.destroy();
+                }
             }
             (MAIN_WINDOW_LABEL, tauri::WindowEvent::Destroyed) => {
                 for label in [SETTINGS_WINDOW_LABEL, HELP_WINDOW_LABEL] {

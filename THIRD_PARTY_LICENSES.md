@@ -14,6 +14,7 @@ Initial direct dependencies:
 | Tauri 2 | desktop shell | Apache-2.0 / MIT |
 | Tauri dialog plugin | native user-selected file dialogs | Apache-2.0 / MIT |
 | Tauri clipboard manager plugin | write-only native text clipboard access | Apache-2.0 / MIT |
+| Tauri single-instance plugin | a second launch focuses the running window | Apache-2.0 / MIT |
 | serde / serde_json | IPC and settings serialization | Apache-2.0 / MIT |
 | tempfile | secure temporary files and atomic save persistence | Apache-2.0 / MIT |
 | thiserror | typed Rust errors | Apache-2.0 / MIT |

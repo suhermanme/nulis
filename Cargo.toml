@@ -45,6 +45,7 @@ ssh2 = "=0.9.6"
 tauri = { version = "2.1", default-features = false, features = ["wry"] }
 tauri-plugin-dialog = "=2.2.0"
 tauri-plugin-clipboard-manager = "=2.2.2"
+tauri-plugin-single-instance = "=2.5.0"
 tempfile = "3.23.0"
 thiserror = "2.0"
 tree-sitter = "=0.24.7"

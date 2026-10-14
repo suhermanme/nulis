@@ -1390,3 +1390,43 @@ test("a Search panel request runs find, replace, and replace all with its own op
   })));
   await waitFor(() => expect(props.onStatus).toHaveBeenCalledWith("Replaced 3 matches"));
 });
+
+// Kept last: it replaces the shared mocks' implementations.
+test("keys typed faster than the core answers are applied in order, none dropped", async () => {
+  const line = (text: string) => ({ line: "1", startByte: "0", endByte: String(text.length), text,
+    sourceByteWidths: [...text].map(() => 1), continuation: false, truncated: false });
+  const viewport = (revision: string, text: string) => ({
+    documentId: "document-1", revision, documentByteLen: String(text.length), encoding: "utf8" as const,
+    lines: [line(text)], selections: [{ anchorByte: String(text.length), activeByte: String(text.length) }], bookmarks: [],
+  });
+  vi.mocked(getViewport).mockResolvedValueOnce(viewport("0", ""));
+  const onStatus = vi.fn();
+  function Workbench() {
+    const [summary, setSummary] = useState<DocumentSummary>(
+      { documentId: "document-1", name: "Untitled", byteLen: "0", revision: "0", encoding: "utf8" });
+    return <EditorViewport document={summary} onDocumentChange={setSummary} onStatus={onStatus} />;
+  }
+  render(<Workbench />);
+  const input = await screen.findByRole("textbox", { name: "Untitled editor" });
+  await screen.findByText("1 caret");
+
+  // The core takes a moment for each edit; all three keys arrive before the first answer.
+  let text = "";
+  vi.mocked(executeCommand).mockClear();
+  vi.mocked(executeCommand).mockImplementation(async (request) => {
+    const { expectedRevision, text: typed } = request.arguments as { expectedRevision: string; text: string };
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    if (expectedRevision !== String(text.length)) throw new Error("stale revision");
+    text += typed;
+    return { documentId: "document-1", name: "Untitled", byteLen: String(text.length), revision: String(text.length), encoding: "utf8" } as never;
+  });
+  vi.mocked(getViewport).mockImplementation(async () => viewport(String(text.length), text));
+  fireEvent.keyDown(input, { key: "l" });
+  fireEvent.keyDown(input, { key: "l" });
+  fireEvent.keyDown(input, { key: "o" });
+  await waitFor(() => expect(text).toBe("llo"));
+  expect(vi.mocked(executeCommand).mock.calls.map(([request]) => (request.arguments as { expectedRevision: string }).expectedRevision))
+    .toEqual(["0", "1", "2"]);
+  expect(onStatus).not.toHaveBeenCalledWith("stale revision");
+  await waitFor(() => expect(screen.getByText("llo")).toBeInTheDocument());
+});

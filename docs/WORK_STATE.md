@@ -1,5 +1,13 @@
 # Work state
 
+## Windows verification and fixes (implemented locally)
+
+Every package is now built, installed, and started by CI (`.github/workflows/ci.yml`): `Nulis.app` on macOS, the `.deb` and `.rpm` on Linux (the `.rpm` on Fedora in a container), and the NSIS installer on Windows. The same packages were also built in containers and checked by hand on Ubuntu 22.04 and 24.04, Debian 12, Fedora 44, and a Windows 11 virtual machine.
+
+Problems found on Windows and fixed: the plugin host did not compile (a Unix-only import); saving failed with "Access is denied" because `MoveFileExW` cannot replace a file the editor holds open (the save now uses `std::fs::rename`, which asks for POSIX rename semantics); plugin installation flushed files through read-only handles; and the bundled-OpenSSL feature was also building OpenSSL on Windows.
+
+Problems found while using the application there, fixed on every platform: typed characters were dropped when keys arrived faster than the core answered (typed edits are now queued in order, each naming the revision the previous one returned); two running copies shared and overwrote one session and one set of recovery checkpoints (`tauri-plugin-single-instance` now makes a second launch focus the running window); and a window with nothing unsaved could only close through the page (the adapter now closes it natively).
+
 ## Self-contained builds (implemented locally)
 
 `ssh2` is built with `vendored-openssl` on macOS and Linux only (a target-specific dependency in `nulis-remote`), so OpenSSL is compiled into the executable there. Enabling the feature for every target would also build OpenSSL on Windows, where libssh2 uses WinCNG and does not need it. Before this, the macOS release binary linked to Homebrew's `/usr/local/opt/openssl@4` and would not start on a machine without it; `otool -L` now lists only system frameworks and `/usr/lib`. Building now needs `perl` and `make` on macOS and Linux.
