@@ -1,6 +1,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeAll, expect, test, vi } from "vitest";
+import { useState } from "react";
+import type { DocumentSummary } from "./contracts";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { EditorViewport } from "./EditorViewport";
 import { executeCommand, getDocumentMap, getMarkdownPreviewSource, getViewport, getViewportAt, getViewportLine } from "./ipc";
@@ -329,13 +331,16 @@ test("keeps the new-line caret visible when Enter refreshes a scrolled viewport"
     documentId: "document-1", name: "Untitled", byteLen: "61", revision: "1", encoding: "utf8",
   });
 
-  const { container } = render(
-    <EditorViewport
-      document={{ documentId: "document-1", name: "Untitled", byteLen: "60", revision: "0", encoding: "utf8" }}
-      onDocumentChange={() => undefined}
-      onStatus={() => undefined}
-    />,
-  );
+  // Like the workbench, the parent adopts the summary an edit returns. Without
+  // that the editor would see its own newer revision as a change made in
+  // another view and reload, racing the assertions below.
+  const onStatus = () => undefined;
+  function Workbench() {
+    const [summary, setSummary] = useState<DocumentSummary>(
+      { documentId: "document-1", name: "Untitled", byteLen: "60", revision: "0", encoding: "utf8" });
+    return <EditorViewport document={summary} onDocumentChange={setSummary} onStatus={onStatus} />;
+  }
+  const { container } = render(<Workbench />);
   const editor = await screen.findByRole("textbox", { name: "Untitled editor" });
   const surface = container.querySelector<HTMLElement>(".editor-surface");
   expect(surface).not.toBeNull();
@@ -357,6 +362,10 @@ test("keeps the new-line caret visible when Enter refreshes a scrolled viewport"
   await waitFor(() => expect(container.querySelector(".caret")).toBeInTheDocument());
   expect(surface!.scrollTop).toBeGreaterThan(0);
   expect(editor).toHaveFocus();
+  // No further reload follows once the parent holds the new revision.
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 150)); });
+  expect(getViewport).toHaveBeenCalledTimes(2);
+  expect(container.querySelector(".caret")).toBeInTheDocument();
 });
 
 test("resizes the rendered text viewport after its async surface mounts", async () => {
