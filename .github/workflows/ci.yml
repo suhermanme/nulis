@@ -63,7 +63,7 @@ jobs:
             lines=""
             # A verification log is short and ordered: its ending says what went wrong.
             if [ "$log" != ci-verify.log ]; then
-              lines=$(grep -a -E "error|Error|failed|panicked|cannot|not found|FAILED" "$log" | tail -n 30 | cut -c1-400 || true)
+              lines=$(grep -a -E "error|Error|failed|panicked|cannot|not found|FAILED" "$log" | grep -a -v -E "test result: ok|\.\.\. ok$|Downloaded|Compiling|Checking" | tail -n 40 | cut -c1-400 || true)
             fi
             [ -n "$lines" ] || lines=$(tail -n 30 "$log" | cut -c1-400)
             lines="${lines//'%'/'%25'}"
@@ -223,7 +223,7 @@ jobs:
             lines=""
             # A verification log is short and ordered: its ending says what went wrong.
             if [ "$log" != ci-verify.log ]; then
-              lines=$(grep -a -E "error|Error|failed|panicked|cannot|not found|FAILED" "$log" | tail -n 30 | cut -c1-400 || true)
+              lines=$(grep -a -E "error|Error|failed|panicked|cannot|not found|FAILED" "$log" | grep -a -v -E "test result: ok|\.\.\. ok$|Downloaded|Compiling|Checking" | tail -n 40 | cut -c1-400 || true)
             fi
             [ -n "$lines" ] || lines=$(tail -n 30 "$log" | cut -c1-400)
             lines="${lines//'%'/'%25'}"

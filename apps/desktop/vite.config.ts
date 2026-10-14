@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
@@ -10,6 +11,12 @@ export default defineConfig(({ mode }) => ({
     strictPort: true,
   },
   envPrefix: ["VITE_", "TAURI_ENV_"],
+  test: {
+    environment: "jsdom",
+    setupFiles: ["./src/test-setup.ts"],
+    // Room for the longer asynchronous waits configured in the setup file.
+    testTimeout: 20000,
+  },
   build: {
     // Tauri webviews support ES2020; one coherent language target avoids
     // toolchain-specific downlevel transforms while retaining broad support.

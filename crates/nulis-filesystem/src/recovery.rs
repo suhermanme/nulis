@@ -173,6 +173,8 @@ mod tests {
             recovered.read_vec(0, recovered.len()).expect("read"),
             b"alpha Nulis gamma"
         );
+        // Windows cannot remove a directory whose files are still open.
+        drop(recovered);
         fs::remove_dir_all(directory).expect("cleanup");
     }
 }
