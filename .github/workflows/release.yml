@@ -62,7 +62,9 @@ jobs:
           bundle=target/universal-apple-darwin/release/bundle
           app=$bundle/macos/Nulis.app
           lipo -archs "$app/Contents/MacOS/nulis-desktop" | grep 'x86_64 arm64'
-          if otool -L "$app/Contents/MacOS/nulis-desktop" | tail -n +2 | awk '{print $1}' | grep -v -E '^(/System/Library/|/usr/lib/)'; then
+          # Only the indented lines are libraries; a universal binary also
+          # prints a header line for each architecture.
+          if otool -L -arch all "$app/Contents/MacOS/nulis-desktop" | grep -E '^[[:space:]]' | awk '{print $1}' | grep -v -E '^(/System/Library/|/usr/lib/)'; then
             echo "::error::Nulis.app links to libraries that are not part of macOS"; exit 1
           fi
           codesign -dv "$app" 2>&1 | grep 'Signature=adhoc'
