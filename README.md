@@ -34,6 +34,17 @@ Download the file for your system from the [latest release](https://github.com/s
 
 ### macOS
 
+**With [Homebrew](https://brew.sh):**
+
+```sh
+brew tap suhermanme/nulis https://github.com/suhermanme/nulis
+brew install --cask nulis
+```
+
+`brew upgrade --cask nulis` installs new releases, and `brew uninstall --cask nulis` removes Nulis (add `--zap` to also delete its settings and data). The first time you open Nulis, macOS blocks it; allow it once as described below.
+
+**Or by hand:**
+
 1. Download `Nulis_<version>_universal.dmg`. It runs on both Apple silicon and Intel Macs.
 2. Open the `.dmg` and drag **Nulis** into **Applications**.
 3. Open Nulis from Applications.
@@ -278,6 +289,7 @@ themes/                  Built-in themes and the converted theme catalog
 benchmarks/              Performance probes
 fuzz/                    Fuzz target for the document model
 tests/                   Cross-crate integration tests
+Casks/nulis.rb           Homebrew cask for macOS
 docs/                    Design, specification, and user documentation
 LICENSE                  GNU General Public License, version 3
 THIRD_PARTY_LICENSES.md  Licenses of dependencies

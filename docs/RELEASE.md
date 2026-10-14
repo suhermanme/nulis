@@ -66,3 +66,19 @@ updater metadata are separate approval steps.
 Tauri references: [distribution](https://v2.tauri.app/distribute/),
 [macOS signing](https://v2.tauri.app/distribute/sign/macos/), and
 [Windows signing](https://v2.tauri.app/distribute/sign/windows/).
+
+## Update the Homebrew cask
+
+After the release is published, point `Casks/nulis.rb` at it: set `version` to
+the new version and `sha256` to the `Nulis_<version>_universal.dmg` line of the
+release's `SHA256SUMS.txt`. Check it from a local tap of your working copy
+(Homebrew audits casks only by name), then commit it to `main`:
+
+```sh
+brew style Casks/nulis.rb
+brew tap nulis/local "$PWD"   # after committing locally; taps read the last commit
+brew audit --cask --online nulis/local/nulis
+brew untap nulis/local
+```
+
+Users who tapped the repository get the new version with `brew upgrade --cask nulis`.
