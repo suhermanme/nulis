@@ -12,6 +12,7 @@ Nulis is free software under the [GNU General Public License, version 3 or later
 
 ![Nulis with a Rust file and a Python file side by side in one workspace](docs/images/screenshots/workspace-dark.png)
 
+- [Installing](#installing)
 - [A quick tour](#a-quick-tour)
 - [What Nulis does](#what-nulis-does)
 - [Project status](#project-status)
@@ -26,6 +27,46 @@ Nulis is free software under the [GNU General Public License, version 3 or later
 - [Documentation](#documentation)
 - [Contributing](#contributing)
 - [License](#license)
+
+## Installing
+
+Download the file for your system from the [latest release](https://github.com/suhermanme/nulis/releases/latest).
+
+### macOS
+
+1. Download `Nulis_<version>_universal.dmg`. It runs on both Apple silicon and Intel Macs.
+2. Open the `.dmg` and drag **Nulis** into **Applications**.
+3. Open Nulis from Applications.
+
+**The first time, macOS blocks it.** You will see a message such as *"Nulis" Not Opened — Apple could not verify "Nulis" is free of malware*. This is expected: Nulis is not notarized by Apple, which requires a paid Apple Developer membership. The app is signed so that macOS can tell it has not been altered, and you can allow it once:
+
+1. In the message, click **Done** (do not choose Move to Trash).
+2. Open **System Settings ▸ Privacy & Security**.
+3. Scroll down to **Security**. Next to *"Nulis" was blocked to protect your Mac*, click **Open Anyway**.
+4. Click **Open Anyway** again in the confirmation and enter your password or use Touch ID.
+
+Nulis opens, and from then on it opens normally like any other app. You only do this once per installed version.
+
+- The **Open Anyway** button appears only after you have tried to open Nulis, and it stays for about an hour. If you do not see it, open Nulis from Applications again and go back to Privacy & Security.
+- On recent macOS versions, right-clicking the app and choosing **Open** no longer offers a way past this message; use **Open Anyway** in System Settings.
+
+### Windows
+
+Download `Nulis_<version>_x64-setup.exe` and run it. It installs for your user account without administrator rights. If Windows SmartScreen shows *Windows protected your PC*, click **More info**, then **Run anyway**: the installer is not signed with a paid code-signing certificate.
+
+### Linux
+
+Download the package for your distribution and install it with your package manager, which also installs the libraries Nulis needs:
+
+```sh
+# Debian, Ubuntu, and derivatives
+sudo apt install ./Nulis_<version>_amd64.deb
+
+# Fedora, RHEL, openSUSE, and derivatives
+sudo dnf install ./Nulis-<version>-1.x86_64.rpm
+```
+
+Each release also has a `SHA256SUMS.txt` to check the downloads: `sha256sum -c SHA256SUMS.txt --ignore-missing` on Linux, or `shasum -a 256 -c SHA256SUMS.txt --ignore-missing` on macOS.
 
 ## A quick tour
 
@@ -319,16 +360,9 @@ Users install nothing besides Nulis. The core, the interface, the themes, the he
 
 On macOS you can confirm that a build links only to system libraries with `otool -L target/release/nulis-desktop`.
 
-### Installing an unsigned macOS build
+### Signing
 
-macOS builds are *ad-hoc signed*: the application is sealed so macOS can check it has not been altered, but the signature is not from an Apple Developer ID and the app is not notarized by Apple. The first time you open a downloaded copy, macOS blocks it with a message that it cannot verify the app. To allow it:
-
-1. Open the `.dmg` and drag **Nulis** into **Applications**.
-2. Open Nulis once. macOS refuses and shows a message; click **Done**.
-3. Open **System Settings ▸ Privacy & Security**, scroll to **Security**, and click **Open Anyway** next to the message about Nulis.
-4. Confirm with **Open Anyway** and your password. From then on Nulis opens normally.
-
-Without the ad-hoc signature, macOS would instead report the app as "damaged" and offer no way to open it. Builds signed with a Developer ID and notarized avoid these steps; see [docs/RELEASE.md](docs/RELEASE.md).
+macOS builds are ad-hoc signed, which lets users allow a downloaded copy with **Open Anyway** (see [Installing](#macos)); without a signature macOS reports the app as damaged and offers no way to open it. Builds signed with an Apple Developer ID and notarized, and Windows builds signed with a code-signing certificate, avoid the first-launch prompts; see [docs/RELEASE.md](docs/RELEASE.md).
 
 ### Build parts separately
 
