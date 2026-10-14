@@ -1,0 +1,181 @@
+name: Release
+
+# Pushing a tag such as v0.1.0 builds Nulis for every platform, checks each
+# package, and publishes a GitHub release with the packages attached.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version:
+    name: Check the version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.read.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: read
+        name: The tag must match the application version
+        shell: bash
+        run: |
+          version=$(node -p "require('./apps/desktop/src-tauri/tauri.conf.json').version")
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$version" != "$tag" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match the application version $version"
+            exit 1
+          fi
+          test -f "docs/release-notes/v$version.md" || { echo "::error::docs/release-notes/v$version.md is missing"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  macos:
+    name: macOS (universal)
+    needs: version
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build one application for Apple silicon and Intel Macs
+        working-directory: apps/desktop
+        run: npx tauri build --target universal-apple-darwin --bundles app,dmg --ci
+      - name: Check the application and disk image
+        shell: bash
+        run: |
+          set -euo pipefail
+          bundle=target/universal-apple-darwin/release/bundle
+          app=$bundle/macos/Nulis.app
+          lipo -archs "$app/Contents/MacOS/nulis-desktop" | grep 'x86_64 arm64'
+          if otool -L "$app/Contents/MacOS/nulis-desktop" | tail -n +2 | awk '{print $1}' | grep -v -E '^(/System/Library/|/usr/lib/)'; then
+            echo "::error::Nulis.app links to libraries that are not part of macOS"; exit 1
+          fi
+          codesign -dv "$app" 2>&1 | grep 'Signature=adhoc'
+          codesign --verify --deep --strict "$app"
+          dmg=$(ls $bundle/dmg/*.dmg)
+          hdiutil verify "$dmg"
+          mkdir -p dist
+          cp "$dmg" "dist/Nulis_${{ needs.version.outputs.version }}_universal.dmg"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          path: dist/*
+          if-no-files-found: error
+
+  windows:
+    name: Windows
+    needs: version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build the installer
+        working-directory: apps/desktop
+        run: npx tauri build --bundles nsis --ci
+      - name: Install it and start the application
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $installer = Get-ChildItem target/release/bundle/nsis/*.exe | Select-Object -First 1
+          $setup = Start-Process -FilePath $installer.FullName -ArgumentList '/S' -Wait -PassThru
+          if ($setup.ExitCode -ne 0) { throw "The installer exited with code $($setup.ExitCode)" }
+          $exe = Get-ChildItem "$env:LOCALAPPDATA\Nulis" -Filter *.exe | Where-Object { $_.Name -notmatch 'uninstall' } | Select-Object -First 1
+          $app = Start-Process -FilePath $exe.FullName -PassThru
+          Start-Sleep -Seconds 15
+          if ($app.HasExited) { throw "Nulis exited within 15 seconds" }
+          Stop-Process -Id $app.Id -Force
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item $installer.FullName dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: dist/*
+          if-no-files-found: error
+
+  linux:
+    name: Linux
+    needs: version
+    # The oldest supported runner, so the packages also run on distributions
+    # with an older C library than the newest Ubuntu.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf rpm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build the packages
+        working-directory: apps/desktop
+        run: npx tauri build --bundles deb,rpm --ci
+      - name: Install them on Debian and Fedora
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp target/release/bundle/deb/*.deb target/release/bundle/rpm/*.rpm dist/
+          docker run --rm -v "$PWD/dist:/pkg:ro" debian:12 bash -euc '
+            apt-get update -qq && apt-get install -y -qq /pkg/*.deb >/dev/null
+            if ldd /usr/bin/nulis-desktop | grep "not found"; then exit 1; fi
+            echo "The .deb installs on Debian 12 with every library resolved."'
+          docker run --rm -v "$PWD/dist:/pkg:ro" fedora:latest bash -euc '
+            dnf install -y -q /pkg/*.rpm >/dev/null
+            if ldd /usr/bin/nulis-desktop | grep "not found"; then exit 1; fi
+            echo "The .rpm installs on Fedora with every library resolved."'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-linux
+          path: dist/*
+          if-no-files-found: error
+
+  publish:
+    name: Publish the release
+    needs: [version, macos, windows, linux]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Write checksums
+        working-directory: dist
+        run: |
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Nulis ${{ needs.version.outputs.version }}
+          body_path: docs/release-notes/v${{ needs.version.outputs.version }}.md
+          files: dist/*
+          fail_on_unmatched_files: true

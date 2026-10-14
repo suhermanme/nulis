@@ -1659,6 +1659,20 @@ mod tests {
         }
     }
 
+    /// Like [`GuardPollingHost`], but reports when the host call has begun.
+    struct SignallingPollingHost(std::sync::mpsc::Sender<()>);
+
+    impl ScriptHost for SignallingPollingHost {
+        fn call(
+            &mut self,
+            request: ScriptHostCall,
+            execution: &ScriptExecutionGuard,
+        ) -> Result<serde_json::Value, String> {
+            let _ = self.0.send(());
+            GuardPollingHost.call(request, execution)
+        }
+    }
+
     #[test]
     fn macro_round_trip_is_valid_and_unknown_fields_are_rejected() {
         let encoded = serde_json::to_vec(&sample_macro()).expect("serialize");
@@ -1929,11 +1943,19 @@ mod tests {
         };
         let cancellation = ScriptCancellationToken::new();
         let trigger = cancellation.clone();
+        // Cancel only once the script is inside the host call; a fixed delay
+        // could fire before the script got there on a slow machine.
+        let (entered, host_call_started) = std::sync::mpsc::channel();
         let cancellation_thread = thread::spawn(move || {
-            thread::sleep(Duration::from_millis(5));
+            host_call_started.recv().expect("host call started");
             trigger.cancel();
         });
-        let result = run_script(&script, &policy, GuardPollingHost, &cancellation);
+        let result = run_script(
+            &script,
+            &policy,
+            SignallingPollingHost(entered),
+            &cancellation,
+        );
         cancellation_thread.join().expect("cancellation thread");
         assert_eq!(
             result,
