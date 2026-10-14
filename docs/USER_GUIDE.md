@@ -59,6 +59,7 @@ When no file is open at startup, Nulis shows a welcome screen with buttons for a
 | --- | --- |
 | New file | **Ctrl/⌘ N**, the **New** toolbar button, the **+** button in the tab strip, or **File ▸ New Text File**. |
 | Open a file | **Ctrl/⌘ O**, the **Open** toolbar button, or **File ▸ Open File…**. You can also drag files from the file manager onto the window, or open them from File View. |
+| Open a file from Finder (macOS) | Right-click the file and choose **Open With ▸ Nulis**, or drop it on the Nulis icon in the Dock. If Nulis is already open, the file opens in the existing window. |
 | Open a folder | **Open a folder** on the welcome screen, or the *Open Folder* command in the palette. The folder appears in the **Folder** tab of File View. |
 | Save | **Ctrl/⌘ S**, the **Save** toolbar button, or **File ▸ Save**. |
 | Save under a new name | **Ctrl/⌘ Shift S** or **File ▸ Save As…**. |

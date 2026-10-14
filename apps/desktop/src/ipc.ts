@@ -77,6 +77,11 @@ export function getHexViewport(request: HexViewportRequest): Promise<HexViewport
   return invoke<HexViewportSnapshot>("editor_hex_viewport", { request });
 }
 
+/** Files the system asked Nulis to open at launch; later ones arrive as an event. */
+export function takeLaunchPaths(): Promise<string[]> {
+  return invoke<string[]>("take_launch_paths");
+}
+
 /** Opens the singleton Help window, or brings the existing one forward. */
 export function openHelpWindow(): Promise<void> {
   return invoke<void>("open_help_window");

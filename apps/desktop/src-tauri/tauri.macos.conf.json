@@ -1,0 +1,14 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "fileAssociations": [
+      {
+        "ext": ["txt", "md", "markdown", "log", "json", "xml", "yaml", "yml", "toml", "ini", "csv", "rs", "py", "js", "ts", "c", "h", "cpp", "hpp", "cs", "java", "go", "swift", "php", "rb", "pl", "sh", "bat", "ps1", "sql", "html", "css", "zig", "lua", "kt"],
+        "contentTypes": ["public.text", "public.plain-text", "public.source-code", "public.data"],
+        "name": "Text and data",
+        "role": "Editor",
+        "rank": "Alternate"
+      }
+    ]
+  }
+}

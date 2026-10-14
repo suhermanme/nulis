@@ -6,6 +6,7 @@ use nulis_core::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::path::Path;
 use std::sync::Mutex;
 use tauri::{Emitter, Manager, State};
 
@@ -26,6 +27,8 @@ const MAX_NATIVE_MENU_ENTRIES: usize = 64;
 const MAIN_WINDOW_LABEL: &str = "main";
 const SETTINGS_WINDOW_LABEL: &str = "settings";
 const HELP_WINDOW_LABEL: &str = "help";
+/// Files the operating system asks Nulis to open while it is running.
+const OPEN_PATHS_EVENT: &str = "nulis://open-paths";
 /// Help only reads what it needs to follow the chosen theme and font.
 const HELP_COMMANDS: &[&str] = &["customization.state", "theme.list"];
 const HELP_MIN_SIZE: (u32, u32) = (640, 420);
@@ -732,6 +735,99 @@ fn show_settings_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Files the operating system asked Nulis to open: from "Open With", a
+/// double-click, the Dock, or the command line. They wait here until the
+/// page is ready to open them, and are sent to it directly afterwards.
+#[derive(Default)]
+struct LaunchPaths(Mutex<(bool, Vec<String>)>);
+
+/// Keeps the arguments that name existing files, resolved against `directory`.
+fn file_arguments<I: IntoIterator<Item = String>>(arguments: I, directory: &Path) -> Vec<String> {
+    arguments
+        .into_iter()
+        .filter(|argument| !argument.starts_with('-'))
+        .map(|argument| directory.join(argument))
+        .filter(|path| path.is_file())
+        .map(|path| path.canonicalize().unwrap_or(path).display().to_string())
+        .collect()
+}
+
+/// Opens `paths` in the running window, or keeps them until it is ready.
+fn open_launch_paths(app: &tauri::AppHandle, paths: Vec<String>) {
+    if paths.is_empty() {
+        return;
+    }
+    let Some(state) = app.try_state::<LaunchPaths>() else {
+        return;
+    };
+    let Ok(mut pending) = state.0.lock() else {
+        return;
+    };
+    if pending.0 {
+        drop(pending);
+        let _ = app.emit_to(MAIN_WINDOW_LABEL, OPEN_PATHS_EVENT, paths);
+        if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+            let _ = window.unminimize();
+            let _ = window.set_focus();
+        }
+    } else {
+        pending.1.extend(paths);
+    }
+}
+
+/// Hands the page the files Nulis was launched with; later ones arrive as events.
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri extracts State by value.
+fn take_launch_paths(
+    state: State<'_, LaunchPaths>,
+    window: tauri::WebviewWindow,
+) -> Result<Vec<String>, String> {
+    if window.label() != MAIN_WINDOW_LABEL {
+        return Err("only the editor window opens files".into());
+    }
+    let mut pending = state.0.lock().map_err(|_| "launch state unavailable")?;
+    pending.0 = true;
+    Ok(std::mem::take(&mut pending.1))
+}
+
+/// A second launch focuses the running window and opens any files it names
+/// ("Open with" on Windows and Linux starts the application again).
+#[allow(clippy::needless_pass_by_value)] // The plugin's callback signature passes ownership.
+fn on_second_launch(app: &tauri::AppHandle, arguments: Vec<String>, directory: String) {
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+    let paths = file_arguments(arguments.into_iter().skip(1), Path::new(&directory));
+    open_launch_paths(app, paths);
+}
+
+/// Handles application lifecycle events, including files the system asks Nulis to open.
+fn handle_run_event(app: &tauri::AppHandle, event: tauri::RunEvent) {
+    match event {
+        tauri::RunEvent::Ready => {
+            // Files named on the command line, which is how Windows and
+            // Linux pass the file chosen with "Open with".
+            let directory = std::env::current_dir().unwrap_or_default();
+            let paths = file_arguments(std::env::args().skip(1), &directory);
+            open_launch_paths(app, paths);
+        }
+        // macOS sends files from Finder's Open With, a double-click, or
+        // the Dock icon as an event rather than as arguments.
+        #[cfg(target_os = "macos")]
+        tauri::RunEvent::Opened { urls } => {
+            let paths = urls
+                .into_iter()
+                .filter_map(|url| url.to_file_path().ok())
+                .map(|path| path.display().to_string())
+                .collect();
+            open_launch_paths(app, paths);
+        }
+        _ => {}
+    }
+}
+
 /// Opens the singleton Help window or brings the existing one forward.
 fn show_help_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     if let Some(window) = app.get_webview_window(HELP_WINDOW_LABEL) {
@@ -903,15 +999,8 @@ pub fn run() {
         // share one session file and one set of recovery checkpoints, and
         // each would overwrite the other's. A second launch brings the
         // running window forward instead.
-        .plugin(tauri_plugin_single_instance::init(
-            |app, _arguments, _directory| {
-                if let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) {
-                    let _ = window.unminimize();
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
-            },
-        ))
+        .plugin(tauri_plugin_single_instance::init(on_second_launch))
+        .manage(LaunchPaths::default())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -1001,12 +1090,14 @@ pub fn run() {
             close_settings_window,
             open_help_window,
             close_help_window,
+            take_launch_paths,
             settings_preview,
             settings_changed,
             settings_main_action
         ])
-        .run(tauri::generate_context!())
-        .expect("failed to run Nulis desktop application");
+        .build(tauri::generate_context!())
+        .expect("failed to build Nulis desktop application")
+        .run(handle_run_event);
 }
 
 #[cfg(test)]

@@ -140,6 +140,7 @@ Each release also has a `SHA256SUMS.txt` to check the downloads: `sha256sum -c S
 - **File View** with three tabs: open files, the whole computer (home, common folders, mounted volumes), and the opened folder.
 - **Command palette** for every command, icon toolbars with captions and tooltips, and native menus.
 - **Sessions**: open files, layout, folder, and side bar are restored at startup.
+- **Opening from the system**: on macOS, Nulis appears in Finder's **Open With** menu for text, code, and data files (without becoming the default app), and accepts files dropped on its Dock icon. Files arrive in the running window.
 
 ### Customization and extension
 

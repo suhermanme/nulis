@@ -46,7 +46,7 @@ import { ContextMenu, MenuButton, OverflowToolbar, type MenuItem, type ToolbarIt
 import { Icon, IconButton, iconForCommand, type IconName } from "./icons";
 import { PALETTE_COMMANDS, shortcutLabel } from "./commands";
 import {
-  closeWindowAfterSave, configureNativeMenu, executeCommand, getApplicationInfo, listCommands, openHelpWindow, openSettingsWindow,
+  closeWindowAfterSave, configureNativeMenu, executeCommand, getApplicationInfo, listCommands, openHelpWindow, openSettingsWindow, takeLaunchPaths,
   setToolsMenu,
 } from "./ipc";
 import {
@@ -95,6 +95,8 @@ const NAV_ITEMS = ["Files", "Search", "Symbols", "Remote"] as const;
 const EXPLORER_ENTRY_LIMIT = 500;
 const MAX_LOADED_WORKSPACE_DIRECTORIES = 256;
 const NATIVE_MENU_EVENT = "nulis://menu-command";
+/** Files sent by the system while Nulis runs: Finder Open With, the Dock, a second launch. */
+const OPEN_PATHS_EVENT = "nulis://open-paths";
 const CUSTOMIZATION_CHANGED_EVENT = "nulis://customization-changed";
 const APPEARANCE_PREVIEW_EVENT = "nulis://appearance-preview";
 const NAME_ERROR = `A name needs 1 to ${LAYOUT_LIMITS.nameChars} visible characters`;
@@ -894,6 +896,24 @@ export function App() {
       setStatus(errorMessage(error, "Could not open file"));
     }
   };
+
+  // Files from the system (Open With, a double-click, the Dock, the command
+  // line) open once the previous session has been restored.
+  const openPathRef = useRef(openPath);
+  openPathRef.current = openPath;
+  useEffect(() => {
+    if (!desktopShell || !sessionReady) return undefined;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    const openAll = async (paths: string[]) => {
+      for (const path of paths) await openPathRef.current(path);
+    };
+    void takeLaunchPaths().then((paths) => { if (!disposed) void openAll(paths); })
+      .catch((error: unknown) => setStatus(errorMessage(error, "Could not open the requested files")));
+    void listen<string[]>(OPEN_PATHS_EVENT, (event) => { void openAll(event.payload); })
+      .then((stop) => { if (disposed) stop(); else unlisten = stop; });
+    return () => { disposed = true; unlisten?.(); };
+  }, [desktopShell, sessionReady]);
 
   const finishCloseDocument = async (documentId: string, discard: boolean): Promise<boolean> => {
     try {

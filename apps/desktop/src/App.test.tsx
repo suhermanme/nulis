@@ -8,7 +8,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { App } from "./App";
 import type { CustomizationDocument, ExecuteCommandRequest, WorkbenchSession } from "./contracts";
-import { closeWindowAfterSave, executeCommand, listCommands, openHelpWindow, openSettingsWindow, setToolsMenu } from "./ipc";
+import { closeWindowAfterSave, executeCommand, listCommands, openHelpWindow, openSettingsWindow, setToolsMenu, takeLaunchPaths } from "./ipc";
 import { DEFAULT_EDITOR_PREFERENCES } from "./preferences";
 
 const DEFAULT_SESSION: WorkbenchSession = {
@@ -43,6 +43,7 @@ vi.mock("./ipc", () => ({
   configureNativeMenu: vi.fn().mockResolvedValue(undefined),
   openSettingsWindow: vi.fn().mockResolvedValue(undefined),
   openHelpWindow: vi.fn().mockResolvedValue(undefined),
+  takeLaunchPaths: vi.fn().mockResolvedValue([]),
   setToolsMenu: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -699,6 +700,28 @@ test("a customized toolbar choice applies to the icon toolbar with command parit
   vi.mocked(open).mockResolvedValueOnce(null);
   fireEvent.click(added);
   await waitFor(() => expect(open).toHaveBeenCalledWith({ multiple: false, directory: false }));
+});
+
+test("files the system asks Nulis to open are opened at launch and while running", async () => {
+  vi.mocked(isTauri).mockReturnValue(true);
+  vi.mocked(takeLaunchPaths).mockResolvedValueOnce(["/Users/me/notes.md"]);
+  const summary = (id: string, name: string) => ({
+    documentId: id, name, byteLen: "4", revision: "0", encoding: "utf8", sourcePath: `/Users/me/${name}`,
+  });
+  responses["file.open"] = [summary("document-1", "notes.md"), summary("document-2", "main.rs")];
+  render(<App />);
+  // Opened from Finder before the window was ready: it opens after the session is restored.
+  expect(await screen.findByText("notes.md editor")).toBeInTheDocument();
+  const opens = () => vi.mocked(executeCommand).mock.calls
+    .filter(([request]) => request.id === "file.open").map(([request]) => (request.arguments as { path: string }).path);
+  expect(opens()).toEqual(["/Users/me/notes.md"]);
+
+  // Sent while running (Open With, the Dock icon, or a second launch).
+  const listener = vi.mocked(listen).mock.calls.find(([event]) => event === "nulis://open-paths")?.[1];
+  expect(listener).toBeDefined();
+  await act(async () => { listener?.({ event: "nulis://open-paths", id: 2, payload: ["/Users/me/main.rs"] }); });
+  expect(await screen.findByText("main.rs editor")).toBeInTheDocument();
+  expect(opens()).toEqual(["/Users/me/notes.md", "/Users/me/main.rs"]);
 });
 
 test("the desktop shell opens Help as its own window instead of an overlay", async () => {
