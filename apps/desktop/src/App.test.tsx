@@ -1,0 +1,1476 @@
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import "@testing-library/jest-dom/vitest";
+import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import { open, save } from "@tauri-apps/plugin-dialog";
+import { isTauri } from "@tauri-apps/api/core";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listen } from "@tauri-apps/api/event";
+import { App } from "./App";
+import type { CustomizationDocument, ExecuteCommandRequest, WorkbenchSession } from "./contracts";
+import { closeWindowAfterSave, executeCommand, listCommands, openHelpWindow, openSettingsWindow, setToolsMenu } from "./ipc";
+import { DEFAULT_EDITOR_PREFERENCES } from "./preferences";
+
+const DEFAULT_SESSION: WorkbenchSession = {
+  schemaVersion: 2,
+  workspaceRoot: null,
+  documents: [],
+  layouts: [],
+  activeLayout: null,
+  sidebarVisible: true,
+  sidebarWidth: 260,
+  activePanel: "files",
+  viewModes: {},
+};
+
+vi.mock("./ipc", () => ({
+  getApplicationInfo: vi.fn().mockResolvedValue({
+    productName: "Nulis",
+    applicationId: "com.nulis.editor",
+    version: "0.1.0",
+    ipcProtocolVersion: 26,
+  }),
+  listCommands: vi.fn().mockResolvedValue([
+    { id: "app.about", title: "About Nulis", category: "Application" },
+    { id: "file.new", title: "New Text File", category: "File" },
+    { id: "file.open", title: "Open File…", category: "File" },
+    { id: "file.save", title: "Save", category: "File" },
+    { id: "file.saveAs", title: "Save As…", category: "File" },
+    { id: "workbench.toggleSidebar", title: "Toggle Primary Side Bar", category: "View" },
+  ]),
+  executeCommand: vi.fn(),
+  closeWindowAfterSave: vi.fn().mockResolvedValue(undefined),
+  configureNativeMenu: vi.fn().mockResolvedValue(undefined),
+  openSettingsWindow: vi.fn().mockResolvedValue(undefined),
+  openHelpWindow: vi.fn().mockResolvedValue(undefined),
+  setToolsMenu: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
+vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({ writeText: vi.fn().mockResolvedValue(undefined) }));
+vi.mock("@tauri-apps/api/core", () => ({ isTauri: vi.fn(() => false) }));
+vi.mock("@tauri-apps/api/webview", () => ({
+  getCurrentWebview: vi.fn(() => ({ onDragDropEvent: vi.fn().mockResolvedValue(() => undefined) })),
+}));
+vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(() => undefined) }));
+vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: vi.fn(() => ({
+  onCloseRequested: vi.fn().mockResolvedValue(() => undefined), destroy: vi.fn().mockResolvedValue(undefined),
+})) }));
+
+vi.mock("./EditorViewport", () => ({
+  EditorViewport: ({ document, showLineChanges, searchRequest, onCaret, onToggleReadOnly }: {
+    document: { name: string; readOnly?: boolean }; showLineChanges?: boolean; searchRequest?: object;
+    onCaret?: (position: object | null) => void; onToggleReadOnly?: () => void;
+  }) => (
+    <div>
+      <div data-line-changes={String(showLineChanges)} data-search={JSON.stringify(searchRequest ?? null)}>{document.name} editor</div>
+      <button type="button" onClick={() => onCaret?.({ line: "1234", column: 7, carets: 1, selectedBytes: "0" })}>Move caret in {document.name}</button>
+      <button type="button" onClick={() => onToggleReadOnly?.()}>Editor mode of {document.name}: {document.readOnly ? "read-only" : "edit"}</button>
+    </div>
+  ),
+}));
+
+vi.mock("./HexViewport", () => ({
+  HexViewport: ({ document }: { document: { name: string } }) => <div>{document.name} hexadecimal editor</div>,
+}));
+
+let responses: Record<string, unknown[]>;
+let storedCustomization: { revision: number; document: CustomizationDocument };
+
+class PointerEventStub extends MouseEvent {
+  readonly pointerId: number;
+
+  constructor(type: string, eventInit: PointerEventInit = {}) {
+    super(type, eventInit);
+    this.pointerId = eventInit.pointerId ?? 0;
+  }
+}
+
+function saveRequests(): WorkbenchSession[] {
+  return vi.mocked(executeCommand).mock.calls
+    .filter(([request]) => request.id === "session.save")
+    .map(([request]) => request.arguments as WorkbenchSession);
+}
+
+function tabNames(): Array<string | null> {
+  return within(screen.getByRole("tablist", { name: "Open documents" })).queryAllByRole("tab").map((tab) => tab.textContent);
+}
+
+function panes(): HTMLElement[] {
+  return screen.getAllByRole("group", { name: /^Pane \d+ of \d+|^Editor$/ });
+}
+
+function paneNames(): Array<string | null> {
+  return panes().map((pane) => pane.getAttribute("aria-label"));
+}
+
+/** Drags a strip tab to a point inside a pane of the active tab. */
+function dragTabTo(name: string, pane: HTMLElement, x: number, y: number, release = true) {
+  pane.getBoundingClientRect = () => ({ left: 0, top: 0, width: 800, height: 600 }) as DOMRect;
+  // With two tabs of the same document, the later one is dragged.
+  fireEvent.pointerDown(screen.getAllByRole("tab", { name }).at(-1)!.parentElement!, { button: 0, clientX: 40, clientY: 10 });
+  fireEvent.pointerMove(pane.querySelector(".editor-pane")!, { clientX: x, clientY: y });
+  if (release) fireEvent.pointerUp(window);
+}
+
+async function openDocuments(...names: string[]) {
+  responses["file.new"] = names.map((name, index) => ({
+    documentId: `document-${index + 1}`, name, byteLen: "0", revision: "0", encoding: "utf8",
+    sourcePath: `/tmp/${name}`,
+  }));
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  fireEvent.click(screen.getByRole("button", { name: "New text file" }));
+  await screen.findByText(`${names[0]} editor`);
+  for (const name of names.slice(1)) {
+    fireEvent.click(screen.getByRole("button", { name: "New tab" }));
+    await screen.findByText(`${name} editor`);
+  }
+}
+
+/** Lets a command dispatched through the (mocked) core settle. */
+async function settle() {
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+}
+
+async function chooseMenu(menu: string, item: string | RegExp) {
+  fireEvent.click(screen.getByRole("button", { name: `Open ${menu} menu` }));
+  const entries = [...screen.getByRole("menu", { name: menu }).querySelectorAll<HTMLElement>("button")];
+  const entry = entries.find((button) => {
+    const label = button.querySelector("span")?.textContent ?? "";
+    return typeof item === "string" ? label === item : item.test(label);
+  });
+  if (!entry) throw new Error(`No ${menu} menu entry matches ${String(item)}`);
+  fireEvent.click(entry);
+  await settle();
+}
+
+beforeEach(() => {
+  responses = {};
+  vi.stubGlobal("PointerEvent", PointerEventStub);
+  storedCustomization = {
+    revision: 0,
+    document: {
+      schemaVersion: 1,
+      appearance: DEFAULT_EDITOR_PREFERENCES,
+      keybindings: [{ key: "Primary+S", command: "file.save" }],
+      menu: [{ kind: "command", command: "file.save" }],
+      toolbar: ["file.new", "file.save"],
+    },
+  };
+  vi.mocked(isTauri).mockReturnValue(false);
+  vi.mocked(getCurrentWindow).mockImplementation(() => ({
+    onCloseRequested: vi.fn().mockResolvedValue(() => undefined), destroy: vi.fn().mockResolvedValue(undefined),
+  }) as unknown as ReturnType<typeof getCurrentWindow>);
+  vi.mocked(listen).mockReset().mockResolvedValue(() => undefined);
+  window.localStorage.clear();
+  vi.mocked(open).mockReset().mockResolvedValue(null);
+  vi.mocked(save).mockReset().mockResolvedValue(null);
+  vi.mocked(executeCommand).mockReset().mockImplementation(async (request: ExecuteCommandRequest) => {
+    if (request.id === "session.load") return DEFAULT_SESSION as never;
+    if (request.id === "session.save") return null as never;
+    if (request.id === "plugin.activateStartup") return [] as never;
+    if (request.id === "customization.state") return storedCustomization as never;
+    if (request.id === "customization.saveChecked") {
+      const { expectedRevision, document } = request.arguments as { expectedRevision: number; document: CustomizationDocument };
+      if (expectedRevision !== storedCustomization.revision) {
+        throw new Error(`customization changed elsewhere (revision ${expectedRevision} is now ${storedCustomization.revision})`);
+      }
+      storedCustomization = { revision: expectedRevision + 1, document };
+      return storedCustomization as never;
+    }
+    const queue = responses[request.id];
+    if (!queue?.length) return null as never;
+    return queue.shift() as never;
+  });
+  vi.mocked(closeWindowAfterSave).mockReset().mockResolvedValue(undefined);
+});
+
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
+
+test("renders the independently branded workbench", async () => {
+  render(<App />);
+  expect(screen.getByRole("heading", { name: /write, inspect/i })).toBeInTheDocument();
+  expect(await screen.findByText("Nulis 0.1.0")).toBeInTheDocument();
+});
+
+test("activates approved startup plugins and runs contributed palette commands", async () => {
+  vi.mocked(listCommands).mockResolvedValueOnce([
+    { id: "app.about", title: "About Nulis", category: "Application" },
+    { id: "nulis.hello-example.hello", title: "Hello from Plugin", category: "Plugin · Examples" },
+  ]);
+  responses["nulis.hello-example.hello"] = [{
+    pluginId: "nulis.hello-example", command: "nulis.hello-example.hello",
+    result: null, messages: ["Hello from an isolated plugin"],
+  }];
+
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
+    id: "plugin.activateStartup", context: { windowId: "main" }, arguments: {},
+  }));
+  fireEvent.click(screen.getByRole("button", { name: "Open command palette" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Search commands" }), {
+    target: { value: "Hello from Plugin" },
+  });
+  fireEvent.click(await screen.findByRole("option", { name: /Hello from Plugin/ }));
+
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
+    id: "nulis.hello-example.hello",
+    context: { windowId: "main", documentId: undefined }, arguments: {},
+  }));
+  expect(await screen.findByRole("status")).toHaveTextContent("Hello from an isolated plugin");
+});
+
+test("opens a native picker selection through the file command", async () => {
+  vi.mocked(open).mockResolvedValueOnce("/tmp/example.txt");
+  responses["file.open"] = [{
+    documentId: "document-1", name: "example.txt", byteLen: "12", revision: "0",
+    encoding: "utf8", sourcePath: "/tmp/example.txt",
+  }];
+
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  fireEvent.click(screen.getByRole("button", { name: "Open a file" }));
+
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
+    id: "file.open", context: { windowId: "main" }, arguments: { path: "/tmp/example.txt" },
+  }));
+  expect(await screen.findByText("example.txt editor")).toBeInTheDocument();
+});
+
+test("opens native dropped files through the file command", async () => {
+  vi.mocked(isTauri).mockReturnValue(true);
+  const onDragDropEvent = vi.fn().mockResolvedValue(() => undefined);
+  vi.mocked(getCurrentWebview).mockReturnValue({ onDragDropEvent } as never);
+  responses["file.open"] = [{
+    documentId: "dropped-document", name: "example.py", byteLen: "12", revision: "0",
+    encoding: "utf8", sourcePath: "/tmp/example.py",
+  }];
+
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  await waitFor(() => expect(onDragDropEvent).toHaveBeenCalled());
+  const handler = onDragDropEvent.mock.calls[0]?.[0];
+  await act(async () => handler({ payload: { type: "enter", paths: ["/tmp/example.py"] } }));
+  expect(screen.getByText("Drop files to open")).toBeInTheDocument();
+  await act(async () => handler({ payload: { type: "drop", paths: ["/tmp/example.py"] } }));
+
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
+    id: "file.open", context: { windowId: "main" }, arguments: { path: "/tmp/example.py" },
+  }));
+  expect(await screen.findByText("example.py editor")).toBeInTheDocument();
+  expect(screen.queryByText("Drop files to open")).not.toBeInTheDocument();
+});
+
+test("saves an existing file from the visible File menu", async () => {
+  vi.mocked(open).mockResolvedValueOnce("/tmp/example.txt");
+  const opened = {
+    documentId: "document-1", name: "example.txt", byteLen: "12", revision: "3",
+    encoding: "utf8", sourcePath: "/tmp/example.txt",
+  };
+  responses["file.open"] = [opened];
+  responses["file.save"] = [opened];
+
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  fireEvent.click(screen.getByRole("button", { name: "Open a file" }));
+  await screen.findByText("example.txt editor");
+  fireEvent.click(screen.getByRole("button", { name: "Open File menu" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: /^Save (?:⌘|Ctrl\+)S$/ }));
+
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
+    id: "file.save", context: { windowId: "main", documentId: "document-1" },
+    arguments: { expectedRevision: "3" },
+  }));
+  expect(save).not.toHaveBeenCalled();
+});
+
+test("uses the native File menu in the desktop shell without rendering a duplicate", async () => {
+  vi.mocked(isTauri).mockReturnValue(true);
+  responses["file.new"] = [{
+    documentId: "document-1", name: "Untitled 1", byteLen: "0", revision: "0", encoding: "utf8",
+  }];
+
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  expect(screen.queryByRole("button", { name: "Open File menu" })).not.toBeInTheDocument();
+  await waitFor(() => expect(listen).toHaveBeenCalledWith(
+    "nulis://menu-command", expect.any(Function),
+  ));
+
+  const listener = vi.mocked(listen).mock.calls[0]?.[1];
+  listener?.({ event: "nulis://menu-command", id: 1, payload: "file.new" });
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
+    id: "file.new", context: { windowId: "main" },
+    arguments: { name: "Untitled 1", initialText: "" },
+  }));
+});
+
+test("dispatches a persisted portable shortcut through the command boundary", async () => {
+  responses["customization.get"] = [{
+    schemaVersion: 1,
+    appearance: {
+      theme: "nulis.ember-dark",
+      fontFamily: 'ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace',
+      fontSize: 13,
+      lineHeight: 1.7,
+      fontLigatures: true,
+    },
+    keybindings: [{ key: "Primary+Alt+1", command: "file.new" }],
+    menu: [{ kind: "command", command: "file.new" }],
+    toolbar: [],
+  }];
+  responses["file.new"] = [{
+    documentId: "document-1", name: "Shortcut", byteLen: "0", revision: "0", encoding: "utf8",
+  }];
+
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  fireEvent.keyDown(window, { key: "1", metaKey: true, altKey: true });
+  expect(await screen.findByText("Shortcut editor")).toBeInTheDocument();
+});
+
+test("uses the native destination picker when saving an untitled file", async () => {
+  responses["file.new"] = [{
+    documentId: "document-1", name: "Untitled 1", byteLen: "0", revision: "0", encoding: "utf8",
+  }];
+  responses["file.saveAs"] = [{
+    documentId: "document-1", name: "note.txt", byteLen: "0", revision: "0",
+    encoding: "utf8", sourcePath: "/tmp/note.txt",
+  }];
+  vi.mocked(save).mockResolvedValueOnce("/tmp/note.txt");
+
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  fireEvent.click(screen.getByRole("button", { name: "New text file" }));
+  await screen.findByText("Untitled 1 editor");
+  fireEvent.click(screen.getByRole("button", { name: "Open File menu" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: /^Save As/ }));
+
+  await waitFor(() => expect(save).toHaveBeenCalledWith({
+    title: "Save As", defaultPath: "Untitled 1",
+  }));
+  expect(executeCommand).toHaveBeenCalledWith({
+    id: "file.saveAs", context: { windowId: "main", documentId: "document-1" },
+    arguments: { expectedRevision: "0", path: "/tmp/note.txt" },
+  });
+});
+
+test("asks before closing an unsaved document and honors cancel or discard", async () => {
+  responses["file.new"] = [{
+    documentId: "document-1", name: "Draft", byteLen: "5", revision: "1", encoding: "utf8", dirty: true,
+  }];
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  fireEvent.click(screen.getByRole("button", { name: "New text file" }));
+  await screen.findByRole("tab", { name: /Draft/ });
+  expect(tabNames()).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "Close Draft" }));
+  expect(screen.getByRole("dialog", { name: "Save changes to Draft?" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+  expect(screen.getByRole("tab", { name: /Draft/ })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Close Draft" }));
+  fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+  await waitFor(() => expect(screen.queryByRole("tab", { name: /Draft/ })).not.toBeInTheDocument());
+  expect(executeCommand).toHaveBeenCalledWith({
+    id: "file.close", context: { windowId: "main", documentId: "document-1" },
+    arguments: { discard: true },
+  });
+});
+
+test("offers saved recovery checkpoints on startup", async () => {
+  responses["recovery.list"] = [[{
+    recoveryId: "document-old", name: "Lost.md", sourcePath: null, byteLen: "7",
+  }]];
+  responses["recovery.restore"] = [{
+    documentId: "document-7", name: "Lost.md", byteLen: "7", revision: "1", encoding: "utf8", dirty: true,
+  }];
+  render(<App />);
+  expect(await screen.findByRole("dialog", { name: "Recover unsaved work?" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Restore" }));
+  expect(await screen.findByText("Lost.md editor")).toBeInTheDocument();
+  expect(executeCommand).toHaveBeenCalledWith({
+    id: "recovery.restore", context: { windowId: "main" }, arguments: { recoveryId: "document-old" },
+  });
+});
+
+test("shows a changed-source recovery conflict without offering an unsafe restore", async () => {
+  responses["recovery.list"] = [[{
+    recoveryId: "document-old", name: "Changed.md", sourcePath: "/tmp/Changed.md",
+    sourceChanged: true, byteLen: "7",
+  }]];
+  render(<App />);
+  expect(await screen.findByText(/original file changed/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Restore" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Recover unsaved work?" })).not.toBeInTheDocument());
+  expect(executeCommand).toHaveBeenCalledWith({
+    id: "recovery.discard", context: { windowId: "main" }, arguments: { recoveryId: "document-old" },
+  });
+});
+
+test("guards window close until unsaved work is resolved", async () => {
+  let requestClose: ((event: { preventDefault: () => void }) => void) | undefined;
+  const onCloseRequested = vi.fn().mockImplementation(async (handler) => {
+    requestClose = handler;
+    return () => undefined;
+  });
+  vi.mocked(getCurrentWindow).mockReturnValue({
+    onCloseRequested,
+  } as unknown as ReturnType<typeof getCurrentWindow>);
+  vi.mocked(isTauri).mockReturnValue(true);
+  responses["file.new"] = [{
+    documentId: "document-1", name: "Unsaved", byteLen: "3", revision: "1", encoding: "utf8", dirty: true,
+  }];
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  fireEvent.click(screen.getByRole("button", { name: "New text file" }));
+  await screen.findByRole("tab", { name: /Unsaved/ });
+  await waitFor(() => expect(onCloseRequested).toHaveBeenCalledTimes(2));
+  const preventDefault = vi.fn();
+  act(() => requestClose?.({ preventDefault }));
+  expect(preventDefault).toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+  await waitFor(() => expect(closeWindowAfterSave).toHaveBeenCalledOnce());
+});
+
+test("switches an open document between text and hexadecimal views", async () => {
+  responses["file.new"] = [{
+    documentId: "document-1", name: "bytes.bin", byteLen: "4", revision: "0", encoding: "utf8",
+  }];
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  fireEvent.click(screen.getByRole("button", { name: "New text file" }));
+  expect(await screen.findByText("bytes.bin editor")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Show hexadecimal editor" }));
+  expect(screen.getByText("bytes.bin hexadecimal editor")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Show text editor" }));
+  expect(screen.getByText("bytes.bin editor")).toBeInTheDocument();
+});
+
+test("runs a bounded folder search from the Search sidebar", async () => {
+  vi.mocked(open).mockResolvedValueOnce("/tmp/project");
+  responses["search.findInFiles"] = [{
+    matches: [{ path: "/tmp/project/a.txt", startByte: "5", endByte: "11" }],
+    filesScanned: 2, skippedFiles: 0, truncated: false,
+  }];
+
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  fireEvent.click(screen.getByRole("button", { name: "Search" }));
+  fireEvent.click(screen.getByRole("tab", { name: "In Files" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Find in files text" }), {
+    target: { value: "needle" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Folder…" }));
+  await waitFor(() => expect(open).toHaveBeenCalledWith({ multiple: false, directory: true }));
+  fireEvent.click(screen.getByRole("button", { name: "Run file search" }));
+
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
+    id: "search.findInFiles",
+    context: { windowId: "main" },
+    arguments: {
+      root: "/tmp/project", query: "needle",
+      options: { mode: "literal", caseSensitive: true }, maxResults: 500,
+    },
+  }));
+  expect(await screen.findByText("a.txt")).toBeInTheDocument();
+  expect(screen.getByText("1 matches · 2 files")).toBeInTheDocument();
+});
+
+test("stores remote credentials separately from persisted SFTP profile metadata", async () => {
+  const saved = {
+    id: "staging", label: "Staging", host: "example.test", port: 22,
+    username: "developer", rootPath: "/srv/app", credentialId: "staging.password",
+    hostKeySha256: "ab".repeat(32),
+  };
+  responses["remote.listProfiles"] = [[], [saved]];
+  responses["remote.setCredential"] = [null];
+  responses["remote.saveProfile"] = [saved];
+
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  fireEvent.click(screen.getByRole("button", { name: "Remote" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Profile ID" }), { target: { value: "staging" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "Profile label" }), { target: { value: "Staging" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "Remote host" }), { target: { value: "example.test" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "Remote username" }), { target: { value: "developer" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "Remote root path" }), { target: { value: "/srv/app" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "SHA-256 host key fingerprint" }), {
+    target: { value: "ab".repeat(32) },
+  });
+  fireEvent.change(screen.getByLabelText("Remote password"), { target: { value: "secret-value" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
+    id: "remote.setCredential", context: { windowId: "main" },
+    arguments: { credentialId: "staging.password", secret: "secret-value" },
+  }));
+  expect(executeCommand).toHaveBeenCalledWith({
+    id: "remote.saveProfile", context: { windowId: "main" }, arguments: saved,
+  });
+  expect(await screen.findByRole("option", { name: "Staging" })).toBeInTheDocument();
+});
+
+test("opens a bounded workspace tree lazily and routes files through the workspace command", async () => {
+  vi.mocked(open).mockResolvedValueOnce("/tmp/project");
+  responses["workspace.open"] = [{ root: "/tmp/project", name: "project" }];
+  responses["workspace.list"] = [
+    { relativePath: "", entries: [{ name: "src", relativePath: "src", kind: "directory" }], truncated: false },
+    { relativePath: "src", entries: [{ name: "main.rs", relativePath: "src/main.rs", kind: "file", byteLen: "25" }], truncated: false },
+  ];
+  responses["workspace.openFile"] = [{
+    documentId: "document-1", name: "main.rs", byteLen: "25", revision: "0",
+    encoding: "utf8", sourcePath: "/tmp/project/src/main.rs",
+  }];
+
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  fireEvent.click(screen.getByRole("button", { name: "Open a folder" }));
+  expect(await screen.findByRole("tree", { name: "project files" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /src/ }));
+  expect(await screen.findByRole("button", { name: /main.rs/ })).toBeInTheDocument();
+  expect(executeCommand).toHaveBeenCalledWith({
+    id: "workspace.list", context: { windowId: "main" },
+    arguments: { path: "src", maxEntries: 500 },
+  });
+  fireEvent.click(screen.getByRole("button", { name: /main.rs/ }));
+  expect(await screen.findByText("main.rs editor")).toBeInTheDocument();
+  expect(executeCommand).toHaveBeenCalledWith({
+    id: "workspace.openFile", context: { windowId: "main" }, arguments: { path: "src/main.rs" },
+  });
+});
+
+test("filters centralized commands in the palette and executes a layout command", async () => {
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  fireEvent.click(screen.getByRole("button", { name: "Open command palette" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Search commands" }), {
+    target: { value: "sidebar" },
+  });
+  fireEvent.click(screen.getByRole("option", { name: /Toggle Primary Side Bar/ }));
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
+    id: "workbench.toggleSidebar", context: { windowId: "main" }, arguments: {},
+  }));
+  expect(document.querySelector("main")).toHaveClass("sidebar-hidden");
+});
+
+
+async function openSettings() {
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  fireEvent.click(screen.getByRole("button", { name: "Open settings" }));
+  const dialog = await screen.findByRole("dialog", { name: "Settings" });
+  await within(dialog).findByRole("tablist", { name: "Settings sections" });
+  return dialog;
+}
+
+test("settings open as one sectioned surface with keyboard navigation", async () => {
+  const dialog = await openSettings();
+  const sections = within(dialog).getAllByRole("tab").map((tab) => tab.textContent);
+  expect(sections).toEqual([
+    "General", "Editor", "Appearance & Themes", "Languages", "Keybindings", "Menus & Toolbar",
+    "Workspace", "Extensions & Security",
+  ]);
+  // Only the selected section is shown.
+  expect(within(dialog).getByRole("tabpanel", { name: "General" })).toBeInTheDocument();
+  expect(within(dialog).queryByRole("combobox", { name: "Color theme" })).not.toBeInTheDocument();
+
+  const general = within(dialog).getByRole("tab", { name: "General" });
+  fireEvent.keyDown(general, { key: "ArrowDown" });
+  expect(within(dialog).getByRole("tab", { name: "Editor" })).toHaveAttribute("aria-selected", "true");
+  expect(within(dialog).getByRole("tab", { name: "Editor" })).toHaveFocus();
+  fireEvent.keyDown(within(dialog).getByRole("tab", { name: "Editor" }), { key: "End" });
+  expect(within(dialog).getByRole("tabpanel", { name: "Extensions & Security" })).toHaveTextContent(/no access to open documents/);
+
+  // The last section is remembered and settings stay a singleton surface.
+  fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByRole("dialog", { name: "Settings" })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Open settings" }));
+  const reopened = await screen.findByRole("dialog", { name: "Settings" });
+  expect(await within(reopened).findByRole("tab", { name: "Extensions & Security" })).toHaveAttribute("aria-selected", "true");
+  expect(screen.getAllByRole("dialog", { name: "Settings" })).toHaveLength(1);
+});
+
+test("applies and persists editor appearance settings at the observed revision", async () => {
+  const dialog = await openSettings();
+  fireEvent.click(within(dialog).getByRole("tab", { name: "Appearance & Themes" }));
+  const themes = within(dialog).getByRole("combobox", { name: "Color theme" });
+  expect(themes.querySelectorAll("option")).toHaveLength(99);
+  expect(within(dialog).getByRole("option", { name: "NvChad · Radium" })).toBeInTheDocument();
+  fireEvent.change(themes, { target: { value: "nulis.paper-light" } });
+  fireEvent.click(within(dialog).getByRole("tab", { name: "Editor" }));
+  fireEvent.change(within(dialog).getByRole("spinbutton", { name: "Editor font size" }), { target: { value: "18" } });
+  fireEvent.change(within(dialog).getByRole("combobox", { name: "Editor font" }), {
+    target: { value: '"JetBrains Mono", monospace' },
+  });
+
+  // Previewed immediately and marked as pending in each edited section.
+  expect(document.querySelector("main")).toHaveStyle({
+    "--editor-bg": "#FBFAF7",
+    "--editor-font-size": "18px",
+    "--editor-font-family": '"JetBrains Mono", monospace',
+  });
+  for (const name of [/^Editor/, /^Appearance & Themes/]) {
+    expect(within(within(dialog).getByRole("tab", { name })).getByRole("img", { name: "unapplied changes" })).toBeInTheDocument();
+  }
+  expect(within(dialog).getByRole("status")).toHaveTextContent("Unapplied changes");
+
+  fireEvent.click(within(dialog).getByRole("button", { name: "Apply" }));
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
+    id: "customization.saveChecked",
+    arguments: expect.objectContaining({ expectedRevision: 0 }),
+  })));
+  await waitFor(() => expect(within(dialog).getByRole("status")).toHaveTextContent("Settings saved"));
+  expect(within(dialog).queryByRole("img", { name: "unapplied changes" })).not.toBeInTheDocument();
+  expect(storedCustomization.document.appearance).toMatchObject({ theme: "nulis.paper-light", fontSize: 18 });
+  await waitFor(() => expect(JSON.parse(window.localStorage.getItem("nulis.editorPreferences.v1") ?? "{}"))
+    .toMatchObject({ theme: "nulis.paper-light", fontSize: 18 }));
+});
+
+test("cancel and discard revert an unapplied preview, and closing with changes asks first", async () => {
+  const dialog = await openSettings();
+  fireEvent.click(within(dialog).getByRole("tab", { name: "Appearance & Themes" }));
+  fireEvent.change(within(dialog).getByRole("combobox", { name: "Color theme" }), { target: { value: "nvchad.radium" } });
+  expect(document.querySelector("main")).toHaveStyle({ "--editor-bg": "#101317", "--syntax-keyword": "#c397d8" });
+
+  fireEvent.click(within(dialog).getByRole("button", { name: "Close settings" }));
+  const confirm = within(dialog).getByRole("alertdialog", { name: "Apply your changes to Settings?" });
+  fireEvent.click(within(confirm).getByRole("button", { name: "Continue Editing" }));
+  expect(within(dialog).getByRole("combobox", { name: "Color theme" })).toHaveValue("nvchad.radium");
+
+  fireEvent.keyDown(within(dialog).getByRole("combobox", { name: "Color theme" }), { key: "Escape" });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Discard" }));
+  expect(screen.queryByRole("dialog", { name: "Settings" })).not.toBeInTheDocument();
+  expect(document.querySelector("main")).not.toHaveStyle({ "--editor-bg": "#101317" });
+  expect(executeCommand).not.toHaveBeenCalledWith(expect.objectContaining({ id: "customization.saveChecked" }));
+});
+
+test("a stale settings revision is reported and never overwrites the newer one", async () => {
+  const dialog = await openSettings();
+  fireEvent.click(within(dialog).getByRole("tab", { name: "Editor" }));
+  fireEvent.change(within(dialog).getByRole("spinbutton", { name: "Editor font size" }), { target: { value: "20" } });
+  // Another window stores a newer customization first.
+  storedCustomization = {
+    revision: 1,
+    document: { ...storedCustomization.document, toolbar: ["file.open"] },
+  };
+  fireEvent.click(within(dialog).getByRole("button", { name: "Apply" }));
+  expect(await within(dialog).findByRole("alert")).toHaveTextContent("changed in another window");
+  expect(storedCustomization.document.appearance.fontSize).toBe(DEFAULT_EDITOR_PREFERENCES.fontSize);
+  expect(within(dialog).getByRole("button", { name: "Apply" })).toBeDisabled();
+
+  fireEvent.click(within(dialog).getByRole("button", { name: "Reload" }));
+  await waitFor(() => expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument());
+  expect(within(dialog).getByRole("spinbutton", { name: "Editor font size" })).toHaveValue(DEFAULT_EDITOR_PREFERENCES.fontSize);
+  fireEvent.click(within(dialog).getByRole("tab", { name: "Menus & Toolbar" }));
+  expect(within(dialog).getByRole("button", { name: "Remove Open File… from toolbar" })).toBeInTheDocument();
+});
+
+test("a customized toolbar choice applies to the icon toolbar with command parity", async () => {
+  vi.mocked(executeCommand).mockImplementation(async (request: ExecuteCommandRequest) => {
+    if (request.id === "session.load") return DEFAULT_SESSION as never;
+    if (request.id === "customization.get") return storedCustomization.document as never;
+    if (request.id === "customization.state") return storedCustomization as never;
+    if (request.id === "customization.saveChecked") {
+      storedCustomization = { revision: 1, document: (request.arguments as { document: CustomizationDocument }).document };
+      return storedCustomization as never;
+    }
+    if (request.id === "plugin.activateStartup") return [] as never;
+    return null as never;
+  });
+  const dialog = await openSettings();
+  const toolbar = screen.getByRole("toolbar", { name: "Custom toolbar" });
+  const save = within(toolbar).getByRole("button", { name: "Toolbar: Save" });
+  expect(save).toHaveAttribute("title", expect.stringMatching(/^Save \((?:⌘|Ctrl\+)S\)$/));
+  expect(save.querySelector('svg[data-icon="save"]')).not.toBeNull();
+  expect(save).toBeDisabled();
+  expect(within(toolbar).queryByRole("button", { name: "Toolbar: Open File…" })).not.toBeInTheDocument();
+
+  fireEvent.click(within(dialog).getByRole("tab", { name: "Menus & Toolbar" }));
+  fireEvent.change(within(dialog).getByRole("combobox", { name: "Add toolbar command" }), { target: { value: "file.open" } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Apply" }));
+  const added = await within(toolbar).findByRole("button", { name: "Toolbar: Open File…" });
+  expect(added.querySelector('svg[data-icon="open"]')).not.toBeNull();
+  vi.mocked(open).mockResolvedValueOnce(null);
+  fireEvent.click(added);
+  await waitFor(() => expect(open).toHaveBeenCalledWith({ multiple: false, directory: false }));
+});
+
+test("the desktop shell opens Help as its own window instead of an overlay", async () => {
+  vi.mocked(isTauri).mockReturnValue(true);
+  vi.mocked(openHelpWindow).mockClear();
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  const menuListener = vi.mocked(listen).mock.calls.find(([event]) => event === "nulis://menu-command")?.[1];
+  expect(menuListener).toBeDefined();
+  await act(async () => { menuListener?.({ event: "nulis://menu-command", id: 1, payload: "workbench.openHelp" }); });
+  await waitFor(() => expect(openHelpWindow).toHaveBeenCalledTimes(1));
+  expect(screen.queryByRole("dialog", { name: "Nulis Help" })).not.toBeInTheDocument();
+});
+
+test("the desktop shell opens Settings as its own window instead of an overlay", async () => {
+  vi.mocked(isTauri).mockReturnValue(true);
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  fireEvent.click(screen.getByRole("button", { name: "Open settings" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open settings" }));
+  expect(openSettingsWindow).toHaveBeenCalledTimes(2);
+  expect(screen.queryByRole("dialog", { name: "Settings" })).not.toBeInTheDocument();
+  expect(listen).toHaveBeenCalledWith("nulis://customization-changed", expect.any(Function));
+  expect(listen).toHaveBeenCalledWith("nulis://appearance-preview", expect.any(Function));
+});
+
+test("the View menu toggles line change indicators with a persistent default", async () => {
+  await openDocuments("First");
+  expect(screen.getByText("First editor")).toHaveAttribute("data-line-changes", "true");
+  await chooseMenu("View", /Line Change Indicators/);
+  expect(screen.getByText("First editor")).toHaveAttribute("data-line-changes", "false");
+  expect(window.localStorage.getItem("nulis.lineChangeIndicators.v1")).toBe("false");
+  expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({ id: "view.toggleLineChangeIndicators" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open View menu" }));
+  expect(screen.getByRole("menuitemcheckbox", { name: /Line Change Indicators/ })).toHaveAttribute("aria-checked", "false");
+});
+
+
+test("keeps documents in one tab strip and shows another view of a document in a split pane", async () => {
+  await openDocuments("First", "Second");
+  expect(tabNames()).toEqual(["First", "Second"]);
+  // One strip: only the active tab's document is shown.
+  expect(screen.queryByText("First editor")).not.toBeInTheDocument();
+  expect(paneNames()).toEqual(["Editor"]);
+  expect(screen.queryByRole("tablist", { name: "Layout groups" })).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Split editor" }));
+  expect(paneNames()).toEqual(["Pane 1 of 2: Second", "Pane 2 of 2: Second"]);
+  expect(tabNames()).toEqual(["First", "Workspace"]);
+
+  // The divider resizes from the keyboard within its bounds.
+  const divider = screen.getByRole("separator", { name: "Resize panes horizontally" });
+  expect(divider).toHaveAttribute("aria-valuenow", "50");
+  fireEvent.keyDown(divider, { key: "ArrowLeft" });
+  expect(divider).toHaveAttribute("aria-valuenow", "48");
+  fireEvent.keyDown(divider, { key: "Home" });
+  expect(divider).toHaveAttribute("aria-valuenow", "10");
+
+  // Closing one of two views keeps the document open and dissolves the workspace.
+  fireEvent.click(within(panes()[1]).getByRole("button", { name: "Close pane Second" }));
+  expect(paneNames()).toEqual(["Editor"]);
+  expect(tabNames()).toEqual(["First", "Second"]);
+  expect(executeCommand).not.toHaveBeenCalledWith(expect.objectContaining({ id: "file.close" }));
+
+  fireEvent.click(screen.getByRole("button", { name: "Close Second" }));
+  await waitFor(() => expect(tabNames()).toEqual(["First"]));
+  expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({ id: "file.close" }));
+  // The neighbouring tab takes over.
+  expect(await screen.findByText("First editor")).toBeInTheDocument();
+});
+
+test("dragging a tab into the content groups both tabs into one renamable workspace tab", async () => {
+  await openDocuments("First", "Second", "Third");
+
+  // Dragging within the threshold, or dragging the active tab onto itself, does nothing.
+  dragTabTo("Third", panes()[0], 780, 300, false);
+  expect(document.querySelector(".drop-overlay")).toBeNull();
+  fireEvent.pointerUp(window);
+  expect(tabNames()).toEqual(["First", "Second", "Third"]);
+
+  // The overlay previews the half the tab will occupy; Escape cancels.
+  dragTabTo("First", panes()[0], 400, 590, false);
+  expect(document.querySelector('[data-drop-zone="bottom"]')).not.toBeNull();
+  fireEvent.pointerMove(panes()[0].querySelector(".editor-pane")!, { clientX: 780, clientY: 300 });
+  expect(document.querySelector('[data-drop-zone="right"]')).not.toBeNull();
+  fireEvent.keyDown(window, { key: "Escape" });
+  fireEvent.pointerUp(window);
+  expect(tabNames()).toEqual(["First", "Second", "Third"]);
+
+  // Drop: First joins the active tab on the right and both leave the strip as one tab.
+  dragTabTo("First", panes()[0], 780, 300);
+  expect(paneNames()).toEqual(["Pane 1 of 2: Third", "Pane 2 of 2: First"]);
+  // While its name is being typed, the workspace tab shows the name field.
+  expect(tabNames()).toEqual(["Second"]);
+  expect(executeCommand).not.toHaveBeenCalledWith(expect.objectContaining({ id: "file.close" }));
+
+  // The new workspace's name is selected for typing, as in the reference.
+  const input = screen.getByRole("textbox", { name: "Workspace name" });
+  expect(input).toHaveValue("Workspace");
+  fireEvent.change(input, { target: { value: "  monitoring  " } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(tabNames()).toEqual(["Second", "monitoring"]);
+  expect(screen.getByRole("status")).toHaveTextContent("Workspace renamed to monitoring");
+
+  // Dropping onto one pane of the workspace splits only that pane.
+  dragTabTo("Second", panes()[1], 400, 20);
+  expect(paneNames()).toEqual(["Pane 1 of 3: Third", "Pane 2 of 3: Second", "Pane 3 of 3: First"]);
+  expect(document.querySelector(".layout-split.horizontal .layout-split.vertical")).not.toBeNull();
+  expect(tabNames()).toEqual(["monitoring"]);
+  expect(screen.queryByRole("textbox", { name: "Workspace name" })).not.toBeInTheDocument();
+
+  await waitFor(() => {
+    const saved = saveRequests().at(-1);
+    expect(saved?.layouts).toHaveLength(1);
+    expect(saved?.layouts[0]).toMatchObject({ name: "monitoring", root: { kind: "split", direction: "horizontal" } });
+    expect(saved?.documents).toEqual(["path:/tmp/Third", "path:/tmp/Second", "path:/tmp/First"]);
+    expect(JSON.stringify(saved)).not.toContain("document-1");
+  });
+
+  // Renaming again: double-click, Escape cancels, an invalid name is rejected with feedback.
+  fireEvent.doubleClick(screen.getByRole("tab", { name: "monitoring" }));
+  const again = screen.getByRole("textbox", { name: "Workspace name" });
+  fireEvent.change(again, { target: { value: "discarded" } });
+  fireEvent.keyDown(again, { key: "Escape" });
+  expect(tabNames()).toEqual(["monitoring"]);
+  fireEvent.doubleClick(screen.getByRole("tab", { name: "monitoring" }));
+  const invalid = screen.getByRole("textbox", { name: "Workspace name" });
+  fireEvent.change(invalid, { target: { value: "x".repeat(81) } });
+  fireEvent.keyDown(invalid, { key: "Enter" });
+  expect(tabNames()).toEqual(["monitoring"]);
+  expect(screen.getByRole("status")).toHaveTextContent("A name needs 1 to 80 visible characters");
+});
+
+test("the welcome screen can be turned off, and startup then opens an empty document", async () => {
+  responses["file.new"] = [{ documentId: "document-1", name: "Untitled 1", byteLen: "0", revision: "0", encoding: "utf8" }];
+  const first = render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  expect(screen.getByRole("heading", { name: /Write, inspect/ })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("checkbox", { name: "Do not show this on startup" }));
+  expect(window.localStorage.getItem("nulis.welcomeOnStartup.v1")).toBe("false");
+  // It stays for this session so the choice can be reversed.
+  expect(screen.getByRole("checkbox", { name: "Do not show this on startup" })).toBeChecked();
+  expect(tabNames()).toEqual([]);
+  first.unmount();
+
+  render(<App />);
+  expect(await screen.findByText("Untitled 1 editor")).toBeInTheDocument();
+  expect(tabNames()).toEqual(["Untitled 1"]);
+  expect(screen.queryByRole("heading", { name: /Write, inspect/ })).toBeNull();
+});
+
+test("the About page shows the product identity without the welcome actions", async () => {
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  fireEvent.click(screen.getByRole("button", { name: "About Nulis" }));
+  const about = screen.getByRole("dialog", { name: "Nulis" });
+  expect(within(about).getByText("Version 0.1.0")).toBeInTheDocument();
+  expect(within(about).getByRole("heading", { name: /Write, inspect/ })).toBeInTheDocument();
+  expect(within(about).queryByRole("button", { name: "New text file" })).toBeNull();
+  // The name's origin and the license are part of the page.
+  expect(within(about).getByText(/Javanese word that means/)).toBeInTheDocument();
+  expect(within(about).getByText(/either version 3 of the License/)).toBeInTheDocument();
+  fireEvent.click(within(about).getByRole("button", { name: "View License" }));
+  expect(within(about).getByLabelText("GNU General Public License, version 3")).toHaveTextContent("Version 3, 29 June 2007");
+  fireEvent.click(within(about).getByRole("button", { name: "Back" }));
+  fireEvent.keyDown(about, { key: "Escape" });
+  expect(screen.queryByRole("dialog", { name: "Nulis" })).toBeNull();
+});
+
+test("the Help menu opens sectioned help and the About page", async () => {
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  await chooseMenu("Help", "Nulis Help");
+  const help = await screen.findByRole("dialog", { name: "Nulis Help" });
+  const sections = within(help).getAllByRole("tab").map((tab) => tab.textContent);
+  expect(sections.slice(0, 3)).toEqual(["Getting Started", "Files", "Tabs and Workspaces"]);
+  expect(sections).toContain("Building Plugins");
+  expect(within(help).getByRole("heading", { name: "Getting Started", level: 2 })).toBeInTheDocument();
+
+  // A reference to another chapter is a link to that section, never a file name.
+  fireEvent.click(within(help).getByRole("tab", { name: "Plugins" }));
+  expect(help).not.toHaveTextContent("PLUGIN_GUIDE.md");
+  fireEvent.click(within(help).getByRole("button", { name: "Building Plugins" }));
+  expect(within(help).getByRole("tab", { name: "Building Plugins" })).toHaveAttribute("aria-selected", "true");
+  expect(within(help).getByRole("heading", { name: "Quick start: your first plugin" })).toBeInTheDocument();
+  expect(within(help).queryByRole("heading", { name: "The window at a glance" })).toBeNull();
+
+  // Search narrows the sections to those that mention the text.
+  fireEvent.change(within(help).getByRole("searchbox", { name: "Search help" }), { target: { value: "esbuild" } });
+  expect(within(help).getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Building Plugins"]);
+  fireEvent.keyDown(help, { key: "Escape" });
+  expect(screen.queryByRole("dialog", { name: "Nulis Help" })).toBeNull();
+
+  fireEvent.keyDown(window, { key: "F1" });
+  expect(await screen.findByRole("dialog", { name: "Nulis Help" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+  await chooseMenu("Help", "About Nulis");
+  expect(await screen.findByRole("dialog", { name: "Nulis" })).toBeInTheDocument();
+});
+
+test("the status bar shows the caret position, the size in bytes and characters, and the mode", async () => {
+  const first = { documentId: "document-1", name: "First", byteLen: "1234567", revision: "0", encoding: "utf8", readOnly: false };
+  responses["file.new"] = [first];
+  responses["editor.characterCount"] = [{ revision: "0", characters: "1200000" }];
+  responses["editor.toggleReadOnly"] = [{ ...first, readOnly: true }, { ...first, readOnly: false }];
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  const footer = document.querySelector<HTMLElement>(".statusbar")!;
+  expect(within(footer).queryByRole("button", { name: /mode/ })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "New text file" }));
+  await screen.findByText("First editor");
+
+  // Size: bytes at once, characters when the count arrives.
+  expect(within(footer).getByText("1,234,567 bytes")).toBeInTheDocument();
+  expect(await within(footer).findByText("1,234,567 bytes · 1,200,000 characters")).toBeInTheDocument();
+
+  // Caret position follows the focused editor.
+  expect(within(footer).queryByText(/^Ln /)).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Move caret in First" }));
+  expect(within(footer).getByText("Ln 1,234, Col 7")).toBeInTheDocument();
+
+  // Mode: the badge names the state and toggles it; the tab gains a lock.
+  const mode = within(footer).getByRole("button", { name: "Edit mode: switch to Read-Only mode" });
+  expect(mode).toHaveTextContent("EDIT");
+  expect(mode).toHaveAttribute("aria-pressed", "false");
+  fireEvent.click(mode);
+  const locked = await within(footer).findByRole("button", { name: "Read-only mode: switch to Edit mode" });
+  expect(locked).toHaveTextContent("READ ONLY");
+  expect(locked).toHaveAttribute("aria-pressed", "true");
+  expect(within(screen.getByRole("tab", { name: /First/ })).getByRole("img", { name: "read-only" })).toBeInTheDocument();
+  expect(screen.getByRole("status")).toHaveTextContent("First is read-only");
+  expect(screen.getByRole("button", { name: "Editor mode of First: read-only" })).toBeInTheDocument();
+
+  // The editor's own toggle switches back.
+  fireEvent.click(screen.getByRole("button", { name: "Editor mode of First: read-only" }));
+  expect(await within(footer).findByRole("button", { name: "Edit mode: switch to Read-Only mode" })).toBeInTheDocument();
+  expect(screen.getByRole("status")).toHaveTextContent("First can be edited");
+});
+
+test("the tab strip offers scroll arrows only when its tabs overflow", async () => {
+  await openDocuments("First", "Second", "Third");
+  const strip = screen.getByRole("tablist", { name: "Open documents" });
+  expect(screen.queryByRole("button", { name: "Scroll tabs right" })).toBeNull();
+  expect(strip.querySelector(".welcome-dot")).toBeNull();
+
+  Object.defineProperty(strip, "clientWidth", { configurable: true, value: 200 });
+  Object.defineProperty(strip, "scrollWidth", { configurable: true, value: 600 });
+  fireEvent.scroll(strip);
+  expect(screen.getByRole("button", { name: "Scroll tabs left" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "Scroll tabs right" }));
+  expect(strip.scrollLeft).toBe(120);
+  fireEvent.scroll(strip);
+  expect(screen.getByRole("button", { name: "Scroll tabs left" })).toBeEnabled();
+  // The new-tab button stays reachable beside the arrows.
+  expect(strip.contains(screen.getByRole("button", { name: "New tab" }))).toBe(false);
+});
+
+test("panes leave a workspace by drag or button, and tabs reorder in the strip", async () => {
+  await openDocuments("First", "Second", "Third");
+  dragTabTo("First", panes()[0], 780, 300);
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Workspace name" }), { key: "Enter" });
+  expect(tabNames()).toEqual(["Second", "Workspace"]);
+
+  // Drag a pane header onto the tab strip: it becomes a tab of its own again.
+  const strip = screen.getByRole("tablist", { name: "Open documents" });
+  for (const [index, item] of [...strip.querySelectorAll<HTMLElement>("[data-tab-id]")].entries()) {
+    item.getBoundingClientRect = () => ({ left: index * 100, width: 100 }) as DOMRect;
+  }
+  fireEvent.pointerDown(panes()[1].querySelector(".pane-header")!, { button: 0, clientX: 600, clientY: 60 });
+  fireEvent.pointerMove(strip, { clientX: 20, clientY: 10 });
+  fireEvent.pointerUp(window);
+  expect(tabNames()).toEqual(["First", "Second", "Third"]);
+  expect(paneNames()).toEqual(["Editor"]);
+  expect(screen.getByText("First editor")).toBeInTheDocument();
+
+  // Regroup, then rearrange panes inside the workspace by dragging a header.
+  fireEvent.click(screen.getByRole("tab", { name: "Third" }));
+  dragTabTo("First", panes()[0], 780, 300);
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Workspace name" }), { key: "Enter" });
+  expect(paneNames()).toEqual(["Pane 1 of 2: Third", "Pane 2 of 2: First"]);
+  panes()[0].getBoundingClientRect = () => ({ left: 0, top: 0, width: 400, height: 600 }) as DOMRect;
+  fireEvent.pointerDown(panes()[1].querySelector(".pane-header")!, { button: 0, clientX: 600, clientY: 60 });
+  fireEvent.pointerMove(panes()[0].querySelector(".editor-pane")!, { clientX: 10, clientY: 300 });
+  expect(document.querySelector('[data-drop-zone="left"]')).not.toBeNull();
+  fireEvent.pointerUp(window);
+  expect(paneNames()).toEqual(["Pane 1 of 2: First", "Pane 2 of 2: Third"]);
+
+  // The pane's own control pops it out next to the workspace.
+  fireEvent.click(screen.getByRole("button", { name: "Move Third to its own tab" }));
+  expect(tabNames()).toEqual(["Second", "First", "Third"]);
+
+  // Dragging a tab along the strip reorders it.
+  for (const [index, item] of [...strip.querySelectorAll<HTMLElement>("[data-tab-id]")].entries()) {
+    item.getBoundingClientRect = () => ({ left: index * 100, width: 100 }) as DOMRect;
+  }
+  fireEvent.pointerDown(screen.getByRole("tab", { name: "Third" }).parentElement!, { button: 0, clientX: 250, clientY: 10 });
+  fireEvent.pointerMove(strip, { clientX: 20, clientY: 10 });
+  fireEvent.pointerUp(window);
+  expect(tabNames()).toEqual(["Third", "Second", "First"]);
+  expect(executeCommand).not.toHaveBeenCalledWith(expect.objectContaining({ id: "file.close" }));
+  expect(executeCommand).not.toHaveBeenCalledWith(expect.objectContaining({ id: "file.save" }));
+});
+
+test("every workspace operation is also a keyboard-reachable command", async () => {
+  await openDocuments("First", "Second", "Third");
+  fireEvent.click(screen.getByRole("tab", { name: "First" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open Workspace menu" }));
+  expect(within(screen.getByRole("menu", { name: "Workspace" })).getByRole("menuitem", { name: "Rename Workspace" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "Open Workspace menu" }));
+
+  await chooseMenu("Workspace", "Group with Next Tab Side by Side");
+  expect(paneNames()).toEqual(["Pane 1 of 2: First", "Pane 2 of 2: Second"]);
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Workspace name" }), { key: "Escape" });
+  await chooseMenu("Workspace", "Group with Next Tab Stacked");
+  expect(paneNames()).toEqual(["Pane 1 of 3: First", "Pane 2 of 3: Second", "Pane 3 of 3: Third"]);
+  expect(screen.getByRole("separator", { name: "Resize panes vertically" })).toBeInTheDocument();
+  expect(tabNames()).toEqual(["Workspace"]);
+  // With no tab left to group, the command is unavailable.
+  fireEvent.click(screen.getByRole("button", { name: "Open Workspace menu" }));
+  expect(within(screen.getByRole("menu", { name: "Workspace" })).getByRole("menuitem", { name: "Group with Next Tab Stacked" })).toBeDisabled();
+  fireEvent.click(screen.getByRole("button", { name: "Open Workspace menu" }));
+
+  await chooseMenu("Workspace", "Rename Workspace");
+  const input = screen.getByRole("textbox", { name: "Workspace name" });
+  fireEvent.change(input, { target: { value: "Release" } });
+  fireEvent.keyDown(input, { key: "Enter" });
+  expect(tabNames()).toEqual(["Release"]);
+
+  await chooseMenu("Workspace", "Move Pane to New Tab");
+  expect(tabNames()).toEqual(["Release", "Third"]);
+  await chooseMenu("Workspace", "Move Tab Left");
+  expect(tabNames()).toEqual(["Third", "Release"]);
+  await chooseMenu("Workspace", "Next Tab");
+  expect(screen.getByRole("tab", { name: "Release" })).toHaveAttribute("aria-selected", "true");
+  await chooseMenu("Workspace", "Ungroup Workspace");
+  expect(tabNames()).toEqual(["Third", "First", "Second"]);
+  expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({ id: "workspace.ungroup" }));
+  expect(executeCommand).not.toHaveBeenCalledWith(expect.objectContaining({ id: "file.close" }));
+});
+
+test("closing a workspace tab closes its panes and guards the last view of a dirty document", async () => {
+  responses["file.new"] = [
+    { documentId: "document-1", name: "Shared", byteLen: "0", revision: "0", encoding: "utf8", sourcePath: "/tmp/Shared" },
+    { documentId: "document-2", name: "Draft", byteLen: "3", revision: "1", encoding: "utf8", dirty: true },
+  ];
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  fireEvent.click(screen.getByRole("button", { name: "New text file" }));
+  await screen.findByText("Shared editor");
+  // A second view of Shared, popped out, leaves Shared open in two tabs.
+  fireEvent.click(screen.getByRole("button", { name: "Split editor" }));
+  fireEvent.click(within(panes()[1]).getByRole("button", { name: "Move Shared to its own tab" }));
+  fireEvent.click(screen.getByRole("button", { name: "New tab" }));
+  await screen.findByText("Draft editor");
+  expect(tabNames()).toEqual(["Shared", "Shared", "●Draft"]);
+  // Workspace: Draft with the second Shared view.
+  dragTabTo("Shared", panes()[0], 780, 300);
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Workspace name" }), { key: "Enter" });
+  expect(tabNames()).toEqual(["Shared", "●Workspace"]);
+
+  fireEvent.click(screen.getByRole("button", { name: "Close Workspace" }));
+  const prompt = screen.getByRole("dialog", { name: "Save changes to Draft?" });
+  fireEvent.click(within(prompt).getByRole("button", { name: "Cancel" }));
+  expect(tabNames()).toEqual(["Shared", "●Workspace"]);
+  expect(executeCommand).not.toHaveBeenCalledWith(expect.objectContaining({ id: "file.close" }));
+
+  fireEvent.click(screen.getByRole("button", { name: "Close Workspace" }));
+  fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+  await waitFor(() => expect(tabNames()).toEqual(["Shared"]));
+  expect(executeCommand).toHaveBeenCalledWith({
+    id: "file.close", context: { windowId: "main", documentId: "document-2" }, arguments: { discard: true },
+  });
+  // Shared still has a view in the remaining tab, so it was never closed.
+  expect(executeCommand).not.toHaveBeenCalledWith(expect.objectContaining({
+    id: "file.close", context: { windowId: "main", documentId: "document-1" },
+  }));
+  expect(await screen.findByText("Shared editor")).toBeInTheDocument();
+});
+
+test("restores tabs, named workspaces, and hexadecimal mode, removing only missing panes", async () => {
+  const bytes = "path:/tmp/bytes.bin";
+  const notes = "path:/tmp/notes.md";
+  const missing = "path:/tmp/missing.txt";
+  vi.mocked(executeCommand).mockImplementation(async (request: ExecuteCommandRequest) => {
+    if (request.id === "session.load") return {
+      ...DEFAULT_SESSION,
+      documents: [bytes, notes, missing],
+      layouts: [{
+        id: "tab-1", name: "Workspace", activePane: "pane-1",
+        root: { kind: "pane", id: "pane-1", tabs: [missing], activeTab: missing },
+      }, {
+        id: "tab-2", name: "Inspect", activePane: "pane-3",
+        root: {
+          kind: "split", direction: "horizontal", ratio: 300,
+          first: { kind: "pane", id: "pane-2", tabs: [bytes], activeTab: bytes },
+          second: {
+            kind: "split", direction: "vertical", ratio: 500,
+            first: { kind: "pane", id: "pane-3", tabs: [notes], activeTab: notes },
+            second: { kind: "pane", id: "pane-4", tabs: [missing], activeTab: missing },
+          },
+        },
+      }],
+      activeLayout: "tab-2",
+      viewModes: { [bytes]: "hex" },
+    } as never;
+    if (request.id === "file.open") {
+      const path = (request.arguments as { path: string }).path;
+      if (path === "/tmp/missing.txt") throw new Error("not found");
+      return {
+        documentId: path, name: path.split("/").pop(), byteLen: "4", revision: "0", encoding: "utf8", sourcePath: path,
+      } as never;
+    }
+    if (request.id === "plugin.activateStartup") return [] as never;
+    return null as never;
+  });
+
+  render(<App />);
+  expect(await screen.findByText("bytes.bin hexadecimal editor")).toBeInTheDocument();
+  expect(screen.getByText("notes.md editor")).toBeInTheDocument();
+  expect(screen.getByRole("status")).toHaveTextContent("Restored 2 files; 1 unavailable");
+  // The tab and the pane that only held the missing file are gone; the workspace stays usable.
+  expect(tabNames()).toEqual(["Inspect"]);
+  expect(paneNames()).toEqual(["Pane 1 of 2: bytes.bin", "Pane 2 of 2: notes.md"]);
+  expect(screen.getByRole("separator", { name: "Resize panes horizontally" })).toHaveAttribute("aria-valuenow", "30");
+  expect(screen.getByRole("button", { name: "Close split view" })).toBeInTheDocument();
+});
+
+test("a recovered untitled document returns to the pane it had before the restart", async () => {
+  const draft = "recovery:document-old";
+  vi.mocked(executeCommand).mockImplementation(async (request: ExecuteCommandRequest) => {
+    if (request.id === "session.load") return {
+      ...DEFAULT_SESSION,
+      documents: ["path:/tmp/a.txt", draft],
+      layouts: [{
+        id: "tab-1", name: "Notes", activePane: "pane-1",
+        root: {
+          kind: "split", direction: "horizontal", ratio: 500,
+          first: { kind: "pane", id: "pane-1", tabs: ["path:/tmp/a.txt"], activeTab: "path:/tmp/a.txt" },
+          second: { kind: "pane", id: "pane-2", tabs: [draft], activeTab: draft },
+        },
+      }],
+      activeLayout: "tab-1",
+    } as never;
+    if (request.id === "file.open") return {
+      documentId: "document-1", name: "a.txt", byteLen: "1", revision: "0", encoding: "utf8", sourcePath: "/tmp/a.txt",
+    } as never;
+    if (request.id === "recovery.list") return [{ recoveryId: "document-old", name: "Lost.md", sourcePath: null, byteLen: "7" }] as never;
+    if (request.id === "recovery.restore") return {
+      documentId: "document-7", name: "Lost.md", byteLen: "7", revision: "1", encoding: "utf8", dirty: true,
+      recoveryId: "document-old",
+    } as never;
+    if (request.id === "plugin.activateStartup") return [] as never;
+    return null as never;
+  });
+  render(<App />);
+  fireEvent.click(await screen.findByRole("button", { name: "Restore" }));
+  await waitFor(() => expect(paneNames()).toEqual(["Pane 1 of 2: a.txt", "Pane 2 of 2: Lost.md"]));
+  expect(within(panes()[1]).getByText("Lost.md editor")).toBeInTheDocument();
+  expect(tabNames()).toEqual(["●Notes"]);
+  await waitFor(() => expect(saveRequests().at(-1)?.documents).toEqual(["path:/tmp/a.txt", draft]));
+});
+
+test("the window close button closes a clean window through the native command", async () => {
+  let requestClose: ((event: { preventDefault: () => void }) => void) | undefined;
+  vi.mocked(getCurrentWindow).mockReturnValue({
+    onCloseRequested: vi.fn().mockImplementation(async (handler) => { requestClose = handler; return () => undefined; }),
+  } as unknown as ReturnType<typeof getCurrentWindow>);
+  vi.mocked(isTauri).mockReturnValue(true);
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  await waitFor(() => expect(requestClose).toBeDefined());
+  const preventDefault = vi.fn();
+  act(() => requestClose?.({ preventDefault }));
+  // The webview cannot destroy its own window; the native command does it.
+  expect(preventDefault).toHaveBeenCalled();
+  await waitFor(() => expect(closeWindowAfterSave).toHaveBeenCalledOnce());
+  expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+});
+
+test("the title bar has left-aligned captioned tools and a command button at the far right", async () => {
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  expect(screen.queryByText("Untitled Workspace")).not.toBeInTheDocument();
+  const toolbar = screen.getByRole("toolbar", { name: "Custom toolbar" });
+  const save = within(toolbar).getByRole("button", { name: "Toolbar: Save" });
+  expect(save).toHaveTextContent("Save");
+  expect(save).toHaveAttribute("title", expect.stringMatching(/^Save \(/));
+  expect(within(toolbar).getByRole("button", { name: "Open settings" })).toHaveTextContent("Settings");
+  const palette = screen.getByRole("button", { name: "Open command palette" });
+  expect(palette).toHaveTextContent("Commands");
+  expect(palette).toHaveAttribute("title", expect.stringMatching(/^Search commands/));
+  // Order in the bar: tools first, the command button last.
+  expect(toolbar.compareDocumentPosition(palette) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(palette.parentElement?.lastElementChild).toBe(palette);
+  fireEvent.click(palette);
+  expect(screen.getByRole("dialog", { name: "Command palette" })).toBeInTheDocument();
+});
+
+test("Close File is in the File menu and on the toolbar, and closes the focused file", async () => {
+  storedCustomization.document.toolbar = ["file.new", "workbench.closeFile"];
+  storedCustomization.document.menu = [{ kind: "command", command: "file.save" }];
+  vi.mocked(listCommands).mockResolvedValueOnce([
+    { id: "file.new", title: "New Text File", category: "File" },
+    { id: "file.save", title: "Save", category: "File" },
+    { id: "workbench.closeFile", title: "Close File", category: "File" },
+  ]);
+  vi.mocked(executeCommand).mockImplementation(async (request: ExecuteCommandRequest) => {
+    if (request.id === "session.load") return DEFAULT_SESSION as never;
+    if (request.id === "customization.get") return storedCustomization.document as never;
+    if (request.id === "plugin.activateStartup") return [] as never;
+    const queue = responses[request.id];
+    return (queue?.length ? queue.shift() : null) as never;
+  });
+  responses["file.new"] = [
+    { documentId: "document-1", name: "First", byteLen: "0", revision: "0", encoding: "utf8" },
+    { documentId: "document-2", name: "Second", byteLen: "0", revision: "0", encoding: "utf8" },
+  ];
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  const close = screen.getByRole("button", { name: "Toolbar: Close File" });
+  expect(close).toBeDisabled();
+  expect(close).toHaveTextContent("Close");
+
+  fireEvent.click(screen.getByRole("button", { name: "New text file" }));
+  await screen.findByText("First editor");
+  fireEvent.click(screen.getByRole("button", { name: "New tab" }));
+  await screen.findByText("Second editor");
+  fireEvent.click(close);
+  await waitFor(() => expect(tabNames()).toEqual(["First"]));
+  expect(executeCommand).toHaveBeenCalledWith({
+    id: "file.close", context: { windowId: "main", documentId: "document-2" }, arguments: { discard: false },
+  });
+
+  // The menu offers it even though this customized File menu does not list it.
+  await chooseMenu("File", "Close File");
+  await waitFor(() => expect(screen.queryByRole("tablist", { name: "Open documents" })?.querySelector('[role="tab"]')).toBeNull());
+  expect(screen.getByRole("heading", { name: /write, inspect/i })).toBeInTheDocument();
+});
+
+test("a file chosen in Places opens through the file command, and an open one is focused", async () => {
+  vi.mocked(executeCommand).mockImplementation(async (request: ExecuteCommandRequest) => {
+    if (request.id === "session.load") return DEFAULT_SESSION as never;
+    if (request.id === "plugin.activateStartup") return [] as never;
+    if (request.id === "places.roots") return [{ name: "Disk", path: "/", kind: "computer" }] as never;
+    if (request.id === "places.list") return {
+      path: "/", truncated: false,
+      entries: [{ name: "main.rs", path: "/main.rs", kind: "file" }, { name: "lib.rs", path: "/lib.rs", kind: "file" }],
+    } as never;
+    if (request.id === "file.open") {
+      const path = (request.arguments as { path: string }).path;
+      return { documentId: path, name: path.slice(1), byteLen: "1", revision: "0", encoding: "utf8", sourcePath: path } as never;
+    }
+    return null as never;
+  });
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  // Places is the default view; no folder has to be opened first.
+  expect(screen.getByRole("tab", { name: "Places" })).toHaveAttribute("aria-selected", "true");
+  const places = screen.getByRole("tree", { name: "Places" });
+  fireEvent.click(await within(places).findByRole("button", { name: /Disk/ }));
+  fireEvent.click(await within(places).findByRole("button", { name: /main\.rs/ }));
+  expect(await screen.findByText("main.rs editor")).toBeInTheDocument();
+  fireEvent.click(within(places).getByRole("button", { name: /lib\.rs/ }));
+  expect(await screen.findByText("lib.rs editor")).toBeInTheDocument();
+  const opens = () => vi.mocked(executeCommand).mock.calls.filter(([request]) => request.id === "file.open").length;
+  expect(opens()).toBe(2);
+  fireEvent.click(within(places).getByRole("button", { name: /main\.rs/ }));
+  expect(await screen.findByText("main.rs editor")).toBeInTheDocument();
+  expect(opens()).toBe(2);
+  fireEvent.click(screen.getByRole("tab", { name: "Open" }));
+  expect(within(screen.getByRole("tree", { name: "Open files" })).getAllByRole("button")).toHaveLength(2);
+});
+
+test("the Search panel finds and replaces in the current file, with regular expressions", async () => {
+  await openDocuments("First", "Second");
+  fireEvent.click(screen.getByRole("button", { name: "Search" }));
+  expect(screen.getByRole("tab", { name: "Current File" })).toHaveAttribute("aria-selected", "true");
+  expect(screen.getByText("In Second")).toBeInTheDocument();
+  const sent = () => JSON.parse(screen.getByText("Second editor").getAttribute("data-search") ?? "null");
+
+  fireEvent.click(screen.getByRole("button", { name: "Find Next" }));
+  expect(screen.getByRole("status")).toHaveTextContent("Enter text to find");
+  expect(sent()).toBeNull();
+
+  fireEvent.change(screen.getByRole("textbox", { name: "Find" }), { target: { value: "l(a|i)ne" } });
+  fireEvent.click(screen.getByRole("button", { name: "Regular expression" }));
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Find" }), { key: "Enter" });
+  expect(sent()).toEqual({ id: 1, action: "next", query: "l(a|i)ne", replacement: "", regex: true, caseSensitive: true });
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Find" }), { key: "Enter", shiftKey: true });
+  expect(sent()).toMatchObject({ id: 2, action: "previous" });
+
+  fireEvent.change(screen.getByRole("textbox", { name: "Replace with" }), { target: { value: "row" } });
+  fireEvent.click(screen.getByRole("button", { name: "Match case" }));
+  fireEvent.click(screen.getByRole("button", { name: "Replace" }));
+  expect(sent()).toMatchObject({ id: 3, action: "replace", replacement: "row", caseSensitive: false });
+  fireEvent.click(screen.getByRole("button", { name: "Replace All" }));
+  expect(sent()).toMatchObject({ id: 4, action: "replaceAll" });
+  // Repeating the same action is a new request, so Find Next keeps advancing.
+  fireEvent.click(screen.getByRole("button", { name: "Find Next" }));
+  fireEvent.click(screen.getByRole("button", { name: "Find Next" }));
+  expect(sent()).toMatchObject({ id: 6, action: "next" });
+});
+
+test("right-clicking a tab offers close, close others, save, and save as", async () => {
+  responses["file.new"] = [
+    { documentId: "document-1", name: "First", byteLen: "0", revision: "0", encoding: "utf8", sourcePath: "/tmp/First" },
+    { documentId: "document-2", name: "Draft", byteLen: "3", revision: "1", encoding: "utf8", dirty: true },
+    { documentId: "document-3", name: "Third", byteLen: "0", revision: "0", encoding: "utf8", sourcePath: "/tmp/Third" },
+  ];
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  fireEvent.click(screen.getByRole("button", { name: "New text file" }));
+  await screen.findByText("First editor");
+  for (const name of ["Draft", "Third"]) {
+    fireEvent.click(screen.getByRole("button", { name: "New tab" }));
+    await screen.findByText(`${name} editor`);
+  }
+  const menuFor = (name: string | RegExp) => {
+    fireEvent.contextMenu(screen.getByRole("tab", { name }), { clientX: 120, clientY: 40 });
+    return screen.getByRole("menu");
+  };
+
+  const first = menuFor("First");
+  expect(within(first).getAllByRole("menuitem").map((item) => item.querySelector("span")?.textContent)).toEqual([
+    "Close", "Close All Files Except This", "Save", "Save As…", "Copy File Path",
+  ]);
+  // A saved, unchanged file has nothing to save.
+  expect(within(first).getByRole("menuitem", { name: /^Save(?! As)/ })).toBeDisabled();
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+
+  // Save As on a background tab saves that file, not the active one.
+  vi.mocked(save).mockResolvedValueOnce("/tmp/draft.md");
+  responses["file.saveAs"] = [{
+    documentId: "document-2", name: "draft.md", byteLen: "3", revision: "1", encoding: "utf8", sourcePath: "/tmp/draft.md",
+  }];
+  fireEvent.click(within(menuFor(/Draft/)).getByRole("menuitem", { name: /Save As/ }));
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
+    id: "file.saveAs", context: { windowId: "main", documentId: "document-2" },
+    arguments: { expectedRevision: "1", path: "/tmp/draft.md" },
+  }));
+  expect(await screen.findByRole("tab", { name: "draft.md" })).toBeInTheDocument();
+
+  fireEvent.click(within(menuFor("draft.md")).getByRole("menuitem", { name: "Close All Files Except This" }));
+  await waitFor(() => expect(tabNames()).toEqual(["draft.md"]));
+  expect(screen.getByText("draft.md editor")).toBeInTheDocument();
+  expect(vi.mocked(executeCommand).mock.calls.filter(([request]) => request.id === "file.close")
+    .map(([request]) => request.context?.documentId)).toEqual(["document-1", "document-3"]);
+
+  fireEvent.click(within(menuFor("draft.md")).getByRole("menuitem", { name: /^Close(?! All)/ }));
+  await waitFor(() => expect(tabNames()).toEqual([]));
+});
+
+test("closing all other tabs stops at an unsaved file until it is resolved", async () => {
+  responses["file.new"] = [
+    { documentId: "document-1", name: "Keep", byteLen: "0", revision: "0", encoding: "utf8" },
+    { documentId: "document-2", name: "Draft", byteLen: "3", revision: "1", encoding: "utf8", dirty: true },
+    { documentId: "document-3", name: "Clean", byteLen: "0", revision: "0", encoding: "utf8" },
+  ];
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  fireEvent.click(screen.getByRole("button", { name: "New text file" }));
+  await screen.findByText("Keep editor");
+  for (const name of ["Draft", "Clean"]) {
+    fireEvent.click(screen.getByRole("button", { name: "New tab" }));
+    await screen.findByText(`${name} editor`);
+  }
+  fireEvent.contextMenu(screen.getByRole("tab", { name: "Keep" }), { clientX: 10, clientY: 10 });
+  fireEvent.click(screen.getByRole("menuitem", { name: "Close All Files Except This" }));
+  const prompt = await screen.findByRole("dialog", { name: "Save changes to Draft?" });
+  fireEvent.click(within(prompt).getByRole("button", { name: "Cancel" }));
+  expect(tabNames()).toEqual(["Keep", "●Draft", "Clean"]);
+
+  fireEvent.contextMenu(screen.getByRole("tab", { name: "Keep" }), { clientX: 10, clientY: 10 });
+  fireEvent.click(screen.getByRole("menuitem", { name: "Close All Files Except This" }));
+  fireEvent.click(within(await screen.findByRole("dialog", { name: "Save changes to Draft?" })).getByRole("button", { name: "Discard" }));
+  await waitFor(() => expect(tabNames()).toEqual(["Keep"]));
+});
+
+test("JSON and XML tools appear only for those documents and validate, beautify, and minify", async () => {
+  responses["file.new"] = [
+    { documentId: "document-1", name: "notes.txt", byteLen: "2", revision: "0", encoding: "utf8", languageId: "plaintext" },
+    { documentId: "document-2", name: "data.json", byteLen: "9", revision: "3", encoding: "utf8", languageId: "json" },
+    { documentId: "document-3", name: "feed.xml", byteLen: "9", revision: "0", encoding: "utf8", languageId: "xml" },
+  ];
+  vi.mocked(isTauri).mockReturnValue(false);
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  const toolbar = screen.getByRole("toolbar", { name: "Custom toolbar" });
+  const tool = (name: string) => within(toolbar).queryByRole("button", { name });
+
+  fireEvent.click(screen.getByRole("button", { name: "New text file" }));
+  await screen.findByText("notes.txt editor");
+  // A plain text document has no tools: no buttons, no Tools menu, no palette entries.
+  expect(tool("Validate JSON") ?? tool("Validate XML")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Open Tools menu" })).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "New tab" }));
+  await screen.findByText("data.json editor");
+  expect(tool("Validate JSON")).toHaveTextContent("Validate");
+  expect(tool("Beautify JSON")).toHaveTextContent("Beautify");
+  expect(tool("Minify JSON")).toHaveTextContent("Minify");
+
+  // Validate reports the problem and moves the caret to it.
+  responses["tools.validate"] = [{
+    tool: "json", valid: false, message: "Invalid JSON: expected value (line 2, column 10)", byteOffset: "17", line: 2, column: 10,
+  }];
+  fireEvent.click(tool("Validate JSON")!);
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Invalid JSON: expected value (line 2, column 10)"));
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
+    id: "editor.setSelections", context: { windowId: "main", documentId: "document-2" },
+    arguments: { selections: [{ anchorByte: "17", activeByte: "17" }] },
+  }));
+
+  // Beautify runs against the observed revision and reports the change.
+  responses["tools.beautify"] = [
+    { documentId: "document-2", name: "data.json", byteLen: "30", revision: "4", encoding: "utf8", languageId: "json", dirty: true },
+    { documentId: "document-2", name: "data.json", byteLen: "30", revision: "4", encoding: "utf8", languageId: "json", dirty: true },
+  ];
+  fireEvent.click(tool("Beautify JSON")!);
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Beautified JSON"));
+  expect(executeCommand).toHaveBeenCalledWith({
+    id: "tools.beautify", context: { windowId: "main", documentId: "document-2" }, arguments: { expectedRevision: "3" },
+  });
+  await chooseMenu("Tools", "Beautify JSON");
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("JSON is already formatted"));
+  expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
+    id: "tools.beautify", arguments: { expectedRevision: "4" },
+  }));
+
+  // XML has Validate and Beautify, but no Minify.
+  fireEvent.click(screen.getByRole("button", { name: "New tab" }));
+  await screen.findByText("feed.xml editor");
+  expect(tool("Validate XML")).not.toBeNull();
+  expect(tool("Beautify XML")).not.toBeNull();
+  expect(tool("Minify JSON")).toBeNull();
+  responses["tools.validate"] = [{ tool: "xml", valid: true, message: "Valid XML" }];
+  await chooseMenu("Tools", "Validate XML");
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Valid XML"));
+
+  // Back on the text file the tools are gone again.
+  fireEvent.click(screen.getByRole("tab", { name: "notes.txt" }));
+  expect(tool("Validate XML") ?? tool("Validate JSON")).toBeNull();
+});
+
+test("an invalid document is not reformatted, and the native Tools menu follows the focused document", async () => {
+  vi.mocked(isTauri).mockReturnValue(true);
+  vi.mocked(executeCommand).mockImplementation(async (request: ExecuteCommandRequest) => {
+    if (request.id === "session.load") return DEFAULT_SESSION as never;
+    if (request.id === "plugin.activateStartup") return [] as never;
+    if (request.id === "file.new") return {
+      documentId: "document-1", name: "feed.xml", byteLen: "9", revision: "0", encoding: "utf8", languageId: "xml",
+    } as never;
+    if (request.id === "tools.beautify") throw new Error("Invalid XML: <a> is never closed (line 1, column 1)");
+    if (request.id === "tools.validate") return {
+      tool: "xml", valid: false, message: "Invalid XML: <a> is never closed (line 1, column 1)", byteOffset: "0", line: 1, column: 1,
+    } as never;
+    return null as never;
+  });
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  await waitFor(() => expect(setToolsMenu).toHaveBeenLastCalledWith(null));
+  fireEvent.click(screen.getByRole("button", { name: "New text file" }));
+  await screen.findByText("feed.xml editor");
+  await waitFor(() => expect(setToolsMenu).toHaveBeenLastCalledWith("xml"));
+
+  fireEvent.click(screen.getByRole("button", { name: "Beautify XML" }));
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({ id: "editor.setSelections" })));
+  expect(screen.getByRole("status")).toHaveTextContent("Invalid XML: <a> is never closed (line 1, column 1)");
+  // Hexadecimal view is not text: the tools step aside.
+  fireEvent.click(screen.getByRole("button", { name: "Show hexadecimal editor" }));
+  await waitFor(() => expect(setToolsMenu).toHaveBeenLastCalledWith(null));
+  expect(screen.queryByRole("button", { name: "Beautify XML" })).not.toBeInTheDocument();
+});

@@ -1,0 +1,7 @@
+# Text files use LF on every platform. The formatter is configured for Unix
+# line endings, so a CRLF checkout on Windows would fail the format check.
+* text=auto eol=lf
+
+*.png binary
+*.icns binary
+*.ico binary

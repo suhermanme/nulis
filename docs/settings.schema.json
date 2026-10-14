@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.example.invalid/nulis/settings/v1.json",
+  "title": "Nulis settings",
+  "type": "object",
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "values": {
+      "type": "object",
+      "properties": {
+        "editor": {
+          "type": "object",
+          "properties": {
+            "tabSize": { "type": "integer", "minimum": 1, "maximum": 32 },
+            "wordWrap": { "type": "boolean" },
+            "fontFamily": { "type": "string", "minLength": 1, "maxLength": 256 },
+            "fontSize": { "type": "number", "minimum": 8, "maximum": 40 },
+            "lineHeight": { "type": "number", "minimum": 1, "maximum": 2.5 },
+            "fontLigatures": { "type": "boolean" }
+          },
+          "additionalProperties": true
+        },
+        "workbench": {
+          "type": "object",
+          "properties": {
+            "colorTheme": { "type": "string", "minLength": 1 }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "required": ["schemaVersion", "values"],
+  "additionalProperties": false
+}

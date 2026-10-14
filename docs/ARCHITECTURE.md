@@ -1,0 +1,171 @@
+# Architecture
+
+## Shape
+
+```text
+React presentation (bounded virtualized viewport)
+                 |
+       typed Tauri IPC DTOs
+                 |
+       nulis-core command API
+        /          |          \
+ document      services      extensions
+    |       search/fs/etc.   plugins/themes
+ storage
+ mmap/read-at + add buffer + balanced pieces (M01)
+```
+
+The Rust crates are usable without Tauri. `nulis-core` coordinates public commands and serializable API values; it does not import desktop UI code. The desktop adapter validates IPC input and invokes the core. TypeScript mirrors the versioned DTOs in one module and checks the protocol version at startup.
+
+## Viewport boundary (M02)
+
+`nulis-core` owns opaque document sessions, authoritative piece tables, revision numbers, and a selection vector. Mutations travel through centralized commands and include the revision observed by the caller, so stale UI edits cannot overwrite newer state. Reads use a separate bounded query returning at most 256 KiB plus an explicit continuation cursor; long lines are paged rather than materialized. All `u64` coordinates cross JSON as decimal strings and become `bigint` only for bounded UI calculations, avoiding JavaScript's 53-bit integer limit. The React surface keeps only the current snapshot, virtualizes its visible rows, and retains at most 256 lightweight cursor records for backward page navigation. Pointer drags update only the current snapshot for immediate feedback and commit one selection DTO to the core on release; they never accumulate document text or send an IPC request per pointer movement.
+
+Horizontal and vertical caret movement are core commands. Vertical navigation discovers CRLF, LF, and legacy CR boundaries with fixed 64 KiB piece-table reads, treats malformed bytes as individually navigable units, and retains a preferred UTF-8 scalar column across short lines. Display-cell columns for tabs and variable-width glyphs remain a separate renderer-coordinate concern.
+
+Each session keeps at most 8,192 sparse, observed line-start checkpoints; it is not a full per-line index. Off-screen reveal and one-based line lookup scan forward from the nearest checkpoint in fixed chunks, while long-line reveal starts a continuation window near the caret. Edits invalidate the checkpoints. This bounds index memory independently of file size, lets the first viewport render without a full-file pass, and makes sequential navigation progressively cheaper. React still owns only one text snapshot and at most 256 lightweight page cursors. Drag selection can cross page boundaries by replacing the current snapshot rather than retaining page contents.
+
+The hidden native input capture is uncontrolled so platform IMEs can maintain composition text. Composition state is tracked synchronously to ignore key events with `isComposing` or key code 229, and a matching post-composition input event is de-duplicated. The visual viewport is hidden from accessibility APIs; the focusable multiline input exposes instructions, keyboard shortcuts, controlled viewport association, and a live line/column/selection status. Reduced-motion and forced-color media queries preserve caret and selection feedback.
+
+Native file selection returns a path through a narrowly permissioned dialog. The path crosses the command boundary once; the Rust core opens a positional `FileSource` and creates a persistent append buffer below the platform application-data session root. Save and Save As likewise resolve destinations through centralized commands, stream the piece table into same-directory atomic replacement, and reject a source fingerprint changed outside Nulis. React never receives source bytes except through bounded viewport DTOs.
+
+Clipboard extraction is also a bounded core query: selected ranges are newline-joined under a combined 8 MiB cap and carry their observed revision. The desktop has only native text-write permission. Cut is a two-phase UI workflow—write the clipboard, then issue revision-checked `editor.deleteSelection`—so external clipboard failure cannot destroy editor content. Insert and overwrite share `editor.insertText`; overwrite computes deletion boundaries in the byte-addressed core and never crosses a line ending.
+
+## Normal editing boundary (M03)
+
+Document tabs and split-pane composition are React presentation state over opaque core document IDs. Each pane owns only a bounded viewport snapshot; opening another tab or split never duplicates authoritative document bytes. Mutations still cross the shared command boundary and split panes refresh from core revisions.
+
+The selection vector is capped at 1,024 entries. Alt-click creates additional carets, navigation fans out per caret, overlapping edit ranges merge deterministically, and the piece table applies a descending non-overlapping batch as one revision and one undo/redo action. Bookmark coordinates use the same edit deltas, including inverse deltas during undo and redo.
+
+IPC protocol v3 adds a source-byte width for every displayed scalar. That mapping lets pointer placement and selection rendering stay byte-accurate for malformed UTF-8 and Windows-1252 instead of assuming that rendered UTF-8 width equals stored width. Changing the encoding is an interpretation override: it preserves existing bytes, while subsequent input, navigation, clipboard extraction, and transforms use the selected encoding. Soft wrapping remains viewport-local presentation state and does not change document coordinates.
+
+## Streaming search boundary (M04)
+
+`nulis-search` consumes only the public `ReadAt` interface. Literal and regular-expression scans read 64 KiB primary windows with bounded overlap, preserve a byte of surrounding context so regex anchors cannot mistake chunk edges for document edges, and return at most 10,000 matches per page. Literal patterns are capped at 64 KiB. Multiline regexes must have a statically finite maximum match width no larger than 1 MiB; unbounded expressions are rejected rather than silently missing cross-window matches or allowing memory to scale with file size. Case-insensitive literal matching is ASCII-only so byte coordinates remain stable for arbitrary encodings.
+
+Find navigation changes only the core-owned selection and can wrap in either direction. Replace All builds a descending, non-overlapping edit plan capped at 10,000 matches and 8 MiB each of removed and inserted bytes, then applies it as one piece-table revision and one undo action. IPC protocol v4 adds lossless decimal-string search coordinates and revision-checked replacement commands.
+
+Find in files recursively scans regular files selected through the existing native folder dialog. It never follows symbolic links, scans at most 10,000 files, and returns at most 2,000 matches (the desktop requests 500). Result activation opens the file through `file.open`, commits the match selection to the core, and requests a bounded viewport reveal; the webview never gains direct filesystem read permission.
+
+## Rectangular editing boundary (M05)
+
+A rectangular selection is one constant-size core descriptor containing two byte corners, their one-based logical lines, and zero-based scalar columns. It does not fan out into the normal selection vector. IPC protocol v5 exposes that descriptor with lossless decimal strings, and the viewport derives highlights only for currently rendered rows.
+
+Copy, cut, delete, backspace, transforms, insert, overwrite, and row-distributed paste derive line-local byte ranges on demand with fixed-size piece-table reads. Rectangles are capped at 100,000 rows, clipboard output remains capped at 8 MiB, and aggregate inserted or transformed data remains capped at 1 MiB. A single-line payload repeats across every row; a multiline payload must contain exactly one item per selected row. Inserts beyond a short line's end materialize only the required ASCII-space padding. Each block mutation is one descending piece-table batch, one revision, and one undo/redo action, while post-edit normal selection state remains within the existing 1,024-entry cap.
+
+Alt-Shift drag creates rectangular selections in the desktop. Pointer previews remain local, including virtual columns beyond end-of-line, and only the final constant-size descriptor crosses the command boundary. Cross-page drag still replaces the bounded viewport rather than retaining prior text.
+
+## Language-service boundary (M06)
+
+`nulis-syntax` owns a storage-independent language registry. A module contributes a stable ID, filename/extension detection metadata, stable token mappings, and optional fold and symbol extraction. JSON and Python use built-in Tree-sitter grammars; Markdown uses a bounded line scanner. Plain text is the no-parser fallback. Documents retain only the selected language ID, which is initially detected from the name or path and can be overridden through centralized language commands.
+
+Syntax analysis consumes only the current viewport's byte buffer. Input is capped at 256 KiB and 25 ms, tree traversal at 100,000 nodes, highlights at 20,000, folds and symbols at 2,000 each, and bracket pairs at 20,000. A timeout or any exhausted output budget is explicit in the syntax snapshot. No full-document syntax tree is retained, so syntax memory remains independent of document size; the tradeoff is that constructs beginning outside the current window cannot contribute a fold or symbol until their containing window is analyzed.
+
+IPC protocol v6 carries syntax coordinates as decimal strings alongside each bounded viewport. React merges syntax boundaries with selection/caret boundaries without duplicating source text, renders stable theme classes, matches brackets at the primary caret, exposes bounded document symbols and language override controls, and collapses only rows already present in the current snapshot.
+
+## Hexadecimal editing boundary (M07)
+
+Hex mode shares the authoritative piece table, revision, selection, bookmark, and undo state with text mode. Its viewport bypasses text decoding and reads at most 64 KiB of raw bytes aligned to a validated fixed row width. IPC protocol v7 transports each row as a bounded byte array and every document coordinate as a decimal string. The desktop requests 4 KiB pages, virtualizes the visible rows, and retains only bounded page cursors, so neither core nor renderer memory depends on source length.
+
+Nibble typing is a revision-checked raw-byte replacement. In overwrite mode it preserves the other nibble of an existing byte; in insert mode a high nibble creates one byte and the following low nibble completes it. ASCII input, hexadecimal paste, exact-byte deletion, and selection replacement use the same byte-native path and remain independent of the selected text encoding. Hex clipboard reads are capped at 256 KiB, input edits at 256 KiB, and malformed or incomplete hexadecimal input fails explicitly. Text and hex views share selections, so switching modes never duplicates or converts document content.
+
+## Workspace and workbench boundary (M08)
+
+`nulis-filesystem` owns the selected canonical workspace root and resolves only normalized relative paths beneath it. Directory listing is lazy and one-level-at-a-time, sorted directory-first, and capped at 1,000 entries (the desktop asks for 500 and retains at most 256 loaded directories). Every path component is checked with symlink metadata; symlinks remain visible but cannot be listed or opened. The explorer receives names, kinds, relative paths, and decimal-string file sizes, never ambient filesystem authority. Files enter the document manager only through the centralized `workspace.openFile` command.
+
+The searchable palette is populated from core command descriptors. File, workspace, undo/redo, and presentation-layout actions all dispatch through registered command IDs. React owns sidebar visibility/width, active panel, split composition, and per-document Text/Hex choice; the core persists only a validated serializable snapshot of that presentation state.
+
+IPC protocol v8 adds the workspace and workbench-session DTOs. Session JSON uses schema version 1, is capped at 1 MiB and 128 source-backed document paths, and is atomically persisted below application data. Startup restores the workspace, reopens each source independently, maps active/split/view state onto fresh opaque document IDs, and skips unavailable paths. Untitled document recovery remains separate from M08 session composition and is tracked under M14 hardening.
+
+## Compare and merge boundary (M09)
+
+`nulis-diff` consumes only random-access byte sources. Text comparison reads at most 1 MiB and 1,024 records from either side, computes an exact line LCS inside that bounded window, and returns at most 10,000 coalesced changes with continuation coordinates. The desktop requests 256 KiB and 500 changes per page and retains at most 256 cursor-only history entries. Partial long-line windows advance bytes without falsely advancing the logical line number. Binary comparison streams aligned 64 KiB chunks, coalesces differing byte runs, and preserves 64-bit coordinates beyond 4 GiB.
+
+Merge arrows copy one exact byte range between opaque open documents. The target revision must still match, copied content is capped at 8 MiB, and the replacement advances one revision and remains one undo/redo action. Selections, bookmarks, and sparse navigation state relocate through the same edit path as ordinary mutations. IPC protocol v9 carries every compare, merge, and folder coordinate or size as a decimal string.
+
+Folder comparison belongs to `nulis-filesystem`. It canonicalizes two dialog-selected roots, walks at most 10,000 regular files/directories per side in deterministic order, never follows symlinks, and compares equal-length file content in 64 KiB chunks. Only differences cross IPC, capped at 5,000 by the core and 1,000 by the desktop. Identical-file, compared-file, skipped-symlink, and truncation counts remain explicit.
+
+## Remote and terminal boundary (M10)
+
+`nulis-remote` owns the initial read-only SFTP provider. Profile JSON contains only validated connection metadata and an opaque credential identifier; passwords are stored through the native platform keychain. Every connection performs SSH handshake and exact pinned SHA-256 host-key comparison before password authentication. Remote paths are normalized relative to a profile root, parent traversal and NUL bytes are rejected, directory results stop at 1,000 entries, and symlinks are visible but not traversable. An opened SFTP file implements the shared `ReadAt` interface with synchronized seek/read operations, so the existing piece table, disk append buffer, search, syntax, text, and hexadecimal viewports work without materializing or sending the source through IPC. IPC protocol v10 identifies remote resources with non-secret `sftp://<profile>/<path>` URIs; the provider advertises that writes are unavailable.
+
+`nulis-terminal` owns native pseudoterminals and their child processes. The command DTO carries a program plus a separate argument vector, working directory, environment map, and dimensions; it never accepts a shell command string. Omitting the program selects the platform's default interactive shell. The manager caps sessions at 16, validates aggregate argument/environment data, accepts at most 64 KiB per input, serves at most 64 KiB per read, and retains a 1 MiB cursor-addressed output ring per session. A reader thread is the only unbounded-duration operation, completed sessions are polled without blocking, resize maps to the PTY master, and close/drop kills remaining children.
+
+The React Remote sidebar and xterm.js panel call only these centralized commands. xterm is loaded on demand and keeps a 5,000-line presentation scrollback; native output remains authoritative and bounded. Tauri exposes no shell, process, filesystem, or network plugin capability to the webview for either feature.
+
+## Automation boundary (M11)
+
+`nulis-automation` defines schema-v1 recorded macros as bounded command-and-JSON sequences. A macro contains at most 1,024 actions and 1 MiB of validated data; each argument is capped at 256 KiB and 32 JSON levels. One recorder captures only explicitly recordable successful commands, and the core enforces that allowlist again during playback. Revision-checked arguments store a reserved current-revision placeholder that the core resolves from authoritative document state immediately before each action. The headless core replays actions serially through the existing command registry with one cloned command context, checks cancellation before each action, stops on the first indexed failure, and discards command results so playback memory does not grow with action count.
+
+The macro library is capped at 128 entries and 1 MiB total, validated on every load/save, and durably atomically replaced below application data. IPC protocol v11 exposes start, status, stop/save, cancel, list, run, and delete through the centralized command boundary. The non-modal desktop panel keeps recording active while the editor receives input and consumes only bounded summaries until a macro is saved or run.
+
+The same crate embeds a pinned Rhai evaluator behind a deliberately reduced language profile. It starts from a raw engine with no standard package or module resolver, while modules, arrays, maps, closures, custom syntax, and script-defined functions are compiled out. Host values cross as bounded JSON strings through eight named `nulis_*` calls. Script requests and host grants are separate values; a grant cannot exceed the request, command calls require exact allowlist entries, and every host call rechecks capability and count budgets before entering trusted code.
+
+Execution has both deterministic operation fuel and elapsed-time limits. A thread-safe cancellation token is observed on every Rhai operation, and trusted host adapters receive an execution guard so bounded native work can poll the same cancellation/deadline state. Output, host JSON, variables, expression depth, interned strings, and string size are capped; the last is derived from the policy's structural-memory budget. The evaluator has no ambient filesystem, network, process, environment, credential, terminal, remote-provider, or module-loading authority.
+
+The script library is capped at 64 entries and 4 MiB, validated on every load/save, and atomically persisted separately from grants. Editing a definition revokes its grant. IPC protocol v13 exposes list/get/save/delete, approve/revoke, run, and cancellation through the central command boundary. Core adapters provide only bounded current-document reads/edits, symlink-safe workspace listing and existing-file atomic writes, immutable effective settings, collected messages, and the macro-safe editor-command allowlist. The desktop Automation panel makes requests and approval state visible and returns script output without giving the webview native filesystem or process authority.
+
+## Plugin boundary (M12)
+
+`nulis-plugin-host` owns strict API-v1 manifests, package discovery/installation, digest-bound grants, worker protocol DTOs, and the constrained JavaScript evaluator. Installation accepts an explicitly selected directory, rejects symlinks and traversal, validates semantic versions and activation/command namespaces, and copies only the manifest and one UTF-8 `.js` entry beneath application data. Grants are stored separately and atomically against the SHA-256 digest of those exact bytes. A changed package is therefore unapproved without trusting timestamps or mutable manifest declarations.
+
+Every activation runs in a fresh child process by launching the Nulis executable in worker mode before the desktop event loop. The worker embeds a pinned Boa engine without `boa_runtime`, Node/Web APIs, module loading, native IPC, or host callbacks. Its bootstrap exposes only command registration and a serializable message request. Source, arguments, returned JSON, operations, commands, message sizes, loops, recursion, stack, and wall time are bounded; parent-side cancellation and timeout kill the child. A worker crash or protocol error cannot unwind through the core process. OS-enforced memory quotas remain an M14 hardening item.
+
+The trusted core requires exact-digest approval before exposing a contribution or launching a worker, checks runtime registrations against the manifest, and authorizes every returned operation against the separate grant before applying it. API v1 deliberately grants only `showMessage`; plugin code has no document, workspace, terminal, remote, credential, process, network, or arbitrary command authority. IPC protocol v14 exposes lifecycle controls and bounded summaries to the desktop Plugins manager. Approved contributions join the central palette, while startup activation occurs once after session restoration.
+
+## Customization and theme boundary (M13)
+
+`nulis-settings` owns a schema-v1 customization document containing appearance, portable keybindings, File-menu composition, and toolbar commands. It enforces numeric, identifier, chord, uniqueness, separator, entry-count, and 256 KiB limits before atomically persisting below application data. `nulis-core` additionally resolves the selected theme and every command reference against the current catalogs. IPC protocol v15 exposes get/save/reset and theme lifecycle commands; presentation changes never mutate document state.
+
+`nulis-theme` owns the complete stable semantic token vocabulary, 99 embedded built-ins including 97 converted NvChad palettes, and a user catalog capped at 64 regular JSON files of 256 KiB each. Discovery ignores invalid files, while explicit install fails on malformed data, duplicate IDs, built-in shadowing, symlinks, or limit exhaustion. Themes remain immutable data: all editor, syntax, workbench, terminal, status, input, and diff colors become CSS/xterm values, never executable CSS or remote resources.
+
+IPC protocol v16 adds a bounded document map query. Documents up to 64 KiB provide their logical line count and at most 1024 line samples; larger documents provide at most 1024 short positional samples with a fixed aggregate read budget. The desktop map uses a fixed miniature line scale, leaving unused space below short documents and scrolling its preview for longer ones. Its viewport box tracks visible editor rows, click or drag navigates, and the toolbar explicitly offers Hide Map and Show Map.
+
+IPC protocol v17 adds a Markdown preview source query capped at 1 MiB. It reads the authoritative document piece table, so View mode includes unsaved edits. React renders Markdown with GitHub-style extensions and skips raw HTML. Relative raster images in saved documents cross a separate 4 MiB native query that canonicalizes paths within the document directory; the webview receives a data URL rather than unrestricted file access.
+
+The React settings surface searches and edits a draft, previews appearance locally, and persists only after validation. Portable chords dispatch the same core command descriptors used by the palette. Browser and macOS File menus are projections of one menu document; the Tauri adapter revalidates bounded entries and maps `Primary` to the platform accelerator. The toolbar is another projection of command IDs rather than a separate action system.
+
+## Recovery and release boundary (M14)
+
+Document summaries expose dirty state from a saved revision. Untitled documents keep their original bytes and append store in application data; local files already have a stable original source. After an idle edit interval, the desktop asks the core to sync inserted bytes and atomically persist a bounded piece-table manifest. The manifest records original fingerprint, source ranges, current revision, encoding, language, and the append-store path. Restart lists only manifests whose original still matches and whose session files resolve inside the application-data root. Users choose to restore or discard each candidate. Save rebases the live piece table onto the newly written file and starts a fresh append store while retaining undo history. Tab and window close require Save or Discard for dirty documents.
+
+The CI pipeline checks Rust and frontend code, runs a nightly document fuzz target, and builds Debian, macOS app, and Windows NSIS bundles. Hosted runs, platform assistive-technology checks, and signing/notarization require external environments and credentials.
+
+## Interaction and layout boundary (M15–M18)
+
+IPC protocol v20 adds two pointer commands. `editor.selectWordAt` classifies graphemes in a window of at most 1 MiB around a byte offset and commits the resulting range as the document's selection; `editor.moveSelectedText` validates that the range is the current ordinary selection, then moves or copies its exact bytes as one batch against the observed revision. React only previews a drag: the insertion caret and threshold are presentation state, and no document byte changes until the core accepts the drop.
+
+IPC protocol v21 adds editing-session line markers. A tracker per document holds sorted, disjoint byte ranges tagged unsaved or saved, capped at 4,096; exceeding the cap merges neighbours and reports the result as approximate. It consumes the same replacement lists that relocate bookmarks, so there is one edit record per revision. Each history entry keeps the exact inverse of its marker change, valid until the next save. A viewport labels only the lines it returns, reading at most one extra byte per range to tell a split line from a whole inserted line, and the document map returns at most 1,024 ticks. This is not a diff: no baseline copy of the file is retained.
+
+IPC protocol v22 replaces the single optional split with a schema-v2 session of top-level tabs. Each tab owns a tree whose leaves are panes showing one document and whose branches carry a direction and a ratio in thousandths between 100 and 900; a tab with more than one pane is a named workspace. `nulis-filesystem` validates identifiers, names, references, ratios, depth, pane count, and tab count before a session is stored or returned, and migrates schema v1 by mapping its split onto one branch. The desktop keeps transient document IDs in the live trees and converts to `path:`/`recovery:` references only when saving, so a session never depends on an ID from a previous run. Grouping is a tree operation: the dragged tab's tree is inserted beside the target pane, so no document is closed, saved, or duplicated. Presentation-only actions are registered once in `WORKBENCH_ACTIONS`; the core names and validates them and the desktop applies them, which keeps palettes, shortcuts, menus, and toolbars on one dispatch path.
+
+IPC protocol v23 adds a customization revision and the Settings window. `customization.state` returns the document with a revision that advances on every stored change; `customization.saveChecked` rejects a save made against an older revision. The Tauri adapter authorizes every command by window label: the editor window keeps the full boundary, while the Settings window may run only `customization.state`, `customization.saveChecked`, `customization.reset`, `theme.list`, `theme.install`, `theme.uninstall`, `language.list`, and `plugin.list`, and cannot request document viewports. Its capability file grants event listening and the open-file dialog only. After a mutation the adapter notifies the other window, which reloads customization and rebuilds the native menu.
+
+IPC protocol v24 adds whole-machine browsing and broader language support. `places.roots` and `places.list` return the computer root, mounted volumes, the home directory, and one bounded absolute directory listing; unlike the workspace service they are not confined to an opened root and report a symlink as its target, because their purpose is to reach any file the user could already open by path through `file.open`. They list names and sizes only and never read file contents. Language modules now come in two kinds: Tree-sitter grammars (JSON, Python) and table-driven lexers, where a language is a static table interpreted by one of three bounded single-pass scanners. Both return the same analysis type, so the viewport, folding, and bracket matching do not distinguish them.
+
+## Crate boundaries
+
+- `nulis-document`: 64-bit positions, document-facing contracts; M01 owns mutations and snapshots.
+- `nulis-large-file`: random-access byte sources and later mmap/paged readers, pieces, and indexes.
+- `nulis-core`: command registry, opaque document sessions, and application-facing orchestration.
+- `nulis-settings`: schema-backed layered settings plus bounded, atomic customization persistence.
+- `nulis-search`, `nulis-syntax`, `nulis-hex`, `nulis-diff`: algorithms consuming public document/read interfaces.
+- `nulis-filesystem`, `nulis-remote`, `nulis-terminal`, `nulis-platform`: capability-oriented operating-system/service edges.
+- `nulis-automation`, `nulis-plugin-host`: versioned constrained extension execution.
+- `nulis-theme`: complete semantic tokens plus validated built-in/user theme catalogs.
+
+## Large-file engine (M01)
+
+An immutable random-access original source is combined with an append-only memory or disk add buffer. A deterministic implicit treap maps logical ranges to either source and maintains aggregate 64-bit byte lengths. Tree edits first append new bytes, then atomically replace the logical root. Sparse line checkpoints are produced by a separate cancellable streaming pass and refresh from the nearest stable checkpoint after edits. Viewport-local UTF-8 decoding retains byte coordinates even for invalid input. Search and save iterate bounded chunks/pieces. Undo records inverse logical edits under a configurable byte budget; optional history spill remains future work.
+
+Recovery serializes a versioned list of public source ranges, never private tree nodes or source bytes. Checkpoint order is append-store sync followed by atomic manifest commit. Recovery validates the original fingerprint and backing-store lengths before reconstructing the balanced tree; orphan append bytes from an interrupted checkpoint are harmless.
+
+No document is represented as one JavaScript string. The renderer receives only bounded viewport snapshots. Text decoding is a layer above byte storage so invalid bytes, encoding override, and hex mode preserve data.
+
+## Data integrity
+
+Save writes a securely and exclusively created same-directory temporary file, streams pieces, flushes and syncs file contents, validates the output length, and checks destination identity again. Persistence uses the platform replacement primitive through the reviewed `tempfile` crate: rename replacement on Unix and `MoveFileExW` with replacement on Windows. New-file saves use no-clobber persistence. Unix also syncs the containing directory; Windows directory durability remains limited by available safe standard APIs.
+
+## Extensibility
+
+Commands are stable string identifiers. UI and plugins receive DTOs, opaque document handles, and capability-scoped operations. Theme files are declarative data. Private Rust types never cross extension boundaries.

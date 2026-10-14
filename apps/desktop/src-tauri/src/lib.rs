@@ -1,0 +1,1085 @@
+use nulis_core::{
+    ApplicationInfo, CommandContext, CommandDescriptor, CommandError, DocumentId,
+    DocumentMapSnapshot, EditorError, HexViewportRequest, HexViewportSnapshot,
+    MarkdownPreviewSource, NulisCore, ViewportAtRequest, ViewportLineRequest, ViewportRequest,
+    ViewportSnapshot,
+};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::sync::Mutex;
+use tauri::{Emitter, Manager, State};
+
+#[cfg(desktop)]
+use tauri::menu::{Menu, MenuItemBuilder, PredefinedMenuItem, Submenu, SubmenuBuilder};
+
+const MAX_COMMAND_ID_BYTES: usize = 256;
+const MAX_COMMAND_ARGUMENT_BYTES: usize = 1024 * 1024;
+const NATIVE_MENU_EVENT: &str = "nulis://menu-command";
+const FILE_NEW_MENU_ID: &str = "file.new";
+const FILE_OPEN_MENU_ID: &str = "file.open";
+const FILE_SAVE_MENU_ID: &str = "file.save";
+const FILE_SAVE_AS_MENU_ID: &str = "file.saveAs";
+const CLOSE_FILE_MENU_ID: &str = "workbench.closeFile";
+const CLOSE_WINDOW_MENU_ID: &str = "window.close";
+const QUIT_MENU_ID: &str = "app.quit";
+const MAX_NATIVE_MENU_ENTRIES: usize = 64;
+const MAIN_WINDOW_LABEL: &str = "main";
+const SETTINGS_WINDOW_LABEL: &str = "settings";
+const HELP_WINDOW_LABEL: &str = "help";
+/// Help only reads what it needs to follow the chosen theme and font.
+const HELP_COMMANDS: &[&str] = &["customization.state", "theme.list"];
+const HELP_MIN_SIZE: (u32, u32) = (640, 420);
+const OPEN_SETTINGS_MENU_ID: &str = "workbench.openSettings";
+const ABOUT_MENU_ID: &str = "app.about";
+const HELP_MENU_ID: &str = "workbench.openHelp";
+const CUSTOMIZATION_CHANGED_EVENT: &str = "nulis://customization-changed";
+const APPEARANCE_PREVIEW_EVENT: &str = "nulis://appearance-preview";
+const MAX_APPEARANCE_PREVIEW_BYTES: usize = 4096;
+const MAX_WINDOW_FRAME_BYTES: u64 = 1024;
+const SETTINGS_MIN_SIZE: (u32, u32) = (640, 420);
+/// A restored window must keep at least this much of itself on one display.
+const MIN_VISIBLE_FRAME: (i64, i64) = (160, 120);
+
+/// Everything the Settings webview may ask the core to do. It receives no
+/// document, workspace, file system, terminal, remote, or automation authority.
+const SETTINGS_COMMANDS: &[&str] = &[
+    "customization.state",
+    "customization.saveChecked",
+    "customization.reset",
+    "theme.list",
+    "theme.install",
+    "theme.uninstall",
+    "language.list",
+    "plugin.list",
+];
+const CUSTOMIZATION_MUTATIONS: &[&str] = &[
+    "customization.save",
+    "customization.saveChecked",
+    "customization.reset",
+    "theme.install",
+    "theme.uninstall",
+];
+/// Presentation actions Settings may hand to the editor window.
+const SETTINGS_MAIN_ACTIONS: &[&str] = &["workspace.rename", "workbench.openPlugins"];
+const VIEW_MENU_COMMANDS: &[(&str, &str)] = &[
+    (
+        "view.toggleLineChangeIndicators",
+        "Show/Hide Line Change Indicators",
+    ),
+    ("workbench.toggleSidebar", "Toggle Primary Side Bar"),
+    ("editor.toggleReadOnly", "Toggle Read-Only Mode"),
+    ("workbench.splitRight", "Split Editor Right"),
+    ("workbench.splitDown", "Split Editor Down"),
+];
+const WORKSPACE_MENU_COMMANDS: &[&[(&str, &str)]] = &[
+    &[
+        ("workspace.rename", "Rename Workspace…"),
+        ("workspace.groupRight", "Group with Next Tab Side by Side"),
+        ("workspace.groupDown", "Group with Next Tab Stacked"),
+        ("workspace.ungroup", "Ungroup Workspace"),
+    ],
+    &[
+        ("workspace.popOutPane", "Move Pane to New Tab"),
+        ("workspace.closePane", "Close Pane"),
+        ("workspace.focusNextPane", "Focus Next Pane"),
+    ],
+    &[
+        ("workbench.nextTab", "Next Tab"),
+        ("workbench.previousTab", "Previous Tab"),
+        ("workbench.moveTabLeft", "Move Tab Left"),
+        ("workbench.moveTabRight", "Move Tab Right"),
+    ],
+];
+
+/// Outer position and inner size of a window in physical pixels.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+struct WindowFrame {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+
+#[derive(Default)]
+struct SettingsFrame(Mutex<Option<WindowFrame>>);
+
+/// Tools menu entries: command ID, title prefix, and whether XML has it.
+const TOOLS_MENU_COMMANDS: &[(&str, &str, bool)] = &[
+    ("tools.validate", "Validate", true),
+    ("tools.beautify", "Beautify", true),
+    ("tools.minify", "Minify", false),
+];
+
+/// The Tools menu items and the tool set of the focused document, if any.
+#[cfg(desktop)]
+#[derive(Default)]
+struct ToolsMenu(Mutex<(Vec<tauri::menu::MenuItem<tauri::Wry>>, Option<String>)>);
+
+/// Names and enables the Tools items for the focused document: `json`,
+/// `xml`, or neither.
+#[cfg(desktop)]
+fn apply_tools_menu(items: &[tauri::menu::MenuItem<tauri::Wry>], kind: Option<&str>) {
+    let label = match kind {
+        Some("json") => " JSON",
+        Some("xml") => " XML",
+        _ => "",
+    };
+    for (item, (_, title, for_xml)) in items.iter().zip(TOOLS_MENU_COMMANDS) {
+        let available = kind == Some("json") || (kind == Some("xml") && *for_xml);
+        let suffix = if available || *for_xml {
+            label
+        } else {
+            " JSON"
+        };
+        let _ = item.set_text(format!("{title}{suffix}"));
+        let _ = item.set_enabled(available);
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ExecuteCommandRequest {
+    id: String,
+    #[serde(default)]
+    context: CommandContext,
+    #[serde(default)]
+    arguments: Value,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+enum NativeMenuEntry {
+    Command {
+        command: String,
+        title: String,
+        accelerator: Option<String>,
+    },
+    Separator,
+}
+
+fn default_native_menu() -> Vec<NativeMenuEntry> {
+    vec![
+        NativeMenuEntry::Command {
+            command: FILE_NEW_MENU_ID.into(),
+            title: "New File".into(),
+            accelerator: Some("Primary+N".into()),
+        },
+        NativeMenuEntry::Command {
+            command: FILE_OPEN_MENU_ID.into(),
+            title: "Open…".into(),
+            accelerator: Some("Primary+O".into()),
+        },
+        NativeMenuEntry::Separator,
+        NativeMenuEntry::Command {
+            command: FILE_SAVE_MENU_ID.into(),
+            title: "Save".into(),
+            accelerator: Some("Primary+S".into()),
+        },
+        NativeMenuEntry::Command {
+            command: FILE_SAVE_AS_MENU_ID.into(),
+            title: "Save As…".into(),
+            accelerator: Some("Primary+Shift+S".into()),
+        },
+    ]
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri extracts State by value.
+fn application_info(core: State<'_, NulisCore>) -> ApplicationInfo {
+    core.application_info()
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri extracts State and WebviewWindow by value.
+fn close_window_after_save(
+    core: State<'_, NulisCore>,
+    window: tauri::WebviewWindow,
+) -> Result<(), String> {
+    if core
+        .has_dirty_documents()
+        .map_err(|error| error.to_string())?
+    {
+        return Err("Unsaved documents remain".into());
+    }
+    window.destroy().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri extracts State by value.
+fn list_commands(core: State<'_, NulisCore>) -> Vec<CommandDescriptor> {
+    core.command_descriptors()
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri extracts State by value.
+#[allow(clippy::unused_async)] // Async commands keep bounded script runs off the UI event loop.
+async fn execute_command(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    core: State<'_, NulisCore>,
+    request: ExecuteCommandRequest,
+) -> Result<Value, CommandError> {
+    validate_request(&request)?;
+    authorize_window_command(window.label(), &request.id)?;
+    let result = core.execute_command(&request.id, request.context, request.arguments)?;
+    if CUSTOMIZATION_MUTATIONS.contains(&request.id.as_str()) {
+        // Every other window refreshes its settings, toolbar, and native menu.
+        for label in [MAIN_WINDOW_LABEL, SETTINGS_WINDOW_LABEL, HELP_WINDOW_LABEL] {
+            if label != window.label() {
+                let _ = app.emit_to(label, CUSTOMIZATION_CHANGED_EVENT, ());
+            }
+        }
+    }
+    Ok(result)
+}
+
+/// The editor window has the full command boundary; Settings and Help have narrow allowlists.
+fn authorize_window_command(label: &str, id: &str) -> Result<(), CommandError> {
+    if label == MAIN_WINDOW_LABEL
+        || (label == SETTINGS_WINDOW_LABEL && SETTINGS_COMMANDS.contains(&id))
+        || (label == HELP_WINDOW_LABEL && HELP_COMMANDS.contains(&id))
+    {
+        return Ok(());
+    }
+    Err(CommandError::Failed(format!(
+        "command {id} is not available to the {label} window"
+    )))
+}
+
+/// Document bytes cross IPC only to the editor window.
+fn require_editor_window(window: &tauri::WebviewWindow) -> Result<(), EditorError> {
+    if window.label() == MAIN_WINDOW_LABEL {
+        Ok(())
+    } else {
+        Err(EditorError::StateUnavailable)
+    }
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri extracts State and WebviewWindow by value.
+fn editor_viewport(
+    core: State<'_, NulisCore>,
+    window: tauri::WebviewWindow,
+    request: ViewportRequest,
+) -> Result<ViewportSnapshot, EditorError> {
+    require_editor_window(&window)?;
+    core.viewport(&request)
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri extracts State and WebviewWindow by value.
+fn editor_hex_viewport(
+    core: State<'_, NulisCore>,
+    window: tauri::WebviewWindow,
+    request: HexViewportRequest,
+) -> Result<HexViewportSnapshot, EditorError> {
+    require_editor_window(&window)?;
+    core.hex_viewport(&request)
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri extracts State and WebviewWindow by value.
+fn editor_viewport_at(
+    core: State<'_, NulisCore>,
+    window: tauri::WebviewWindow,
+    request: ViewportAtRequest,
+) -> Result<ViewportSnapshot, EditorError> {
+    require_editor_window(&window)?;
+    core.viewport_at(&request)
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri extracts State and WebviewWindow by value.
+fn editor_document_map(
+    core: State<'_, NulisCore>,
+    window: tauri::WebviewWindow,
+    document_id: DocumentId,
+) -> Result<DocumentMapSnapshot, EditorError> {
+    require_editor_window(&window)?;
+    core.document_map(&document_id)
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri extracts State and WebviewWindow by value.
+fn editor_markdown_preview_source(
+    core: State<'_, NulisCore>,
+    window: tauri::WebviewWindow,
+    document_id: DocumentId,
+) -> Result<MarkdownPreviewSource, EditorError> {
+    require_editor_window(&window)?;
+    core.markdown_preview_source(&document_id)
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri extracts State and WebviewWindow by value.
+fn editor_markdown_preview_image(
+    core: State<'_, NulisCore>,
+    window: tauri::WebviewWindow,
+    document_id: DocumentId,
+    relative_path: String,
+) -> Result<String, EditorError> {
+    require_editor_window(&window)?;
+    core.markdown_preview_image(&document_id, &relative_path)
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri extracts State and WebviewWindow by value.
+fn editor_viewport_line(
+    core: State<'_, NulisCore>,
+    window: tauri::WebviewWindow,
+    request: ViewportLineRequest,
+) -> Result<ViewportSnapshot, EditorError> {
+    require_editor_window(&window)?;
+    core.viewport_line(&request)
+}
+
+fn validate_request(request: &ExecuteCommandRequest) -> Result<(), CommandError> {
+    if request.id.len() > MAX_COMMAND_ID_BYTES {
+        return Err(CommandError::InvalidId(request.id.clone()));
+    }
+    let argument_size = serde_json::to_vec(&request.arguments)
+        .map_err(|error| CommandError::Failed(format!("invalid command arguments: {error}")))?
+        .len();
+    if argument_size > MAX_COMMAND_ARGUMENT_BYTES {
+        return Err(CommandError::Failed(
+            "command arguments exceed the 1 MiB IPC limit".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_native_menu(entries: &[NativeMenuEntry]) -> Result<(), String> {
+    if entries.len() > MAX_NATIVE_MENU_ENTRIES
+        || matches!(entries.first(), Some(NativeMenuEntry::Separator))
+        || matches!(entries.last(), Some(NativeMenuEntry::Separator))
+        || entries.windows(2).any(|pair| {
+            matches!(
+                pair,
+                [NativeMenuEntry::Separator, NativeMenuEntry::Separator]
+            )
+        })
+    {
+        return Err("native menu layout is invalid".into());
+    }
+    for entry in entries {
+        if let NativeMenuEntry::Command {
+            command,
+            title,
+            accelerator,
+        } = entry
+        {
+            if command.is_empty()
+                || command.len() > MAX_COMMAND_ID_BYTES
+                || !command.contains('.')
+                || !command
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_'))
+                || title.trim().is_empty()
+                || title.len() > 128
+                || accelerator
+                    .as_deref()
+                    .is_some_and(|value| portable_accelerator(value).is_none())
+            {
+                return Err("native menu command is invalid".into());
+            }
+        }
+    }
+    Ok(())
+}
+
+fn portable_accelerator(value: &str) -> Option<String> {
+    let parts = value.split('+').collect::<Vec<_>>();
+    if !(2..=4).contains(&parts.len()) {
+        return None;
+    }
+    let modifiers = &parts[..parts.len() - 1];
+    let canonical = ["Primary", "Shift", "Alt"];
+    let mut previous = None;
+    for modifier in modifiers {
+        let index = canonical
+            .iter()
+            .position(|candidate| candidate == modifier)?;
+        if previous.is_some_and(|last| index <= last) {
+            return None;
+        }
+        previous = Some(index);
+    }
+    if !modifiers.contains(&"Primary") {
+        return None;
+    }
+    let mut translated = Vec::new();
+    for part in parts {
+        translated.push(match part {
+            "Primary" => "CmdOrCtrl",
+            "Shift" => "Shift",
+            "Alt" => "Alt",
+            key if key.len() == 1 && key.bytes().all(|byte| byte.is_ascii_alphanumeric()) => key,
+            "Enter" => "Enter",
+            "Escape" => "Escape",
+            "Tab" => "Tab",
+            "Backspace" => "Backspace",
+            "Delete" => "Delete",
+            "ArrowUp" => "Up",
+            "ArrowDown" => "Down",
+            "ArrowLeft" => "Left",
+            "ArrowRight" => "Right",
+            _ => return None,
+        });
+    }
+    Some(translated.join("+"))
+}
+
+#[cfg(desktop)]
+fn install_native_menu(app: &tauri::AppHandle, entries: &[NativeMenuEntry]) -> tauri::Result<()> {
+    // Primary+W closes the file, as in other editors; the window takes Shift.
+    let close_window = MenuItemBuilder::with_id(CLOSE_WINDOW_MENU_ID, "Close Window")
+        .accelerator("CmdOrCtrl+Shift+W")
+        .build(app)?;
+    #[cfg(not(target_os = "macos"))]
+    let quit = MenuItemBuilder::with_id(QUIT_MENU_ID, "Quit Nulis")
+        .accelerator("CmdOrCtrl+Q")
+        .build(app)?;
+
+    let mut file_builder = SubmenuBuilder::with_id(app, "nulis.file", "File");
+    for entry in entries {
+        match entry {
+            NativeMenuEntry::Separator => file_builder = file_builder.separator(),
+            NativeMenuEntry::Command {
+                command,
+                title,
+                accelerator,
+            } => {
+                let mut item = MenuItemBuilder::with_id(command, title);
+                if let Some(accelerator) = accelerator.as_deref().and_then(portable_accelerator) {
+                    item = item.accelerator(accelerator);
+                }
+                file_builder = file_builder.item(&item.build(app)?);
+            }
+        }
+    }
+    if !entries.is_empty() {
+        file_builder = file_builder.separator();
+    }
+    // Close File is always offered, even in a customized menu that omits it.
+    if !native_menu_has(entries, CLOSE_FILE_MENU_ID) {
+        file_builder = file_builder.item(
+            &MenuItemBuilder::with_id(CLOSE_FILE_MENU_ID, "Close File")
+                .accelerator("CmdOrCtrl+W")
+                .build(app)?,
+        );
+    }
+    // macOS places Settings in the application menu; other platforms use File.
+    #[cfg(not(target_os = "macos"))]
+    let file_builder = if native_menu_has(entries, OPEN_SETTINGS_MENU_ID) {
+        file_builder
+    } else {
+        file_builder.item(&settings_item(app)?).separator()
+    };
+    let file_builder = file_builder.item(&close_window);
+    #[cfg(not(target_os = "macos"))]
+    let file_builder = file_builder.item(&quit);
+    let file_menu = file_builder.build()?;
+
+    let menu = Menu::default(app)?;
+    #[cfg(target_os = "macos")]
+    {
+        // The default macOS menu places File after the application menu.
+        let _ = menu.remove_at(1)?;
+        menu.insert(&file_menu, 1)?;
+        // Standard placement: Nulis ▸ Settings…, directly below About.
+        if let Some(application) = menu.items()?.first().and_then(|item| item.as_submenu()) {
+            // The application's own About page replaces the system panel.
+            let _ = application.remove_at(0)?;
+            application.insert(
+                &MenuItemBuilder::with_id(ABOUT_MENU_ID, "About Nulis").build(app)?,
+                0,
+            )?;
+            application.insert(&PredefinedMenuItem::separator(app)?, 1)?;
+            application.insert(&settings_item(app)?, 2)?;
+        }
+    }
+    #[cfg(all(
+        not(target_os = "macos"),
+        not(any(
+            target_os = "linux",
+            target_os = "dragonfly",
+            target_os = "freebsd",
+            target_os = "netbsd",
+            target_os = "openbsd"
+        ))
+    ))]
+    {
+        // Windows' default menu starts with File, so replace that submenu.
+        let _ = menu.remove_at(0)?;
+        menu.insert(&file_menu, 0)?;
+    }
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
+    menu.insert(&file_menu, 0)?;
+
+    add_command_menus(app, &menu)?;
+
+    app.set_menu(menu)?;
+    Ok(())
+}
+
+/// Adds the View commands and the Tools and Workspace menus.
+#[cfg(desktop)]
+fn add_command_menus(app: &tauri::AppHandle, menu: &Menu<tauri::Wry>) -> tauri::Result<()> {
+    let view = find_or_add_submenu(app, menu, "View")?;
+    if !view.items()?.is_empty() {
+        view.append(&PredefinedMenuItem::separator(app)?)?;
+    }
+    append_commands(app, &view, VIEW_MENU_COMMANDS)?;
+    // Tools are named and enabled for the focused document's language.
+    let tools = find_or_add_submenu(app, menu, "Tools")?;
+    let mut tool_items = Vec::new();
+    for (id, title, _) in TOOLS_MENU_COMMANDS {
+        let item = MenuItemBuilder::with_id(*id, *title).build(app)?;
+        tools.append(&item)?;
+        tool_items.push(item);
+    }
+    if let Ok(mut state) = app.state::<ToolsMenu>().0.lock() {
+        apply_tools_menu(&tool_items, state.1.as_deref());
+        state.0 = tool_items;
+    }
+    let workspace = find_or_add_submenu(app, menu, "Workspace")?;
+    for (index, section) in WORKSPACE_MENU_COMMANDS.iter().enumerate() {
+        if index > 0 {
+            workspace.append(&PredefinedMenuItem::separator(app)?)?;
+        }
+        append_commands(app, &workspace, section)?;
+    }
+    // Help holds the user guide and the About page on every platform; the
+    // default menu's own entries (a system About panel) are replaced.
+    let help = find_or_add_submenu(app, menu, "Help")?;
+    while !help.items()?.is_empty() {
+        let _ = help.remove_at(0)?;
+    }
+    help.append(
+        &MenuItemBuilder::with_id(HELP_MENU_ID, "Nulis Help")
+            .accelerator("F1")
+            .build(app)?,
+    )?;
+    help.append(&PredefinedMenuItem::separator(app)?)?;
+    help.append(&MenuItemBuilder::with_id(ABOUT_MENU_ID, "About Nulis").build(app)?)?;
+    Ok(())
+}
+
+#[cfg(desktop)]
+fn settings_item(app: &tauri::AppHandle) -> tauri::Result<tauri::menu::MenuItem<tauri::Wry>> {
+    MenuItemBuilder::with_id(OPEN_SETTINGS_MENU_ID, "Settings…")
+        .accelerator("CmdOrCtrl+,")
+        .build(app)
+}
+
+#[cfg(desktop)]
+fn native_menu_has(entries: &[NativeMenuEntry], id: &str) -> bool {
+    entries
+        .iter()
+        .any(|entry| matches!(entry, NativeMenuEntry::Command { command, .. } if command == id))
+}
+
+/// Returns the named top-level submenu, creating it before Window/Help when absent.
+#[cfg(desktop)]
+fn find_or_add_submenu(
+    app: &tauri::AppHandle,
+    menu: &Menu<tauri::Wry>,
+    name: &str,
+) -> tauri::Result<Submenu<tauri::Wry>> {
+    let items = menu.items()?;
+    let titled = |title: &str| {
+        items.iter().position(|item| {
+            item.as_submenu()
+                .and_then(|submenu| submenu.text().ok())
+                .is_some_and(|text| text == title)
+        })
+    };
+    if let Some(existing) = titled(name).and_then(|index| items[index].as_submenu().cloned()) {
+        return Ok(existing);
+    }
+    let created = SubmenuBuilder::new(app, name).build()?;
+    match titled("Window").or_else(|| titled("Help")) {
+        Some(index) => menu.insert(&created, index)?,
+        None => menu.append(&created)?,
+    }
+    Ok(created)
+}
+
+#[cfg(desktop)]
+fn append_commands(
+    app: &tauri::AppHandle,
+    submenu: &Submenu<tauri::Wry>,
+    commands: &[(&str, &str)],
+) -> tauri::Result<()> {
+    for (id, title) in commands {
+        submenu.append(&MenuItemBuilder::with_id(*id, *title).build(app)?)?;
+    }
+    Ok(())
+}
+
+/// Keeps a remembered frame only if enough of it is still on a connected
+/// display, shrinking it to that display when the screen got smaller.
+fn visible_frame(frame: WindowFrame, monitors: &[WindowFrame]) -> Option<WindowFrame> {
+    let width = frame.width.max(SETTINGS_MIN_SIZE.0);
+    let height = frame.height.max(SETTINGS_MIN_SIZE.1);
+    monitors.iter().find_map(|monitor| {
+        let width = width.min(monitor.width);
+        let height = height.min(monitor.height);
+        let overlap = |start: i32, len: u32, other_start: i32, other_len: u32| {
+            let end = i64::from(start) + i64::from(len);
+            let other_end = i64::from(other_start) + i64::from(other_len);
+            end.min(other_end) - i64::from(start.max(other_start))
+        };
+        (overlap(frame.x, width, monitor.x, monitor.width) >= MIN_VISIBLE_FRAME.0
+            && overlap(frame.y, height, monitor.y, monitor.height) >= MIN_VISIBLE_FRAME.1)
+            .then_some(WindowFrame {
+                x: frame.x,
+                y: frame.y,
+                width,
+                height,
+            })
+    })
+}
+
+fn settings_frame_path(app: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    app.path()
+        .app_data_dir()
+        .ok()
+        .map(|directory| directory.join("settings-window.json"))
+}
+
+fn load_settings_frame(app: &tauri::AppHandle) -> Option<WindowFrame> {
+    let path = settings_frame_path(app)?;
+    if std::fs::metadata(&path).ok()?.len() > MAX_WINDOW_FRAME_BYTES {
+        return None;
+    }
+    serde_json::from_slice(&std::fs::read(path).ok()?).ok()
+}
+
+fn remember_settings_frame(window: &tauri::Window) {
+    if window.is_minimized().unwrap_or(true) {
+        return;
+    }
+    let (Ok(position), Ok(size)) = (window.outer_position(), window.inner_size()) else {
+        return;
+    };
+    if let Ok(mut frame) = window.state::<SettingsFrame>().0.lock() {
+        *frame = Some(WindowFrame {
+            x: position.x,
+            y: position.y,
+            width: size.width,
+            height: size.height,
+        });
+    }
+}
+
+fn persist_settings_frame(app: &tauri::AppHandle) {
+    let frame = app
+        .state::<SettingsFrame>()
+        .0
+        .lock()
+        .ok()
+        .and_then(|frame| *frame);
+    if let (Some(frame), Some(path)) = (frame, settings_frame_path(app)) {
+        if let Ok(bytes) = serde_json::to_vec(&frame) {
+            let _ = std::fs::write(path, bytes);
+        }
+    }
+}
+
+/// Opens the singleton Settings window or brings the existing one forward.
+fn show_settings_window(app: &tauri::AppHandle) -> tauri::Result<()> {
+    if let Some(window) = app.get_webview_window(SETTINGS_WINDOW_LABEL) {
+        window.unminimize()?;
+        window.show()?;
+        return window.set_focus();
+    }
+    let window = tauri::WebviewWindowBuilder::new(
+        app,
+        SETTINGS_WINDOW_LABEL,
+        tauri::WebviewUrl::App("index.html?window=settings".into()),
+    )
+    .title("Settings")
+    .inner_size(880.0, 620.0)
+    .min_inner_size(
+        f64::from(SETTINGS_MIN_SIZE.0),
+        f64::from(SETTINGS_MIN_SIZE.1),
+    )
+    .resizable(true)
+    .build()?;
+    let monitors = window
+        .available_monitors()?
+        .iter()
+        .map(|monitor| WindowFrame {
+            x: monitor.position().x,
+            y: monitor.position().y,
+            width: monitor.size().width,
+            height: monitor.size().height,
+        })
+        .collect::<Vec<_>>();
+    if let Some(frame) = load_settings_frame(app).and_then(|frame| visible_frame(frame, &monitors))
+    {
+        window.set_size(tauri::PhysicalSize::new(frame.width, frame.height))?;
+        window.set_position(tauri::PhysicalPosition::new(frame.x, frame.y))?;
+    }
+    Ok(())
+}
+
+/// Opens the singleton Help window or brings the existing one forward.
+fn show_help_window(app: &tauri::AppHandle) -> tauri::Result<()> {
+    if let Some(window) = app.get_webview_window(HELP_WINDOW_LABEL) {
+        window.unminimize()?;
+        window.show()?;
+        return window.set_focus();
+    }
+    tauri::WebviewWindowBuilder::new(
+        app,
+        HELP_WINDOW_LABEL,
+        tauri::WebviewUrl::App("index.html?window=help".into()),
+    )
+    .title("Nulis Help")
+    .inner_size(980.0, 700.0)
+    .min_inner_size(f64::from(HELP_MIN_SIZE.0), f64::from(HELP_MIN_SIZE.1))
+    .resizable(true)
+    .build()?;
+    Ok(())
+}
+
+fn require_settings_window(window: &tauri::WebviewWindow) -> Result<(), String> {
+    if window.label() == SETTINGS_WINDOW_LABEL {
+        Ok(())
+    } else {
+        Err("only the Settings window may do this".into())
+    }
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri extracts AppHandle by value.
+fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
+    show_settings_window(&app).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri extracts AppHandle by value.
+fn close_settings_window(app: tauri::AppHandle) -> Result<(), String> {
+    match app.get_webview_window(SETTINGS_WINDOW_LABEL) {
+        Some(window) => window.destroy().map_err(|error| error.to_string()),
+        None => Ok(()),
+    }
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri extracts AppHandle by value.
+fn open_help_window(app: tauri::AppHandle) -> Result<(), String> {
+    show_help_window(&app).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri extracts AppHandle by value.
+fn close_help_window(app: tauri::AppHandle) -> Result<(), String> {
+    match app.get_webview_window(HELP_WINDOW_LABEL) {
+        Some(window) => window.destroy().map_err(|error| error.to_string()),
+        None => Ok(()),
+    }
+}
+
+/// Relays an unapplied appearance preview to the editor window; `null` reverts it.
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri extracts its arguments by value.
+fn settings_preview(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    appearance: Option<Value>,
+) -> Result<(), String> {
+    require_settings_window(&window)?;
+    let size = serde_json::to_vec(&appearance)
+        .map_err(|error| error.to_string())?
+        .len();
+    if size > MAX_APPEARANCE_PREVIEW_BYTES {
+        return Err("appearance preview is too large".into());
+    }
+    app.emit_to(MAIN_WINDOW_LABEL, APPEARANCE_PREVIEW_EVENT, appearance)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri extracts its arguments by value.
+fn settings_changed(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<(), String> {
+    require_settings_window(&window)?;
+    // Help follows the theme too; it is simply absent when not open.
+    let _ = app.emit_to(HELP_WINDOW_LABEL, CUSTOMIZATION_CHANGED_EVENT, ());
+    app.emit_to(MAIN_WINDOW_LABEL, CUSTOMIZATION_CHANGED_EVENT, ())
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri extracts its arguments by value.
+fn settings_main_action(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    action: String,
+) -> Result<(), String> {
+    require_settings_window(&window)?;
+    if !SETTINGS_MAIN_ACTIONS.contains(&action.as_str()) {
+        return Err("that action is not available from Settings".into());
+    }
+    if let Some(main) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        let _ = main.set_focus();
+    }
+    app.emit_to(MAIN_WINDOW_LABEL, NATIVE_MENU_EVENT, action)
+        .map_err(|error| error.to_string())
+}
+
+/// Tells the native Tools menu which tool set the focused document has.
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri extracts its arguments by value.
+fn set_tools_menu(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    kind: Option<String>,
+) -> Result<(), String> {
+    if window.label() != MAIN_WINDOW_LABEL {
+        return Err("only the editor window sets the Tools menu".into());
+    }
+    if !matches!(kind.as_deref(), None | Some("json" | "xml")) {
+        return Err("unknown tool set".into());
+    }
+    #[cfg(desktop)]
+    if let Ok(mut state) = app.state::<ToolsMenu>().0.lock() {
+        apply_tools_menu(&state.0, kind.as_deref());
+        state.1 = kind;
+    }
+    #[cfg(not(desktop))]
+    let _ = (app, kind);
+    Ok(())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)]
+fn configure_native_menu(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    entries: Vec<NativeMenuEntry>,
+) -> Result<(), String> {
+    if window.label() != MAIN_WINDOW_LABEL {
+        return Err("only the editor window configures the native menu".into());
+    }
+    validate_native_menu(&entries)?;
+    #[cfg(desktop)]
+    install_native_menu(&app, &entries).map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+/// macOS adds an `AutoFill` item to the Edit menu of any application whose
+/// Edit menu has the standard cut, copy, and paste actions. Nulis is an
+/// editor, not a form, so the item is turned off before `AppKit` builds the
+/// menu. The key was confirmed against a minimal `AppKit` menu on macOS 26.
+#[cfg(target_os = "macos")]
+fn disable_webview_autofill_menu() {
+    use objc2_foundation::{NSString, NSUserDefaults};
+    NSUserDefaults::standardUserDefaults().setBool_forKey(
+        false,
+        &NSString::from_str("NSAutoFillSystemInsertMenuEnabled"),
+    );
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// Starts the native Nulis desktop event loop.
+///
+/// # Panics
+/// Panics if Tauri cannot initialize or the platform event loop exits with an error.
+pub fn run() {
+    #[cfg(target_os = "macos")]
+    disable_webview_autofill_menu();
+    tauri::Builder::default()
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_dialog::init())
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            CLOSE_WINDOW_MENU_ID | QUIT_MENU_ID => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.close();
+                }
+            }
+            // Opened natively so it works whichever window has focus.
+            OPEN_SETTINGS_MENU_ID => {
+                let _ = show_settings_window(app);
+            }
+            // Opened natively so it works whichever window has focus.
+            HELP_MENU_ID => {
+                let _ = show_help_window(app);
+            }
+            // The About page lives in the main window, which may be behind another one.
+            ABOUT_MENU_ID => {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.set_focus();
+                }
+                let _ = app.emit_to("main", NATIVE_MENU_EVENT, ABOUT_MENU_ID);
+            }
+            command if command.contains('.') => {
+                let _ = app.emit_to("main", NATIVE_MENU_EVENT, command);
+            }
+            _ => {}
+        })
+        .on_window_event(|window, event| match (window.label(), event) {
+            (
+                SETTINGS_WINDOW_LABEL,
+                tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_),
+            ) => remember_settings_frame(window),
+            (SETTINGS_WINDOW_LABEL, tauri::WindowEvent::Destroyed) => {
+                let app = window.app_handle();
+                persist_settings_frame(app);
+                // Any unapplied preview ends with the window that showed it.
+                let _ = app.emit_to(MAIN_WINDOW_LABEL, APPEARANCE_PREVIEW_EVENT, Value::Null);
+            }
+            (MAIN_WINDOW_LABEL, tauri::WindowEvent::Destroyed) => {
+                for label in [SETTINGS_WINDOW_LABEL, HELP_WINDOW_LABEL] {
+                    if let Some(secondary) = window.app_handle().get_webview_window(label) {
+                        let _ = secondary.destroy();
+                    }
+                }
+            }
+            _ => {}
+        })
+        .setup(|app| {
+            let session_root = app.path().app_data_dir()?.join("sessions");
+            app.manage(NulisCore::with_session_root(session_root));
+            app.manage(SettingsFrame::default());
+            #[cfg(desktop)]
+            app.manage(ToolsMenu::default());
+            #[cfg(desktop)]
+            install_native_menu(app.handle(), &default_native_menu())?;
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            close_window_after_save,
+            application_info,
+            list_commands,
+            execute_command,
+            editor_viewport,
+            editor_hex_viewport,
+            editor_viewport_at,
+            editor_document_map,
+            editor_markdown_preview_source,
+            editor_markdown_preview_image,
+            editor_viewport_line,
+            configure_native_menu,
+            set_tools_menu,
+            open_settings_window,
+            close_settings_window,
+            open_help_window,
+            close_help_window,
+            settings_preview,
+            settings_changed,
+            settings_main_action
+        ])
+        .run(tauri::generate_context!())
+        .expect("failed to run Nulis desktop application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        authorize_window_command, portable_accelerator, validate_native_menu, validate_request,
+        visible_frame, CommandContext, ExecuteCommandRequest, NativeMenuEntry, WindowFrame,
+    };
+    use serde_json::{json, Value};
+
+    #[test]
+    fn rejects_oversized_command_ids() {
+        let request = ExecuteCommandRequest {
+            id: format!("test.{}", "x".repeat(300)),
+            context: CommandContext::default(),
+            arguments: Value::Null,
+        };
+        assert!(validate_request(&request).is_err());
+    }
+
+    #[test]
+    fn rejects_oversized_argument_payloads() {
+        let request = ExecuteCommandRequest {
+            id: "test.payload".into(),
+            context: CommandContext::default(),
+            arguments: json!("x".repeat(1024 * 1024)),
+        };
+        assert!(validate_request(&request).is_err());
+    }
+
+    #[test]
+    fn portable_shortcuts_are_translated_for_tauri() {
+        assert_eq!(
+            portable_accelerator("Primary+Shift+S").as_deref(),
+            Some("CmdOrCtrl+Shift+S")
+        );
+        assert!(portable_accelerator("Control+S").is_none());
+        assert!(portable_accelerator("Shift+Primary+S").is_none());
+    }
+
+    #[test]
+    fn settings_window_is_limited_to_customization_commands() {
+        for id in [
+            "file.open",
+            "editor.insertText",
+            "terminal.create",
+            "session.load",
+        ] {
+            assert!(authorize_window_command("main", id).is_ok());
+            assert!(authorize_window_command("settings", id).is_err(), "{id}");
+        }
+        for id in ["customization.saveChecked", "theme.install", "plugin.list"] {
+            assert!(authorize_window_command("settings", id).is_ok(), "{id}");
+        }
+        // Help can read the theme and nothing else.
+        for id in ["customization.state", "theme.list"] {
+            assert!(authorize_window_command("help", id).is_ok(), "{id}");
+        }
+        for id in ["file.open", "customization.saveChecked", "plugin.list"] {
+            assert!(authorize_window_command("help", id).is_err(), "{id}");
+        }
+        assert!(authorize_window_command("other", "theme.list").is_err());
+    }
+
+    #[test]
+    fn remembered_settings_frame_is_restored_only_within_visible_bounds() {
+        let frame = |x, y, width, height| WindowFrame {
+            x,
+            y,
+            width,
+            height,
+        };
+        let displays = [frame(0, 0, 1920, 1080), frame(1920, 0, 1280, 1024)];
+        // On the second display.
+        assert_eq!(
+            visible_frame(frame(2000, 100, 900, 600), &displays),
+            Some(frame(2000, 100, 900, 600))
+        );
+        // The display it was on is gone.
+        assert_eq!(
+            visible_frame(frame(4000, 100, 900, 600), &displays[..1]),
+            None
+        );
+        // Mostly off-screen is not usable.
+        assert_eq!(visible_frame(frame(-850, 100, 900, 600), &displays), None);
+        // A window larger than the remaining display shrinks to fit it.
+        assert_eq!(
+            visible_frame(frame(100, 50, 3000, 2000), &displays[..1]),
+            Some(frame(100, 50, 1920, 1080))
+        );
+        // A corrupt tiny size is raised to the minimum.
+        assert_eq!(
+            visible_frame(frame(10, 10, 1, 1), &displays),
+            Some(frame(10, 10, 640, 420))
+        );
+    }
+
+    #[test]
+    fn native_menu_rejects_edge_separators() {
+        assert!(validate_native_menu(&[NativeMenuEntry::Separator]).is_err());
+    }
+}

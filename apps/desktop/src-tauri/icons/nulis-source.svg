@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
+  <title id="title">Nulis application mark</title>
+  <defs>
+    <linearGradient id="background" x1="128" y1="96" x2="896" y2="928" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#222831"/>
+      <stop offset="1" stop-color="#0C0F13"/>
+    </linearGradient>
+    <linearGradient id="stroke" x1="260" y1="244" x2="770" y2="790" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFB18C"/>
+      <stop offset="1" stop-color="#D45E50"/>
+    </linearGradient>
+  </defs>
+  <rect x="64" y="64" width="896" height="896" rx="224" fill="url(#background)"/>
+  <path d="M294 744V280c0-28 18-52 45-60 26-8 55 2 70 25l267 381V280c0-35 28-64 64-64s64 29 64 64v464c0 28-18 52-45 60-26 8-55-2-70-25L422 398v346c0 35-28 64-64 64s-64-29-64-64Z" fill="url(#stroke)"/>
+  <circle cx="806" cy="806" r="52" fill="#F3D2B9"/>
+</svg>

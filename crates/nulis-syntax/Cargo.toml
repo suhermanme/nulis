@@ -1,0 +1,16 @@
+[package]
+name = "nulis-syntax"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
+tree-sitter.workspace = true
+tree-sitter-json.workspace = true
+tree-sitter-python.workspace = true

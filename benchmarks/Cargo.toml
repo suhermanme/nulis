@@ -1,0 +1,17 @@
+[package]
+name = "nulis-benchmarks"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+nulis-core = { path = "../crates/nulis-core" }
+nulis-document = { path = "../crates/nulis-document" }
+nulis-large-file = { path = "../crates/nulis-large-file" }
+
+tempfile.workspace = true
+
+[lints]
+workspace = true

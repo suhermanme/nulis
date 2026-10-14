@@ -1,0 +1,71 @@
+# Capability status
+
+Legend: `[ ]` not started, `[~]` partial, `[x]` complete. “Complete” requires working implementation and appropriate tests.
+
+## Foundation
+
+- [~] Cross-platform desktop shell (macOS built; hosted Windows/Linux runs pending)
+- [x] Headless Rust command registry
+- [x] Layered settings merge foundation
+- [~] Strongly typed IPC (versioned mirrored DTOs; generation pending)
+- [~] CI (three-platform matrix defined; first hosted run pending)
+
+## Documents and editing
+
+- [x] Disk-backed document model and balanced piece structure (native open, visible atomic Save/Save As, disk-backed sessions, and guarded unsaved-close decisions)
+- [x] Streaming safe save (same-directory synced output, concurrent-change detection, cross-platform replacement path)
+- [x] Bounded undo/redo
+- [x] Virtualized editor viewport (bounded snapshots, virtual rows, line numbers, sparse-checkpoint random navigation, off-screen caret reveal, and cross-page drag paging are tested)
+- [x] Clipboard editing (bounded multi-selection copy/cut uses newline-joined core ranges and native text-write permission)
+- [~] Edit and Read-Only modes (per-document toggle enforced in `nulis-document` for every edit, undo, and redo; status bar badge, toolbar button, tab and pane lock, block caret, command, View menu item, and Primary+Shift+L; the mode is not persisted across sessions)
+- [x] Status bar position and size (caret line and column from the focused editor, size in bytes, and a streamed character count for documents up to 64 MiB)
+- [~] Insert/overwrite modes (Unicode-aware overwrite and UI toggle work; broader platform keyboard validation pending)
+- [~] Multiple documents and workspace tabs (one tab strip; dragging a tab into the content groups it into a named workspace of nested panes, with drop preview, pane pop-out, keyboard commands, bounded limits, and schema-v2 sessions; hosted platform and screen-reader validation pending)
+- [~] Precise pointer editing (core Unicode word selection for double-click and Primary+D, logical-line triple-click, and revision-checked drag move/copy as one undo step; manual pointer/IME checks on Windows and Linux pending)
+- [~] Line change indicators (sparse unsaved/saved/deletion markers through save, undo/redo, and recovery, with map ticks and a persistent toggle; theme-specific marker colors and hosted validation pending)
+- [x] Multi-caret and multi-selection (bounded core fan-out, per-caret navigation, Alt-click creation, rendering, clipboard, and one-action undo/redo)
+- [x] Column/block editing (constant-size core rectangle, bounded line-local operations, virtual-space insert, row-distributed paste, and Alt-Shift drag)
+- [~] Encoding detection and conversion (lossless UTF-8 and Windows-1252 override/editing controls with source-byte mappings; automatic detection and broader conversion remain)
+- [~] File change detection and recovery (fingerprints, dirty-close decisions, durable local/untitled checkpoints, and startup recovery choices work; changed sources are flagged but cannot be merged, and remote recovery remains)
+
+## Search and languages
+
+- [x] Streaming find and replace (64 KiB reads, bounded results, wrap navigation, and atomic Replace All)
+- [x] Regular expressions and multiline search (finite-width regexes up to a 1 MiB match bound; unsafe unbounded expressions are rejected explicitly)
+- [x] Find in files (recursive regular-file scan with symlink exclusion and hard file/result caps)
+- [x] Modular syntax highlighting and folding (bounded JSON/Python Tree-sitter modules, a Markdown scanner, and table-driven lexers for 34 more languages including C/C++, C#, Java, JavaScript/TypeScript, Rust, Swift, Zig, Go, PHP, Perl, Ruby, shell, Batch, PowerShell, SQL dialects, Visual Basic, HTML/XML/XSL, and CSS; stable token classes, bracket pairs, and brace/element folding)
+- [x] Symbols, language detection, and bracket matching (file-name and extension detection, `#!`/XML/PHP/HTML content detection for names that say nothing, override command/control, bounded symbols, and paired-bracket rendering)
+
+## Specialized tools
+
+- [x] JSON and XML tools (validate with caret placement on the first problem, beautify, and JSON minify, shown only for JSON/XML documents; XML checking is well-formedness, not DTD or schema validation)
+- [x] Scalable hexadecimal editor (bounded raw-byte viewport, 64-bit paging, synchronized hex/ASCII selection, byte-native editing, and deep sparse-file regressions)
+- [x] Text/binary compare and merge (bounded line-window and raw-byte pages, bidirectional revision-checked hunk application, and content-aware folder comparison)
+- [x] Workspace/file explorer (File View with Open, Places, and Folder tabs; Places browses the computer and mounted volumes with lazy bounded listings, a file-name filter, and optional hidden files; the opened folder keeps its canonical root and symlink rule; files open through the central command)
+- [x] Remote file providers (bounded read-only SFTP with saved profiles, pinned host keys, and platform-keychain passwords)
+- [x] Integrated terminal (native PTY sessions, bounded output rings, direct argument arrays, resize/input/lifecycle commands, and xterm.js rendering)
+- [~] Restricted Markdown/HTML preview (Markdown Edit/View mode with safe rendering, GitHub-style syntax, and bounded local images; separate HTML preview remains)
+
+## Extensibility and customization
+
+- [~] Central commands (registry and searchable desktop palette cover file/workspace actions, layout actions, undo/redo, and editor operations; later milestone commands remain)
+- [x] Plugin architecture (validated packages, isolated JavaScript workers, digest-bound approval, activation events, command contributions, manager UI, and versioned SDK)
+- [x] Themes (complete semantic tokens, strict built-ins, bounded user-theme install/discovery/uninstall, and persisted live switching)
+- [x] Macro recording and sandboxed scripting (bounded macros plus explicitly approved, capability-gated scripts)
+- [~] Searchable settings and migrations (sectioned settings with per-section filters over schema-v1 customization storage and reset; workbench sessions migrate from schema v1 to v2; customization migration tooling for a future schema revision remains)
+- [x] Configurable shortcuts, menus, and toolbars (portable chords drive web/native menus and command dispatch)
+- [~] Icon toolbars and separate Settings window (one bundled vector icon set with accessible names, tooltips, pressed states, and an overflow menu; a singleton sectioned Settings window with revision-checked apply, a narrow command allowlist, and frame restoration; native-window behavior on Windows/Linux not yet exercised)
+
+## Documentation and licensing
+
+- [~] User guide and Help window (`docs/USER_GUIDE.md` and `docs/PLUGIN_GUIDE.md`, bundled and shown under Help ▸ Nulis Help and F1 in a separate sectioned window with search; native-window behavior not yet exercised by hand)
+- [x] Plugin developer guide and examples (`docs/PLUGIN_GUIDE.md`; `hello-nulis` and the TypeScript `nulis-tips` example both run in the real worker under test)
+- [x] About page (icon, version, origin of the name, copyright, GPL version 3 notice, and the full license text)
+- [x] Licensing (GPL-3.0-or-later declared in every manifest with the license text in `LICENSE`; every license in the locked dependency graph is compatible, as recorded in `THIRD_PARTY_LICENSES.md`)
+
+## Production readiness
+
+- [~] Accessibility validation and platform conventions (keyboard-only editor input, screen-reader status/instructions, reduced motion, and forced colors implemented; manual AT and hosted platform validation pending)
+- [~] Performance corpus and bounded-memory measurements (repeatable sparse generator and 10 GiB M01 baseline; full corpus pending)
+- [~] Fuzzing and property-based document tests (generated model tests and a libFuzzer target work; hosted sanitizer run pending)
+- [~] Installers, signing, and notarization (macOS app bundle built and three-platform bundle CI configured; hosted builds, signing, and notarization pending)

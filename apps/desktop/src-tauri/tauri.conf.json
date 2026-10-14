@@ -1,0 +1,45 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Nulis",
+  "version": "0.1.0",
+  "identifier": "com.nulis.editor",
+  "build": {
+    "beforeDevCommand": "npm run frontend:dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run frontend:build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost data: https: http:; style-src 'self'; script-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'"
+    },
+    "windows": [
+      {
+        "label": "main",
+        "title": "Nulis",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 720,
+        "minHeight": 480,
+        "resizable": true
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "category": "DeveloperTool",
+    "license": "GPL-3.0-or-later",
+    "licenseFile": "../../../LICENSE",
+    "copyright": "Copyright © 2026 Muhammad Edy Suherman",
+    "shortDescription": "High-performance editor for text, code, and large files",
+    "longDescription": "Nulis is an extensible cross-platform editor for text, source code, hexadecimal data, and extremely large files."
+  }
+}

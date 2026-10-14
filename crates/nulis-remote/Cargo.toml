@@ -1,0 +1,33 @@
+[package]
+name = "nulis-remote"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+nulis-large-file = { path = "../nulis-large-file" }
+serde.workspace = true
+serde_json.workspace = true
+ssh2.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+
+# OpenSSL is compiled into the application on macOS and Linux so that a shipped
+# build never depends on a system or Homebrew copy. Windows is excluded on
+# purpose: libssh2 uses the system's own cryptography (WinCNG) there, and the
+# feature would otherwise pull in and build OpenSSL for nothing.
+[target.'cfg(not(windows))'.dependencies]
+ssh2 = { workspace = true, features = ["vendored-openssl"] }
+
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+keyring = { workspace = true, features = ["apple-native"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { workspace = true, features = ["windows-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { workspace = true, features = ["linux-native-sync-persistent", "crypto-rust", "vendored"] }
+
+[lints]
+workspace = true

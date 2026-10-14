@@ -1,0 +1,14 @@
+{
+  "id": "nulis.hello-example",
+  "name": "Hello Nulis",
+  "version": "1.0.0",
+  "engines": { "nulis": ">=0.1.0" },
+  "permissions": ["showMessage"],
+  "activationEvents": ["onCommand:nulis.hello-example.hello"],
+  "main": "index.js",
+  "contributes": {
+    "commands": [
+      { "command": "nulis.hello-example.hello", "title": "Hello from Example Plugin", "category": "Examples" }
+    ]
+  }
+}

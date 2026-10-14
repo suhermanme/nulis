@@ -1,0 +1,23 @@
+[package]
+name = "nulis-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+nulis-document = { path = "../crates/nulis-document" }
+nulis-large-file = { path = "../crates/nulis-large-file" }
+
+[[bin]]
+name = "piece_table"
+path = "fuzz_targets/piece_table.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]

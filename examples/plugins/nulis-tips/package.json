@@ -1,0 +1,11 @@
+{
+  "name": "nulis-tips-plugin",
+  "version": "1.0.0",
+  "private": true,
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --format=iife --target=es2020 --charset=utf8 --outfile=index.js",
+    "typecheck": "tsc --noEmit"
+  }
+}

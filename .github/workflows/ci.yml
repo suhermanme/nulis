@@ -1,0 +1,294 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch or pull request replaces the run in progress.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  format:
+    name: Rust formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all --check
+
+  rust:
+    name: Rust (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux desktop prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Clippy
+        shell: bash
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings 2>&1 | tee ci-clippy.log
+      - name: Tests
+        shell: bash
+        run: cargo test --workspace --locked --no-fail-fast 2>&1 | tee ci-test.log
+      # Job logs need a GitHub sign-in; annotations do not. On a failure the
+      # relevant lines of each captured log are published as an annotation.
+      - name: Publish the failure reason
+        if: failure()
+        shell: bash
+        run: |
+          for log in ci-*.log; do
+            [ -f "$log" ] || continue
+            lines=""
+            # A verification log is short and ordered: its ending says what went wrong.
+            if [ "$log" != ci-verify.log ]; then
+              lines=$(grep -a -E "error|Error|failed|panicked|cannot|not found|FAILED" "$log" | tail -n 30 | cut -c1-400 || true)
+            fi
+            [ -n "$lines" ] || lines=$(tail -n 30 "$log" | cut -c1-400)
+            lines="${lines//'%'/'%25'}"
+            lines="${lines//$'\r'/}"
+            lines="${lines//$'\n'/'%0A'}"
+            echo "::error title=${log}::${lines}"
+          done
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test
+      - run: npm run frontend:build --workspace @nulis/desktop
+
+  bundle:
+    name: Bundle (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            bundles: deb,rpm
+          - os: macos-latest
+            bundles: app
+          - os: windows-latest
+            bundles: nsis
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux desktop prerequisites
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf rpm xvfb
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build platform bundle
+        shell: bash
+        run: |
+          cd apps/desktop
+          npx tauri build --bundles ${{ matrix.bundles }} --ci 2>&1 | tee ../../ci-bundle.log
+
+      # Each package is inspected, installed the way a user would install it,
+      # and started, so a bundle that cannot run fails the build.
+      - name: Verify the macOS application
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          exec > >(tee ci-verify.log) 2>&1
+          app=target/release/bundle/macos/Nulis.app
+          bin="$app/Contents/MacOS/nulis-desktop"
+          test -d "$app" && test -x "$bin"
+          plutil -p "$app/Contents/Info.plist" | grep -E 'CFBundleIdentifier|CFBundleShortVersionString|CFBundleExecutable'
+          du -sh "$app"
+          echo "Libraries outside the operating system (none expected):"
+          if otool -L "$bin" | tail -n +2 | awk '{print $1}' | grep -v -E '^(/System/Library/|/usr/lib/)'; then
+            echo "::error::Nulis.app links to libraries that are not part of macOS"
+            exit 1
+          fi
+          "$bin" & pid=$!
+          sleep 15
+          if ! kill -0 "$pid" 2>/dev/null; then
+            echo "::error::Nulis.app exited within 15 seconds of starting"
+            exit 1
+          fi
+          kill "$pid"
+          echo "Nulis.app started and stayed running."
+
+      - name: Verify the Debian and RPM packages
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          exec > >(tee ci-verify.log) 2>&1
+          deb=$(ls target/release/bundle/deb/*.deb)
+          rpm=$(ls target/release/bundle/rpm/*.rpm)
+          echo "== $deb"
+          dpkg-deb --info "$deb"
+          dpkg-deb --contents "$deb" | grep -E 'usr/bin/nulis-desktop$'
+          echo "== $rpm"
+          rpm -qpi "$rpm"
+          rpm -qpR "$rpm"
+          rpm -qpl "$rpm" | grep -E '^/usr/bin/nulis-desktop$'
+
+          echo "== Install the .deb with apt, which resolves its dependencies"
+          sudo apt-get install -y "$PWD/$deb"
+          if ldd /usr/bin/nulis-desktop | grep "not found"; then
+            echo "::error::the installed binary has unresolved libraries"
+            exit 1
+          fi
+          echo "== Start the installed application on a virtual display"
+          export WEBKIT_DISABLE_DMABUF_RENDERER=1 WEBKIT_DISABLE_COMPOSITING_MODE=1
+          xvfb-run -a bash -c '
+            nulis-desktop & pid=$!
+            sleep 15
+            if ! kill -0 "$pid" 2>/dev/null; then echo "::error::nulis-desktop exited within 15 seconds"; exit 1; fi
+            kill "$pid"
+            echo "nulis-desktop started and stayed running."
+          '
+
+          echo "== Install the .rpm on Fedora with dnf, which resolves its dependencies"
+          docker run --rm -v "$PWD/target/release/bundle/rpm:/pkg:ro" fedora:latest bash -euc '
+            dnf install -y /pkg/*.rpm
+            rpm -qa | grep -i nulis
+            if ldd /usr/bin/nulis-desktop | grep "not found"; then echo "::error::unresolved libraries on Fedora"; exit 1; fi
+            echo "The .rpm installed on Fedora with every library resolved."
+          '
+
+      - name: Verify the Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Start-Transcript -Path ci-verify.log | Out-Null
+          $installer = Get-ChildItem target/release/bundle/nsis/*.exe | Select-Object -First 1
+          if (-not $installer) { throw 'No installer was produced' }
+          Write-Host "Installer: $($installer.Name), $([math]::Round($installer.Length / 1MB, 1)) MB"
+
+          Write-Host '== Run the installer silently'
+          $setup = Start-Process -FilePath $installer.FullName -ArgumentList '/S' -Wait -PassThru
+          if ($setup.ExitCode -ne 0) { throw "The installer exited with code $($setup.ExitCode)" }
+
+          $folder = @("$env:LOCALAPPDATA\Nulis", "$env:ProgramFiles\Nulis") | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $folder) { throw 'Nulis was not installed in the expected folder' }
+          Get-ChildItem $folder | Format-Table Name, Length
+          $exe = Get-ChildItem $folder -Filter *.exe | Where-Object { $_.Name -notmatch 'uninstall' } | Select-Object -First 1
+          if (-not $exe) { throw 'The installed application executable was not found' }
+
+          Write-Host "== Start $($exe.Name)"
+          $app = Start-Process -FilePath $exe.FullName -PassThru
+          Start-Sleep -Seconds 15
+          if ($app.HasExited) { throw "Nulis exited within 15 seconds with code $($app.ExitCode)" }
+          Stop-Process -Id $app.Id -Force
+          Write-Host 'Nulis was installed, started, and stayed running.'
+
+      # Job logs need a GitHub sign-in; annotations do not. On a failure the
+      # relevant lines of each captured log are published as an annotation.
+      - name: Publish the failure reason
+        if: failure()
+        shell: bash
+        run: |
+          for log in ci-*.log; do
+            [ -f "$log" ] || continue
+            lines=""
+            # A verification log is short and ordered: its ending says what went wrong.
+            if [ "$log" != ci-verify.log ]; then
+              lines=$(grep -a -E "error|Error|failed|panicked|cannot|not found|FAILED" "$log" | tail -n 30 | cut -c1-400 || true)
+            fi
+            [ -n "$lines" ] || lines=$(tail -n 30 "$log" | cut -c1-400)
+            lines="${lines//'%'/'%25'}"
+            lines="${lines//$'\r'/}"
+            lines="${lines//$'\n'/'%0A'}"
+            echo "::error title=${log}::${lines}"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nulis-${{ matrix.os }}
+          path: |
+            target/release/bundle/deb/*.deb
+            target/release/bundle/rpm/*.rpm
+            target/release/bundle/nsis/*.exe
+            target/release/bundle/macos/
+          if-no-files-found: error
+
+  fuzz:
+    name: Document fuzzing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+      - run: cargo install cargo-fuzz --locked
+      - run: cargo +nightly fuzz run piece_table -- -max_total_time=60
+
+  performance:
+    name: Large-file smoke benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked -p nulis-benchmarks
+      - name: Generate and probe corpus
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/nulis-corpus"
+          for kind in long-line short-lines multilingual malformed binary; do
+            target/release/nulis-benchmarks generate-pattern "$RUNNER_TEMP/nulis-corpus/$kind.dat" 1MiB "$kind"
+            target/release/nulis-benchmarks probe "$RUNNER_TEMP/nulis-corpus/$kind.dat" >> "$RUNNER_TEMP/nulis-corpus/results.txt"
+          done
+          target/release/nulis-benchmarks generate-sparse "$RUNNER_TEMP/nulis-corpus/sparse-10g.dat" 10GiB
+          /usr/bin/time -v target/release/nulis-benchmarks probe "$RUNNER_TEMP/nulis-corpus/sparse-10g.dat" >> "$RUNNER_TEMP/nulis-corpus/results.txt" 2>&1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nulis-performance-linux
+          path: ${{ runner.temp }}/nulis-corpus/results.txt
+          if-no-files-found: error
+
+  audit:
+    name: Dependency advisories
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm audit --audit-level=high
+      - run: cargo install cargo-audit --locked
+      - run: cargo audit

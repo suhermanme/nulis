@@ -1,0 +1,30 @@
+[package]
+name = "nulis-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+base64.workspace = true
+nulis-automation = { path = "../nulis-automation" }
+nulis-diff = { path = "../nulis-diff" }
+nulis-document = { path = "../nulis-document" }
+nulis-filesystem = { path = "../nulis-filesystem" }
+nulis-hex = { path = "../nulis-hex" }
+nulis-large-file = { path = "../nulis-large-file" }
+nulis-plugin-host = { path = "../nulis-plugin-host" }
+nulis-remote = { path = "../nulis-remote" }
+nulis-search = { path = "../nulis-search" }
+nulis-syntax = { path = "../nulis-syntax" }
+nulis-settings = { path = "../nulis-settings" }
+nulis-terminal = { path = "../nulis-terminal" }
+nulis-theme = { path = "../nulis-theme" }
+serde.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+unicode-segmentation.workspace = true
+
+[lints]
+workspace = true
