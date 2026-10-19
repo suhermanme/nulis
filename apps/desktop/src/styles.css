@@ -84,10 +84,26 @@ button { color: inherit; font: inherit; }
   padding: 0 18px; background: var(--bg); border-bottom: 1px solid var(--border);
   user-select: none;
 }
-.brand-mark {
-  display: grid; place-items: center; flex: 0 0 28px; width: 28px; height: 28px; aspect-ratio: 1; border-radius: 8px;
-  color: #16110f; background: linear-gradient(145deg, #ffb18c, #d76757);
-  font-family: Georgia, serif; font-weight: 800; box-shadow: 0 0 24px #e8897433;
+/* The in-window mark follows the theme: paper in the accent, nib and rim in
+   the theme's warm (warning) tone, the ribbon a tint over the editor ground. */
+.brand-mark { display: block; flex: 0 0 28px; width: 28px; height: 28px; aspect-ratio: 1; }
+.brand-mark .mark-tile { fill: var(--raised); }
+.brand-mark .mark-tile-edge { fill: none; stroke: var(--border); stroke-width: 6; }
+.brand-mark .mark-rim, .brand-mark .mark-nib { fill: var(--warning); }
+.brand-mark .mark-ribbon { fill: var(--editor-bg); }
+.brand-mark .mark-ribbon-tint { fill: var(--accent); opacity: .2; }
+.brand-mark .mark-flowers { fill: var(--accent); }
+.brand-mark .mark-flower-center { fill: var(--warning); }
+.brand-mark .mark-paper { fill: var(--accent); }
+.brand-mark .mark-shade { fill: #000; opacity: .22; }
+.brand-mark .mark-lines { fill: var(--accent-fg); opacity: .6; }
+.brand-mark .mark-slit { stroke: var(--editor-bg); stroke-width: 8; stroke-linecap: round; }
+.brand-mark .mark-hole { fill: var(--editor-bg); }
+@media (forced-colors: active) {
+  .brand-mark .mark-tile { fill: Canvas; }
+  .brand-mark .mark-tile-edge, .brand-mark .mark-slit { stroke: CanvasText; }
+  .brand-mark .mark-paper, .brand-mark .mark-nib, .brand-mark .mark-rim, .brand-mark .mark-flowers { fill: CanvasText; }
+  .brand-mark .mark-ribbon, .brand-mark .mark-hole, .brand-mark .mark-lines, .brand-mark .mark-flower-center { fill: Canvas; }
 }
 .brand { display: flex; flex: none; align-items: center; gap: 10px; padding: 0; border: 0; color: inherit; background: transparent; font: inherit; cursor: pointer; }
 .brand:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; border-radius: 8px; }
@@ -311,7 +327,7 @@ kbd { padding: 2px 6px; border: 1px solid #373e48; border-radius: 4px; color: #b
 .no-documents { display: grid; flex: 1; place-items: center; color: var(--muted); font-size: 12px; }
 .decision-dialog.about-dialog { width: min(620px, calc(100vw - 48px)); padding: 32px 36px 24px; }
 .about-identity { display: flex; align-items: center; gap: 16px; margin-bottom: 30px; }
-.about-identity .brand-mark { flex-basis: 56px; width: 56px; height: 56px; border-radius: 15px; font-size: 30px; }
+.about-identity .brand-mark { flex-basis: 64px; width: 64px; height: 64px; }
 .about-identity h2 { margin: 0 0 3px; font-size: 22px; }
 .about-identity small { color: var(--muted); font-size: 12px; }
 .about-dialog h1 { margin: 0; color: var(--ui-text); font-family: Georgia, "Times New Roman", serif; font-size: 46px; font-weight: 500; line-height: .98; letter-spacing: -.04em; }
@@ -570,24 +586,24 @@ kbd { padding: 2px 6px; border: 1px solid #373e48; border-radius: 4px; color: #b
 @keyframes caret-blink-reduced { 50% { opacity: .45; } }
 
 .statusbar { grid-column: 1 / -1; display: flex; align-items: center; gap: 15px; padding: 0 12px; color: var(--ui-text); background: var(--statusbar); font-size: 10px; }
-.status-indicator { width: 6px; height: 6px; border-radius: 50%; background: #ffd0b9; }
+.status-indicator { width: 6px; height: 6px; border-radius: 50%; background: var(--statusbar-text); opacity: .7; }
 .status-spacer { flex: 1; }
 .statusbar > span { white-space: nowrap; }
 .statusbar > [role="status"] { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .status-mode {
   display: inline-flex; flex: none; align-items: center; gap: 5px; align-self: stretch; margin: 0; padding: 0 10px;
-  border: 0; color: #10240f; background: #9fd08a; font: 700 10px/1 inherit; letter-spacing: .08em; cursor: pointer;
+  border: 0; color: var(--editor-bg); background: var(--success); font: 700 10px/1 inherit; letter-spacing: .08em; cursor: pointer;
 }
-.status-mode.read-only { color: #2b1700; background: #ffc14d; }
+.status-mode.read-only { color: var(--editor-bg); background: var(--warning); }
 .status-mode:focus-visible { outline: 2px solid var(--statusbar-text); outline-offset: -3px; }
-.tab-lock { display: inline-flex; flex: none; color: #ffc14d; }
+.tab-lock { display: inline-flex; flex: none; color: var(--warning); }
 .tab-lock .icon { color: inherit; }
 .pane-title .tab-lock { margin-right: 6px; vertical-align: -2px; }
-.editor-mode.access-mode { display: inline-flex; align-items: center; gap: 5px; border-color: #9fd08a; color: #9fd08a; }
-.editor-mode.access-mode.read-only { border-color: #ffc14d; color: #2b1700; background: #ffc14d; }
+.editor-mode.access-mode { display: inline-flex; align-items: center; gap: 5px; border-color: var(--success); color: var(--success); }
+.editor-mode.access-mode.read-only { border-color: var(--warning); color: var(--editor-bg); background: var(--warning); }
 .editor-mode.access-mode .icon { color: inherit; }
-.editor-stage.read-only .editor-toolbar { box-shadow: inset 0 -2px 0 #ffc14d; }
-.editor-stage.read-only .caret { width: 1ch; background: color-mix(in srgb, #ffc14d 45%, transparent); animation: none; }
+.editor-stage.read-only .editor-toolbar { box-shadow: inset 0 -2px 0 var(--warning); }
+.editor-stage.read-only .caret { width: 1ch; background: color-mix(in srgb, var(--warning) 45%, transparent); animation: none; }
 
 .palette-backdrop {
   position: fixed; z-index: 100; inset: 0; display: flex; justify-content: center; align-items: flex-start;

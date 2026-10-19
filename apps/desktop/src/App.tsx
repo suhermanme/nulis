@@ -41,6 +41,7 @@ import { SettingsWindow, type SettingsMainAction } from "./SettingsWindow";
 import { WorkTabs } from "./EditorLayout";
 import { FileExplorer, loadExplorerTab, saveExplorerTab, type ExplorerTab } from "./FileExplorer";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { BrandMark } from "./BrandMark";
 import { ContextMenu, MenuButton, OverflowToolbar, type MenuItem, type ToolbarItem } from "./Toolbar";
 import {
   FIND_EVENTS, FindReplacePanel, ResultsWindow, type FindContext, type FindMessage, type FindTab, type MatchTarget, type ResultList,
@@ -1843,7 +1844,7 @@ export function App() {
       {dragOver ? <div className="file-drop-target" aria-hidden="true">Drop files to open</div> : null}
       <header className="titlebar">
         <button className="brand" type="button" title="About Nulis" aria-label="About Nulis" onClick={() => { setLicenseOpen(false); setAboutOpen(true); }}>
-          <span className="brand-mark" aria-hidden="true">N</span>
+          <BrandMark className="brand-mark" />
           <span className="title-copy"><strong>Nulis</strong></span>
         </button>
         {!desktopShell ? <nav className="menubar" aria-label="Application menu">
@@ -2020,7 +2021,7 @@ export function App() {
             if (event.key === "Escape") setAboutOpen(false);
           }}>
           <header className="about-identity">
-            <span className="brand-mark" aria-hidden="true">N</span>
+            <BrandMark className="brand-mark" />
             <div><h2 id="about-title">Nulis</h2><small>Version {info?.version ?? "—"}</small></div>
           </header>
           {licenseOpen ? <pre className="license-text" tabIndex={0} aria-label="GNU General Public License, version 3">{licenseText}</pre> : <>

@@ -4,8 +4,8 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 
 ## Current state
 
-- **Current milestone:** M24 — pending (next to start)
-- **Overall:** 5 of 11 milestones completed (M19–M23)
+- **Current milestone:** M25 — pending (next to start)
+- **Overall:** 6 of 11 milestones completed (M19–M24)
 - **Baseline before M19 (commit `66853e1`):** `cargo test -p nulis-core` 86 passed; desktop Vitest 11 files, 115 tests passed.
 
 | Milestone | Status | Handover |
@@ -15,7 +15,7 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 | M21 Find and Replace window | Completed (manual and Windows/Linux checks pending) | `handover/M21_HANDOVER.md` |
 | M22 Replace in Files | Completed (manual and Windows/Linux checks pending) | `handover/M22_HANDOVER.md` |
 | M23 External changes and Reload (user request) | Completed (manual and Windows/Linux checks pending) | `handover/M23_HANDOVER.md` |
-| M24 New application icon (user request) | Pending | – |
+| M24 New application icon (user request) | Completed | `handover/M24_HANDOVER.md` |
 | M25 Format and transforms | Pending | – |
 | M26 Search and navigation | Pending | – |
 | M27 View and file | Pending | – |
@@ -121,7 +121,7 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 ## User requests queued during M21
 
 - **M23 External changes and Reload:** prompt when another program changes or deletes an open file (Reload / Keep mine), plus a manual Reload command (also Revert to Saved). Core already fingerprints sources and flags changed sources during recovery (`FEATURE_PARITY.md`).
-- **M24 New application icon:** original modern logo matching the theme colors; regenerate platform icon sets with `tauri icon`.
+- **M24 New application icon:** done — new master SVG and icon sets; the in-window mark follows the theme; About and README updated.
 - **Done in M21:** the reference product's name was removed from code and documents (README, syntax comment, CLEAN_ROOM, DECISIONS, IMPROVEMENT_SPEC, this plan). It remains in earlier git commit contents and messages; rewriting history was not done because it is destructive and needs the owner's decision.
 
 ## Design decisions and deviations
@@ -138,7 +138,7 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 
 ## Next steps
 
-0. M24 New application icon is next.
+0. M25 Format and transforms is next.
 1. Run the app (`npm run dev`) and try M20 keys/context menu and the M21 window by hand on macOS.
 2. Push to CI to build Windows/Linux, and check the M19 Settings/Help window fix there.
 3. Start M22 per the scope above, then M23 and M24 (user requests).

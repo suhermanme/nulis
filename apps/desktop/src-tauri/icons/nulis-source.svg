@@ -1,16 +1,129 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
-  <title id="title">Nulis application mark</title>
+  <title id="title">Nulis: an N made of a paper sheet, a batik ribbon, and a pen</title>
   <defs>
-    <linearGradient id="background" x1="128" y1="96" x2="896" y2="928" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#222831"/>
-      <stop offset="1" stop-color="#0C0F13"/>
+    <linearGradient id="tile" x1="160" y1="80" x2="864" y2="944" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1D2946"/>
+      <stop offset="1" stop-color="#0B1022"/>
     </linearGradient>
-    <linearGradient id="stroke" x1="260" y1="244" x2="770" y2="790" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#FFB18C"/>
-      <stop offset="1" stop-color="#D45E50"/>
+    <linearGradient id="paper" x1="250" y1="270" x2="640" y2="790" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F7E6C6"/>
+      <stop offset=".55" stop-color="#EBCB98"/>
+      <stop offset="1" stop-color="#D9AE6E"/>
     </linearGradient>
+    <linearGradient id="fold" x1="250" y1="640" x2="410" y2="790" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C99A5B"/>
+      <stop offset="1" stop-color="#F3DDB3"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="640" y1="200" x2="750" y2="430" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F6DDA6"/>
+      <stop offset=".5" stop-color="#DDAF62"/>
+      <stop offset="1" stop-color="#B9853F"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="512" cy="430" r="520" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2C3B63" stop-opacity=".55"/>
+      <stop offset="1" stop-color="#0B1022" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="lift" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="12" flood-color="#03060F" flood-opacity=".55"/>
+    </filter>
+
+    <!-- The diagonal and the pen barrel, which show the batik. -->
+    <mask id="ribbon" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+      <line x1="430" y1="352" x2="695" y2="745" stroke="#fff" stroke-width="130"/>
+      <rect x="630" y="415" width="130" height="375" rx="65" fill="#fff"/>
+    </mask>
+
+    <!-- The same shape grown by the rim width, for the gold edge. -->
+    <mask id="rim" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
+      <line x1="430" y1="352" x2="695" y2="745" stroke="#fff" stroke-width="150"/>
+      <rect x="620" y="405" width="150" height="395" rx="75" fill="#fff"/>
+    </mask>
+    <linearGradient id="indigo" x1="400" y1="280" x2="760" y2="790" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2A3C74"/>
+      <stop offset="1" stop-color="#1A2850"/>
+    </linearGradient>
+
+    <!-- One batik flower: six petals with a pale vein, a ring of dots, a center. -->
+    <g id="flower">
+      <g fill="#C65A28">
+        <path id="petal" d="M0 -8C-15 -30 -14 -54 0 -70C14 -54 15 -30 0 -8Z"/>
+        <use href="#petal" transform="rotate(60)"/>
+        <use href="#petal" transform="rotate(120)"/>
+        <use href="#petal" transform="rotate(180)"/>
+        <use href="#petal" transform="rotate(240)"/>
+        <use href="#petal" transform="rotate(300)"/>
+      </g>
+      <g stroke="#F2B46A" stroke-width="3.5" stroke-linecap="round">
+        <path id="vein" d="M0 -14V-54"/>
+        <use href="#vein" transform="rotate(60)"/>
+        <use href="#vein" transform="rotate(120)"/>
+        <use href="#vein" transform="rotate(180)"/>
+        <use href="#vein" transform="rotate(240)"/>
+        <use href="#vein" transform="rotate(300)"/>
+      </g>
+      <circle r="16" fill="#E9A24E"/>
+      <circle r="7" fill="#16213F"/>
+    </g>
+    <g id="leaf">
+      <path d="M0 0C18 -22 46 -30 74 -26C60 0 32 14 0 0Z" fill="#B44E22"/>
+      <path d="M6 -2C28 -14 48 -19 66 -22" stroke="#EDAA5C" stroke-width="3" fill="none" stroke-linecap="round"/>
+    </g>
   </defs>
-  <rect x="64" y="64" width="896" height="896" rx="224" fill="url(#background)"/>
-  <path d="M294 744V280c0-28 18-52 45-60 26-8 55 2 70 25l267 381V280c0-35 28-64 64-64s64 29 64 64v464c0 28-18 52-45 60-26 8-55-2-70-25L422 398v346c0 35-28 64-64 64s-64-29-64-64Z" fill="url(#stroke)"/>
-  <circle cx="806" cy="806" r="52" fill="#F3D2B9"/>
+
+  <rect x="80" y="80" width="864" height="864" rx="196" fill="url(#tile)"/>
+  <rect x="80" y="80" width="864" height="864" rx="196" fill="url(#glow)"/>
+  <rect x="81.5" y="81.5" width="861" height="861" rx="194.5" fill="none" stroke="#3A4B78" stroke-opacity=".45" stroke-width="3"/>
+
+  <!-- Batik ribbon and pen barrel, with a gold rim. -->
+  <g filter="url(#lift)">
+    <rect x="280" y="180" width="560" height="660" fill="url(#gold)" mask="url(#rim)"/>
+  </g>
+  <g mask="url(#ribbon)">
+    <rect x="300" y="200" width="520" height="620" fill="url(#indigo)"/>
+    <g fill="none" stroke="#7E3B1C" stroke-width="5" stroke-linecap="round" opacity=".9">
+      <path d="M440 300C500 340 470 400 530 430S600 520 660 540"/>
+      <path d="M520 560C580 600 560 660 640 690S700 760 760 770"/>
+      <path d="M640 430C690 460 700 500 740 520"/>
+    </g>
+    <use href="#leaf" transform="translate(470 395) rotate(-25) scale(1.1)"/>
+    <use href="#leaf" transform="translate(625 430) rotate(160) scale(1)"/>
+    <use href="#leaf" transform="translate(600 640) rotate(-40) scale(1.1)"/>
+    <use href="#leaf" transform="translate(745 690) rotate(125) scale(.9)"/>
+    <use href="#leaf" transform="translate(655 520) rotate(60) scale(.7)"/>
+    <use href="#flower" transform="translate(545 485) scale(1.15)"/>
+    <use href="#flower" transform="translate(700 590) scale(.85)"/>
+    <use href="#flower" transform="translate(455 330) scale(.7)"/>
+    <use href="#flower" transform="translate(680 755) scale(.6)"/>
+    <use href="#flower" transform="translate(712 455) scale(.5)"/>
+    <g fill="#E6B46A">
+      <circle cx="600" cy="390" r="6"/><circle cx="625" cy="410" r="4"/>
+      <circle cx="590" cy="560" r="5"/><circle cx="560" cy="590" r="4"/>
+      <circle cx="660" cy="640" r="5"/><circle cx="725" cy="460" r="5"/>
+      <circle cx="745" cy="690" r="4"/><circle cx="500" cy="420" r="4"/>
+      <circle cx="650" cy="770" r="4"/><circle cx="742" cy="430" r="4"/>
+    </g>
+  </g>
+
+  <!-- The paper sheet: the left stem, whose top edge runs on along the diagonal. -->
+  <g filter="url(#lift)">
+    <path d="M250 790V340C250 302 280 272 318 272H440C474 272 498 290 516 318L548 366C512 368 466 392 428 434V790Z" fill="url(#paper)"/>
+    <!-- The underside of the curl, in shade where it turns over. -->
+    <path d="M428 434C466 392 512 368 548 366C520 356 488 356 456 366C444 384 434 406 428 434Z" fill="url(#fold)" opacity=".9"/>
+    <path d="M250 790V646C298 690 356 708 428 694V790Z" fill="url(#fold)"/>
+    <path d="M250 646C298 690 356 708 428 694" fill="none" stroke="#A8783F" stroke-opacity=".55" stroke-width="4"/>
+    <g fill="#8B7258">
+      <rect x="292" y="392" width="94" height="20" rx="10"/>
+      <rect x="292" y="434" width="104" height="20" rx="10"/>
+      <rect x="292" y="476" width="78" height="20" rx="10"/>
+    </g>
+  </g>
+
+  <!-- The pen: a gold band and nib on top of the batik barrel. -->
+  <g filter="url(#lift)">
+    <path d="M640 396V346C640 300 664 256 695 202C726 256 750 300 750 346V396Z" fill="url(#gold)"/>
+    <path d="M695 216V318" stroke="#5B3A16" stroke-width="7" stroke-linecap="round"/>
+    <circle cx="695" cy="328" r="14" fill="#16213F"/>
+    <rect x="622" y="392" width="146" height="36" rx="10" fill="url(#gold)"/>
+    <path d="M630 406H760" stroke="#FFF1D0" stroke-opacity=".55" stroke-width="4" stroke-linecap="round"/>
+  </g>
 </svg>
