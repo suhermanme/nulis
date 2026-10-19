@@ -1062,7 +1062,7 @@ mod tests {
                 "{path}"
             );
         }
-        // Every language UltraEdit lists is selectable by name, after Plain Text.
+        // Every supported language is selectable by name, after Plain Text.
         let names: Vec<_> = registry
             .descriptors()
             .into_iter()

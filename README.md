@@ -464,7 +464,7 @@ It holds the session (open files and layout), customization (appearance, shortcu
 - New behavior needs a test. A bug fix needs a test that fails without the fix.
 - Keep operations bounded: a new feature must not read, hold, or send a whole document unless its purpose requires it, and then it needs a size limit.
 - Record a new dependency and its license in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md). It must be compatible with GPL version 3.
-- Nulis is an original implementation. It takes ideas about what an editor should do from existing editors, UltraEdit among them, but contains no code or assets from them. [docs/CLEAN_ROOM.md](docs/CLEAN_ROOM.md) has the rules.
+- Nulis is an original implementation. It takes ideas about what an editor should do from existing editors but contains no code or assets from them. [docs/CLEAN_ROOM.md](docs/CLEAN_ROOM.md) has the rules.
 
 ## License
 

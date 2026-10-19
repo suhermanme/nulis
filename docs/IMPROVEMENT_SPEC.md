@@ -2,7 +2,7 @@
 
 **Status:** M15–M18 are implemented and covered by automated tests on macOS (see `WORK_STATE.md`). No milestone is closed yet: the hosted Windows/Linux runs and the manual pointer, IME, keyboard, and assistive-technology checks in *Delivery gates* are still outstanding.  
 **Applies to:** Nulis desktop on macOS, Windows, and Linux.  
-**References reviewed:** `uedit_02.mp4` (UltraEdit text selection, tab splits, toolbar, map) and `workspace-grouping.mp4` (tabs grouped into a named workspace tab, side-by-side and stacked panes, rename flow). These are behavior references; Nulis keeps its own visual design and command architecture.
+**References reviewed:** a private screen recording of a reference editor (text selection, tab splits, toolbar, map) and `workspace-grouping.mp4` (tabs grouped into a named workspace tab, side-by-side and stacked panes, rename flow). These are behavior references; Nulis keeps its own visual design and command architecture.
 
 ## Scope and order
 
@@ -50,7 +50,7 @@ The core exposes revisioned status for requested visible logical lines, plus bou
 
 Acceptance: saved versus unsaved colors, toggles, save failure, Save As, undo/redo, moved/deleted lines, CRLF/LF/CR, malformed bytes, multi-caret and rectangle edits, session recovery, two panes showing the same document, and theme/high-contrast rendering. Benchmark a sparse 10 GiB file with a few edits and confirm bounded memory and first-viewport time.
 
-UltraEdit documents a gutter indicator and distinct saved/unsaved theme colors in its [LCI settings](https://wiki.ultraedit.com/Settings%3AEditor_display%3ALine_change_indicator). Nulis follows that interaction concept while using its own persistence and large-file rules.
+Reference editors show a gutter indicator with distinct saved/unsaved colors. Nulis follows that interaction concept while using its own persistence and large-file rules.
 
 ## M17 — Workspace tabs
 
@@ -84,7 +84,7 @@ Acceptance: group two tabs on each side; build and resize a mixed nested workspa
 
 Replace text glyphs and mixed button styles with one coherent, original-feeling vector icon set across the title toolbar, tab actions, editor tools, map/LCI toggles, and menus where icons are useful. Cover at least **New, Open, Close, Save, Save As, Undo, Redo, Wrap, Column Editing, Hex, Find, Previous, Next, Replace, Highlight, Go To, LCI, Map, Browser/Preview, Split Horizontal, Split Vertical, Files, and Settings**. Icons have consistent 20–24 px geometry, line weight, optical alignment, and active/disabled/hover states. The command ID remains the action source; an icon mapping is presentation data, so custom toolbar order and shortcuts continue to work.
 
-Use bundled SVG or an appropriately licensed vector package, with no runtime icon download. Every icon-only control has an accessible name and a tooltip containing its action and shortcut. Active toggles show a visible pressed state. At narrow widths, low-priority controls move into an overflow menu; essential file actions remain reachable and icons never deform when the window resizes. Theme colors and high-contrast mode apply to every state. Do not copy UltraEdit artwork or Apple-only SF Symbol assets into cross-platform bundles.
+Use bundled SVG or an appropriately licensed vector package, with no runtime icon download. Every icon-only control has an accessible name and a tooltip containing its action and shortcut. Active toggles show a visible pressed state. At narrow widths, low-priority controls move into an overflow menu; essential file actions remain reachable and icons never deform when the window resizes. Theme colors and high-contrast mode apply to every state. Do not copy another editor's artwork or Apple-only SF Symbol assets into cross-platform bundles.
 
 Acceptance: inspect all built-in themes and three window widths; verify icon geometry, labels, hover/pressed/disabled states, overflow, keyboard focus, screen-reader names, and command parity for custom toolbar entries.
 

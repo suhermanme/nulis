@@ -154,7 +154,7 @@ Human name, package names, and `com.nulis.editor` live in root/package/Tauri con
 
 **Status:** Accepted (M16), to be revisited
 
-The line change indicator needs distinct unsaved, saved, and deletion markers. Adding three required theme keys would invalidate every installed user theme and the 97 converted built-ins. Markers therefore map to each theme's existing `ui.danger` (unsaved), `ui.success` (saved), and `ui.danger` (deletion) colors through the `--lci-*` CSS variables. Unsaved and saved lines are both thin solid bars, red then green as in UltraEdit, by user request; deletions are a notch. Because the two bars differ only in color, the state is also given in each marker's tooltip and in the status bar, and forced-colors mode keeps a solid versus outlined bar. Dedicated optional theme keys can be added later without breaking stored themes.
+The line change indicator needs distinct unsaved, saved, and deletion markers. Adding three required theme keys would invalidate every installed user theme and the 97 converted built-ins. Markers therefore map to each theme's existing `ui.danger` (unsaved), `ui.success` (saved), and `ui.danger` (deletion) colors through the `--lci-*` CSS variables. Unsaved and saved lines are both thin solid bars, red then green, by user request; deletions are a notch. Because the two bars differ only in color, the state is also given in each marker's tooltip and in the status bar, and forced-colors mode keeps a solid versus outlined bar. Dedicated optional theme keys can be added later without breaking stored themes.
 
 ## ADR-0010 — Settings is a second window with a per-window command allowlist
 

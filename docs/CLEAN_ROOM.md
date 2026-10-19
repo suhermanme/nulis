@@ -13,7 +13,7 @@ Nulis is an original editor in the professional text/code/hex editor category. I
 
 ## Prohibited inputs and actions
 
-Contributors must not decompile, disassemble, debug, inspect packaged resources, extract, patch, or reverse-engineer proprietary editor binaries. They must not use leaked or non-public information, copy proprietary code, strings, documentation wording, configuration, icons, themes, layouts, screenshots, artwork, or reproduce another product pixel-for-pixel. Nulis must neither require nor inspect an UltraEdit installation.
+Contributors must not decompile, disassemble, debug, inspect packaged resources, extract, patch, or reverse-engineer proprietary editor binaries. They must not use leaked or non-public information, copy proprietary code, strings, documentation wording, configuration, icons, themes, layouts, screenshots, artwork, or reproduce another product pixel-for-pixel. Nulis must neither require nor inspect an installation of another editor.
 
 ## Contribution procedure
 
