@@ -16,7 +16,7 @@ From top to bottom, the window has these parts.
 | --- | --- |
 | Title bar | The **Nulis** brand (click it to open the About page), the main toolbar, and the **Commands** button at the far right. |
 | Main toolbar | Icon buttons with a caption under each: New, Open, Save, Close, Undo, Redo, Split Right, Split Down, Sidebar, Automation, Plugins, and Settings. Validate, Beautify, and Minify appear here while a JSON or XML document is focused. Buttons that do not fit move into an overflow menu. |
-| Activity bar | The narrow column on the left: **Files**, **Search**, and **Remote** choose what the side bar shows. **Symbols** is reserved for a later version and is disabled; use the symbols list in the editor toolbar instead. |
+| Activity bar | The narrow column on the left: **Files** and **Remote** choose what the side bar shows. Search is in the Find and Replace window (**Ctrl/⌘ F**). **Symbols** is reserved for a later version and is disabled; use the symbols list in the editor toolbar instead. |
 | Side bar | File View, search, or remote browsing. Hide or show it with the Sidebar button. Drag its edge to resize it. |
 | Tab strip | One tab per open file or workspace, the **+** button for a new tab, and on the right the buttons for split view, document comparison, folder comparison, the terminal, and the hexadecimal editor. |
 | Editor toolbar | Tools for the focused document: find, Go To, bookmarks, Transform, encoding, View As, symbols, word wrap, column editing, folding, line change indicators, the document map, the **EDIT** / **READ ONLY** mode button, and the insert/overwrite indicator. |
@@ -130,10 +130,15 @@ The same file can be shown in more than one pane or tab. All views stay in step:
 
 Typing, deleting, and the arrow, Page Up, and Page Down keys work as in any editor. Hold **Shift** with a movement key to extend the selection.
 
+**Home** moves to the first character that is not a space or tab; press it again to reach the very start of the line. **End** moves to the end of the line. **Ctrl/⌘ Home** and **Ctrl/⌘ End** go to the start and end of the document. On macOS, **⌘ ←** / **⌘ →** also go to the line start and end, and **⌘ ↑** / **⌘ ↓** to the document start and end. **Delete** removes the character after the caret (a Windows line ending counts as one character).
+
+Right-click the text for a menu with Undo, Redo, Cut, Copy, Paste, Find, Replace, Select All, Select Line, Select Word, the line commands below, Hex Mode, and Copy File Path. The menu works on the current caret and selection; right-clicking does not move the caret.
+
 | Action | How |
 | --- | --- |
 | Select a word | Double-click it, or press **Ctrl/⌘ D** with the caret in it. |
-| Select a line | Triple-click it. |
+| Select a line | Triple-click it, or press **Ctrl/⌘ L**. |
+| Select everything | **Ctrl/⌘ A**. |
 | Extend a selection | Shift-click, or Shift with the arrow keys. |
 | Move selected text | Drag the selection and drop it at the new place. |
 | Copy selected text by dragging | Hold **Option** (macOS) or **Ctrl** (Windows and Linux) while dropping. |
@@ -143,6 +148,18 @@ Typing, deleting, and the arrow, Page Up, and Page Down keys work as in any edit
 | Insert / overwrite | Press **Insert**, or click the **INS** / **OVR** indicator in the editor toolbar. In overwrite mode, typing replaces the character under the caret. |
 | Change case, trim | Select text and choose **Uppercase**, **Lowercase**, or **Trim whitespace** from the **Transform** list. |
 | Word wrap | The **Wrap** button in the editor toolbar. |
+
+### Line commands
+
+Line commands act on every line that holds a caret or part of a selection. A selection that ends at the very start of a line does not include that line. Each command is one undo step and keeps the file's line endings.
+
+| Action | How |
+| --- | --- |
+| Duplicate line | **Ctrl/⌘ Shift D**. The caret moves to the copy, so pressing it again keeps copying downward. |
+| Delete line | **Ctrl/⌘ Shift K**. |
+| Move line up / down | **Alt ↑** / **Alt ↓** (**⌥ ↑** / **⌥ ↓** on macOS). Nothing moves when a line is already at the top or bottom. |
+| Open a new line below | **Ctrl/⌘ Enter**. The new line gets the same indentation; the current line is not split. |
+| Delete to line start / end | **⌘ Delete** / **⌘ Forward Delete** on macOS. |
 
 A drag-and-drop move or copy is a single undo step. Undo history is kept per document, within a memory budget; very old steps of a long session can be dropped to stay inside it.
 
@@ -219,18 +236,27 @@ Turn the indicators on or off for one document with the button in the editor too
 
 ## Search
 
-### In the current file
+### The Find and Replace window
 
-Press **Ctrl/⌘ F** (find) or **Ctrl/⌘ H** (find and replace), or click the magnifier in the editor toolbar. Type the text, then move between matches with the previous and next buttons or Enter. Press Escape to close the bar.
+Press **Ctrl/⌘ F** (Find) or **Ctrl/⌘ H** (Replace), click the magnifier in the editor toolbar, or right-click the text and choose **Find…** or **Replace…**. A small window opens over the editor; drag its title bar to move it. It is not modal, so you can keep editing while it is open. Selected text (up to 1,000 characters) is put into **Find what**. Escape or the close button closes it.
 
-The **Search** panel in the side bar offers the same for the current file with more room: a **Find** field, a **Replace with** field, a **Match case** switch, and a **Regular expression** switch.
+The window has three tabs: **Find**, **Find in Files**, and **Replace**.
 
-- **Replace** changes the current match; **Replace All** changes every match as one undo step.
-- Regular expressions may match across lines. An expression that could match an unbounded amount of text is refused with a message rather than run.
+- **Find what** and **Replace with** accept several lines. Enter runs the main action (Shift Enter finds the previous match); Ctrl/⌘ Enter adds a line break. The clock button next to each field lists your last 20 entries.
+- **Find where** / **Replace where**: **Current document**, **Selected text** (the selection at the moment you press the button), or **All open files**.
+- **Options**: **Match case**, **Match whole word** (the text is not part of a longer word), **Use regular expressions**. On the Find tab also **Highlight all items found**, **List lines containing find string**, and **Close after find**; on the Replace tab **Close after replace all**.
+- **Find** tab buttons: **Count All** reports the number of matches and lines; **Previous** and **Next** move between matches. In the current document they start at the caret and wrap around; in a selection or across open files they step through the matches found.
+- **Replace** tab buttons: **Next**, **Replace** (the current match, in the current document), and **Replace All**. Replace All is one undo step per document. Across open files, read-only documents are skipped and named in the result.
+
+Regular expressions may match across lines. An expression that could match an unbounded amount of text is refused with a message rather than run.
+
+### Lines containing the text
+
+With **List lines containing find string** checked, **Count All** or **Next** also opens a list of every matching line. Click a line, or select it and press **Go To** or Enter, to put the caret on that match. **Bookmark All** bookmarks every listed line in open documents, **Copy** copies the list, and **Show line numbers** turns the number column on or off. The list shows the first 512 bytes of each line and stops at 5,000 lines or 10,000 matches, and says so when it does.
 
 ### In files
 
-In the **Search** panel, switch the scope to files. Press **Folder…** to choose the folder to search, type the text, and press **Search**. Results are listed by file; click one to open the file at that match. The search skips symbolic links and stops at fixed limits on the number of files and results, and says so when it does.
+On the **Find in Files** tab, choose **Files in a folder** or **All open files**. For a folder, enter name patterns in **In files/types** (for example `*.rs; *.md`; empty means every file; letters match either case), choose the folder with **Browse…** (the open workspace folder is the default), and decide whether to **Include subdirectories**. Press **Find**. Results open in the list window with the file name, line number, and line; click one to open the file at that match. The search skips symbolic links and stops at fixed limits on the number of files and results, and says so when it does.
 
 ### Go to a line
 
@@ -380,10 +406,19 @@ These are the defaults. Shortcuts for commands can be changed under **Settings �
 | F1 | Nulis Help |
 | Ctrl/⌘ Z | Undo |
 | Ctrl/⌘ Shift Z | Redo |
-| Ctrl/⌘ F | Find |
-| Ctrl/⌘ H | Find and replace |
+| Ctrl/⌘ F | Find and Replace window, Find tab |
+| Ctrl/⌘ H | Find and Replace window, Replace tab |
 | Ctrl/⌘ G | Go to line |
 | Ctrl/⌘ D | Select the word at the caret |
+| Ctrl/⌘ A | Select all |
+| Ctrl/⌘ L | Select line |
+| Ctrl/⌘ Shift D | Duplicate line |
+| Ctrl/⌘ Shift K | Delete line |
+| Alt ↑ / Alt ↓ | Move line up / down |
+| Ctrl/⌘ Enter | Open a new line below |
+| Home / End | Line start (first non-blank, then column 1) / line end |
+| Ctrl/⌘ Home / End | Document start / end |
+| Delete | Delete the next character |
 | Ctrl/⌘ F2 | Toggle bookmark |
 | F2 / Shift F2 | Next / previous bookmark |
 | F2 (on a workspace tab) | Rename the workspace |
@@ -391,7 +426,7 @@ These are the defaults. Shortcuts for commands can be changed under **Settings �
 | Alt + click | Add a caret |
 | Alt + Shift + drag | Select a rectangle |
 | Double-click / triple-click | Select word / line |
-| Escape | Close the find bar or a dialog; cancel a drag |
+| Escape | Close the Find and Replace window, a list, or a dialog; cancel a drag |
 
 ## Limits
 

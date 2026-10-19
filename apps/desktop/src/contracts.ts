@@ -1,5 +1,5 @@
 /** Versioned JSON-compatible values mirrored from nulis-core's public IPC DTOs. */
-export const IPC_PROTOCOL_VERSION = 26 as const;
+export const IPC_PROTOCOL_VERSION = 28 as const;
 
 export interface ThemeRecord {
   schema?: string;
@@ -183,6 +183,8 @@ export interface CaretPosition {
   carets: number;
   /** Bytes covered by all selections, as a decimal string. */
   selectedBytes: string;
+  /** The primary selection as a range, unless it is rectangular. */
+  selection?: ByteRange;
 }
 
 export interface DocumentSummary {
@@ -273,6 +275,42 @@ export type SearchMode = "literal" | "regex";
 export interface SearchOptions {
   mode: SearchMode;
   caseSensitive: boolean;
+  /** Only where the text is not part of a longer word. */
+  wholeWord?: boolean;
+}
+
+export interface ByteRange {
+  startByte: string;
+  endByte: string;
+}
+
+export interface FoundMatch {
+  startByte: string;
+  endByte: string;
+  line: string;
+}
+
+export interface FoundLine {
+  line: string;
+  startByte: string;
+  /** The start of the line (at most 512 bytes), without its ending. */
+  text: string;
+  truncated: boolean;
+  matches: number;
+}
+
+/** Result of `search.findAll`. */
+export interface FindAllResult {
+  revision: string;
+  matches: FoundMatch[];
+  lines: FoundLine[];
+  truncated: boolean;
+}
+
+/** Which files `search.findInFiles` reads below its root. */
+export interface FileSearchScope {
+  include: string[];
+  recursive: boolean;
 }
 
 export interface FindResult {
@@ -290,6 +328,8 @@ export interface WorkspaceSearchMatch {
   path: string;
   startByte: string;
   endByte: string;
+  line: string;
+  lineText: string;
 }
 
 export interface WorkspaceSearchResult {
@@ -371,11 +411,17 @@ export interface CustomizationState {
 export interface SearchRequest {
   /** Changes for every request, including a repeated one. */
   id: number;
-  action: "next" | "previous" | "replace" | "replaceAll";
+  /** "highlight" only updates the query, options, and highlighting. */
+  action: "next" | "previous" | "replace" | "replaceAll" | "highlight";
   query: string;
   replacement: string;
   regex: boolean;
   caseSensitive: boolean;
+  wholeWord?: boolean;
+  /** Turns highlighting of every match on or off. */
+  highlight?: boolean;
+  /** Limits Replace All to this range (the selection). */
+  within?: ByteRange;
 }
 
 /** A starting point of the Places explorer. */
@@ -452,6 +498,19 @@ export interface FolderCompareResult {
 export interface Selection {
   anchorByte: string;
   activeByte: string;
+}
+
+/** Caret targets of `editor.moveHorizontal`. */
+export type HorizontalDirection = "left" | "right" | "lineStart" | "lineEnd" | "documentStart" | "documentEnd";
+
+/** Whole-line commands of `editor.lineOperation`. */
+export type LineOperation =
+  | "selectLines" | "deleteLines" | "duplicateLines" | "moveLinesUp" | "moveLinesDown"
+  | "deleteToLineStart" | "deleteToLineEnd" | "insertLineBelow";
+
+export interface LineEditResult {
+  document: DocumentSummary;
+  selections: Selection[];
 }
 
 export interface RectangularSelection {

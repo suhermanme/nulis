@@ -23,6 +23,7 @@ Legend: `[ ]` not started, `[~]` partial, `[x]` complete. “Complete” require
 - [~] Multiple documents and workspace tabs (one tab strip; dragging a tab into the content groups it into a named workspace of nested panes, with drop preview, pane pop-out, keyboard commands, bounded limits, and schema-v2 sessions; hosted platform and screen-reader validation pending)
 - [~] Precise pointer editing (core Unicode word selection for double-click and Primary+D, logical-line triple-click, and revision-checked drag move/copy as one undo step; manual pointer/IME checks on Windows and Linux pending)
 - [~] Line change indicators (sparse unsaved/saved/deletion markers through save, undo/redo, and recovery, with map ticks and a persistent toggle; theme-specific marker colors and hosted validation pending)
+- [x] Caret keys, forward delete, Select All, and line commands (smart Home/End, document start/end, Delete, select/delete/duplicate/move line, delete to line start/end, open line below; one undo step each, multi-caret aware) with an editor right-click menu (M20; palette and native-menu entries pending)
 - [x] Multi-caret and multi-selection (bounded core fan-out, per-caret navigation, Alt-click creation, rendering, clipboard, and one-action undo/redo)
 - [x] Column/block editing (constant-size core rectangle, bounded line-local operations, virtual-space insert, row-distributed paste, and Alt-Shift drag)
 - [~] Encoding detection and conversion (lossless UTF-8 and Windows-1252 override/editing controls with source-byte mappings; automatic detection and broader conversion remain)
@@ -32,7 +33,8 @@ Legend: `[ ]` not started, `[~]` partial, `[x]` complete. “Complete” require
 
 - [x] Streaming find and replace (64 KiB reads, bounded results, wrap navigation, and atomic Replace All)
 - [x] Regular expressions and multiline search (finite-width regexes up to a 1 MiB match bound; unsafe unbounded expressions are rejected explicitly)
-- [x] Find in files (recursive regular-file scan with symlink exclusion and hard file/result caps)
+- [x] Find in files (regular-file scan with symlink exclusion, name filters, optional subfolders, line numbers and line text per match, and hard file/result caps)
+- [~] Find and Replace window (M21: floating Find / Find in Files / Replace tabs; current document, selection, or all open files; whole word; Count All; matching-lines list with Go To, Bookmark All, Copy; history. Replace in Files is M22)
 - [x] Modular syntax highlighting and folding (bounded JSON/Python Tree-sitter modules, a Markdown scanner, and table-driven lexers for 34 more languages including C/C++, C#, Java, JavaScript/TypeScript, Rust, Swift, Zig, Go, PHP, Perl, Ruby, shell, Batch, PowerShell, SQL dialects, Visual Basic, HTML/XML/XSL, and CSS; stable token classes, bracket pairs, and brace/element folding)
 - [x] Symbols, language detection, and bracket matching (file-name and extension detection, `#!`/XML/PHP/HTML content detection for names that say nothing, override command/control, bounded symbols, and paired-bracket rendering)
 

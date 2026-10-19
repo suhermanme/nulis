@@ -32,6 +32,9 @@ pub struct SearchOptions {
     pub mode: SearchMode,
     #[serde(default = "default_true")]
     pub case_sensitive: bool,
+    /// Matches only where the text is not part of a longer word.
+    #[serde(default)]
+    pub whole_word: bool,
 }
 
 impl Default for SearchOptions {
@@ -39,6 +42,7 @@ impl Default for SearchOptions {
         Self {
             mode: SearchMode::Literal,
             case_sensitive: true,
+            whole_word: false,
         }
     }
 }
@@ -168,13 +172,26 @@ enum Matcher {
 impl Matcher {
     fn new(pattern: &[u8], options: SearchOptions) -> Result<Self, SearchError> {
         match options.mode {
-            SearchMode::Literal => Ok(Self::Literal {
+            SearchMode::Literal if !options.whole_word => Ok(Self::Literal {
                 pattern: pattern.to_vec(),
                 case_sensitive: options.case_sensitive,
             }),
-            SearchMode::Regex => {
-                let expression =
+            SearchMode::Literal | SearchMode::Regex => {
+                let text =
                     std::str::from_utf8(pattern).map_err(|_| SearchError::RegexPatternNotUtf8)?;
+                // A whole-word search is a regular expression between word boundaries.
+                let wrapped;
+                let expression = if options.whole_word {
+                    let inner = if options.mode == SearchMode::Literal {
+                        regex::escape(text)
+                    } else {
+                        text.to_owned()
+                    };
+                    wrapped = format!(r"\b(?:{inner})\b");
+                    wrapped.as_str()
+                } else {
+                    text
+                };
                 let mut parser = ParserBuilder::new();
                 parser.case_insensitive(!options.case_sensitive);
                 let hir = parser
@@ -399,6 +416,32 @@ mod tests {
     use nulis_large_file::MemorySource;
 
     #[test]
+    fn whole_word_search_skips_parts_of_longer_words() {
+        let source = MemorySource::new(b"cat catalog concat cat_ (cat)".to_vec());
+        for mode in [SearchMode::Literal, SearchMode::Regex] {
+            let page = search(
+                &source,
+                b"cat",
+                SearchOptions {
+                    mode,
+                    case_sensitive: true,
+                    whole_word: true,
+                },
+                0,
+                10,
+                &CancellationToken::default(),
+            )
+            .expect("search");
+            let starts = page
+                .matches
+                .iter()
+                .map(|found| found.range.start.0)
+                .collect::<Vec<_>>();
+            assert_eq!(starts, vec![0, 25], "{mode:?}");
+        }
+    }
+
+    #[test]
     fn literal_search_finds_cross_chunk_matches_without_duplicates() {
         let mut bytes = vec![b'x'; SEARCH_CHUNK_BYTES - 2];
         bytes.extend_from_slice(b"needle and needle");
@@ -455,6 +498,7 @@ mod tests {
             SearchOptions {
                 mode: SearchMode::Regex,
                 case_sensitive: true,
+                whole_word: false,
             },
             0,
             10,
@@ -470,6 +514,7 @@ mod tests {
         let options = SearchOptions {
             mode: SearchMode::Regex,
             case_sensitive: true,
+            whole_word: false,
         };
         let mut false_start = vec![b'x'; SEARCH_CHUNK_BYTES];
         false_start.extend_from_slice(b"foo");
@@ -527,6 +572,7 @@ mod tests {
             SearchOptions {
                 mode: SearchMode::Regex,
                 case_sensitive: true,
+                whole_word: false,
             },
             0,
             10,

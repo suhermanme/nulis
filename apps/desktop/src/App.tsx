@@ -24,8 +24,6 @@ import type {
   WorkbenchSession,
   WorkspaceDirectory,
   WorkspaceEntry,
-  WorkspaceSearchMatch,
-  WorkspaceSearchResult,
   WorkspaceSummary,
 } from "./contracts";
 import { EditorViewport } from "./EditorViewport";
@@ -43,6 +41,7 @@ import { WorkTabs } from "./EditorLayout";
 import { FileExplorer, loadExplorerTab, saveExplorerTab, type ExplorerTab } from "./FileExplorer";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { ContextMenu, MenuButton, OverflowToolbar, type MenuItem, type ToolbarItem } from "./Toolbar";
+import { FindReplacePanel, ResultsWindow, type FindTab, type MatchTarget, type ResultList } from "./FindReplacePanel";
 import { Icon, IconButton, iconForCommand, type IconName } from "./icons";
 import { PALETTE_COMMANDS, shortcutLabel } from "./commands";
 import {
@@ -91,7 +90,7 @@ import {
   saveWelcomeOnStartup,
 } from "./preferences";
 
-const NAV_ITEMS = ["Files", "Search", "Symbols", "Remote"] as const;
+const NAV_ITEMS = ["Files", "Symbols", "Remote"] as const;
 const EXPLORER_ENTRY_LIMIT = 500;
 const MAX_LOADED_WORKSPACE_DIRECTORIES = 256;
 const NATIVE_MENU_EVENT = "nulis://menu-command";
@@ -111,7 +110,7 @@ const TOOLBAR_CAPTIONS: Record<string, string> = {
   "tools.minify": "Minify", "workspace.rename": "Rename", "workspace.ungroup": "Ungroup",
 };
 const NAV_ICONS: Record<typeof NAV_ITEMS[number], IconName> = {
-  Files: "files", Search: "find", Symbols: "symbols", Remote: "remote",
+  Files: "files", Symbols: "symbols", Remote: "remote",
 };
 
 /** A dirty-document prompt may be one step of quitting or of closing a tab. */
@@ -241,7 +240,7 @@ export function App() {
   const [folderComparison, setFolderComparison] = useState<FolderCompareResult | null>(null);
   const [secondaryDocumentId, setSecondaryDocumentId] = useState<string | null>(null);
   const [viewModes, setViewModes] = useState<Record<string, "text" | "hex">>({});
-  const [activePanel, setActivePanel] = useState<"files" | "search" | "remote">("files");
+  const [activePanel, setActivePanel] = useState<"files" | "remote">("files");
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(260);
   const [resizingSidebar, setResizingSidebar] = useState(false);
@@ -249,15 +248,11 @@ export function App() {
   const [workspaceDirectories, setWorkspaceDirectories] = useState<Record<string, WorkspaceDirectory>>({});
   const [expandedDirectories, setExpandedDirectories] = useState<string[]>([]);
   const [workspaceDocumentIds, setWorkspaceDocumentIds] = useState<Record<string, string>>({});
-  const [searchRoot, setSearchRoot] = useState("");
-  const [workspaceQuery, setWorkspaceQuery] = useState("");
-  const [searchScope, setSearchScope] = useState<"file" | "files">("file");
-  const [searchReplacement, setSearchReplacement] = useState("");
   const [searchRequest, setSearchRequest] = useState<SearchRequest | undefined>();
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; label: string; items: MenuItem[] } | null>(null);
-  const [workspaceRegex, setWorkspaceRegex] = useState(false);
-  const [workspaceCaseSensitive, setWorkspaceCaseSensitive] = useState(true);
-  const [workspaceResults, setWorkspaceResults] = useState<WorkspaceSearchResult | null>(null);
+  const [findTab, setFindTab] = useState<FindTab | null>(null);
+  const [findSeed, setFindSeed] = useState<{ id: number; text: string } | undefined>();
+  const [searchResults, setSearchResults] = useState<ResultList | null>(null);
   const [revealTarget, setRevealTarget] = useState<{ documentId: string; byteOffset: string } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
@@ -315,7 +310,8 @@ export function App() {
         setPreferences(loadedCustomization.appearance);
         setSidebarVisible(restored.sidebarVisible);
         setSidebarWidth(restored.sidebarWidth);
-        setActivePanel(restored.activePanel);
+        // Older sessions may name the removed Search panel.
+        setActivePanel(restored.activePanel === "remote" ? "remote" : "files");
 
         if (restored.workspaceRoot) {
           try {
@@ -330,7 +326,6 @@ export function App() {
             if (!mounted) return;
             setWorkspace(openedWorkspace);
             setWorkspaceDirectories({ "": listing });
-            setSearchRoot(openedWorkspace.root);
           } catch {
             setStatus("The previous workspace is no longer available");
           }
@@ -799,7 +794,6 @@ export function App() {
       setWorkspaceDirectories({ "": listing });
       setExpandedDirectories([]);
       setWorkspaceDocumentIds({});
-      setSearchRoot(openedWorkspace.root);
       setExplorerTab("folder");
       setActivePanel("files");
       setSidebarVisible(true);
@@ -818,7 +812,6 @@ export function App() {
       setWorkspaceDirectories({});
       setExpandedDirectories([]);
       setWorkspaceDocumentIds({});
-      setSearchRoot("");
       setStatus("Workspace closed");
     } catch (error: unknown) {
       setStatus(errorMessage(error, "Could not close workspace"));
@@ -1215,9 +1208,9 @@ export function App() {
     }));
   };
 
-  const chooseSearchRoot = async () => {
-    const selected = await open({ multiple: false, directory: true });
-    if (typeof selected === "string") setSearchRoot(selected);
+  const chooseFolder = async (): Promise<string | null> => {
+    const selected = await open({ multiple: false, directory: true, title: "Choose a folder to search" });
+    return typeof selected === "string" ? selected : null;
   };
   const compareFolders = async () => {
     try {
@@ -1237,35 +1230,22 @@ export function App() {
       setStatus(errorMessage(error, "Could not compare folders"));
     }
   };
-  const findInFiles = async () => {
-    if (!searchRoot || !workspaceQuery) { setStatus("Choose a folder and enter search text"); return; }
-    setStatus("Searching files in bounded chunks…");
+  /** Shows a search result: an open document, or a file that is opened first. */
+  const openMatch = async (match: MatchTarget) => {
     try {
-      const result = await executeCommand<WorkspaceSearchResult>({
-        id: "search.findInFiles", context: { windowId: "main" },
-        arguments: {
-          root: searchRoot, query: workspaceQuery,
-          options: { mode: workspaceRegex ? "regex" : "literal", caseSensitive: workspaceCaseSensitive },
-          maxResults: 500,
-        },
-      });
-      setWorkspaceResults(result);
-      setStatus(`Found ${result.matches.length} matches in ${result.filesScanned} files`);
-    } catch (error: unknown) {
-      setStatus(errorMessage(error, "Find in files failed"));
-    }
-  };
-
-  const openWorkspaceMatch = async (match: WorkspaceSearchMatch) => {
-    try {
-      let target = documents.find((document) => document.sourcePath === match.path);
-      if (!target) {
+      let target = match.documentId
+        ? documents.find((document) => document.documentId === match.documentId)
+        : documents.find((document) => document.sourcePath === match.path);
+      if (!target && match.path) {
         target = await executeCommand<DocumentSummary>({
           id: "file.open", context: { windowId: "main" }, arguments: { path: match.path },
         });
         addDocument(target);
-      } else {
+      } else if (target) {
         showDocument(target.documentId);
+      } else {
+        setStatus("That document is no longer open");
+        return;
       }
       await executeCommand({
         id: "editor.setSelections", context: { windowId: "main", documentId: target.documentId },
@@ -1461,14 +1441,19 @@ export function App() {
     ...preferenceCssVariables(preferences, themes),
   } as CSSProperties;
 
+  /** Opens the Find and Replace panel on a tab, optionally with text to find. */
+  const openFindPanel = (tab: FindTab, seed?: string) => {
+    setFindTab(tab);
+    if (seed) setFindSeed((previous) => ({ id: (previous?.id ?? 0) + 1, text: seed }));
+  };
+
   /** Sends a find or replace action to the editor in the focused pane. */
-  const searchInFile = (action: SearchRequest["action"]) => {
-    if (!activeDocument || viewModes[activeDocument.documentId] === "hex") { setStatus("Open a text document to search in"); return; }
-    if (!workspaceQuery) { setStatus("Enter text to find"); return; }
-    setSearchRequest((previous) => ({
-      id: (previous?.id ?? 0) + 1, action, query: workspaceQuery, replacement: searchReplacement,
-      regex: workspaceRegex, caseSensitive: workspaceCaseSensitive,
-    }));
+  const searchInEditor = (request: Omit<SearchRequest, "id">) => {
+    if (!activeDocument || viewModes[activeDocument.documentId] === "hex") {
+      if (request.action !== "highlight") setStatus("Open a text document to search in");
+      return;
+    }
+    setSearchRequest((previous) => ({ ...request, id: (previous?.id ?? 0) + 1 }));
   };
 
   const copyPath = (document: DocumentSummary) => {
@@ -1644,6 +1629,9 @@ export function App() {
           }))}
           onCaret={active ? (position) => setCaret(position ? { ...position, documentId: document.documentId } : null) : undefined}
           onToggleReadOnly={() => void toggleReadOnly(document.documentId)}
+          onToggleHexMode={() => toggleViewMode(document.documentId)}
+          onCopyPath={() => copyPath(document)}
+          onOpenFind={active ? openFindPanel : undefined}
           searchRequest={active ? searchRequest : undefined}
           revealOffset={active && revealTarget?.documentId === document.documentId ? revealTarget.byteOffset : undefined} />;
   };
@@ -1706,8 +1694,8 @@ export function App() {
 
       <aside className="activitybar" aria-label="Primary navigation">
         {NAV_ITEMS.map((item) => {
-          const panel = item.toLowerCase() as "files" | "search" | "remote";
-          const available = item === "Files" || item === "Search" || item === "Remote";
+          const panel = item.toLowerCase() as "files" | "remote";
+          const available = item === "Files" || item === "Remote";
           const selected = available && activePanel === panel && sidebarVisible;
           return <button
             className={selected ? "active" : ""} type="button" key={item}
@@ -1721,56 +1709,9 @@ export function App() {
         })}
       </aside>
 
-      <section className="sidebar" aria-label={activePanel === "search" ? "Search" : activePanel === "remote" ? "Remote" : "Explorer"}>
+      <section className="sidebar" aria-label={activePanel === "remote" ? "Remote" : "Explorer"}>
         {activePanel === "remote" ? <RemotePanel onOpen={addDocument} onStatus={setStatus} />
-        : activePanel === "search" ? <div className="workspace-search">
-          <div className="panel-heading"><span>SEARCH</span>
-            {searchScope === "files" ? <button type="button" onClick={() => setWorkspaceResults(null)}>Clear</button> : null}</div>
-          <div className="explorer-tabs" role="tablist" aria-label="Search scope">
-            <button type="button" role="tab" aria-selected={searchScope === "file"} className={searchScope === "file" ? "active" : ""}
-              onClick={() => setSearchScope("file")}>Current File</button>
-            <button type="button" role="tab" aria-selected={searchScope === "files"} className={searchScope === "files" ? "active" : ""}
-              onClick={() => setSearchScope("files")}>In Files</button>
-          </div>
-          <input aria-label={searchScope === "file" ? "Find" : "Find in files text"} value={workspaceQuery}
-            onChange={(event) => setWorkspaceQuery(event.currentTarget.value)}
-            onKeyDown={(event) => {
-              if (event.key !== "Enter") return;
-              if (searchScope === "files") void findInFiles();
-              else searchInFile(event.shiftKey ? "previous" : "next");
-            }} placeholder={workspaceRegex ? "Find (regular expression)" : "Find"} />
-          {searchScope === "file" ? <input aria-label="Replace with" value={searchReplacement}
-            onChange={(event) => setSearchReplacement(event.currentTarget.value)}
-            onKeyDown={(event) => { if (event.key === "Enter") searchInFile("replace"); }} placeholder="Replace with" /> : null}
-          <div className="workspace-search-options">
-            <button type="button" aria-pressed={workspaceCaseSensitive} aria-label="Match case" title="Match case"
-              onClick={() => setWorkspaceCaseSensitive((enabled) => !enabled)}>Aa</button>
-            <button type="button" aria-pressed={workspaceRegex} aria-label="Regular expression" title="Regular expression"
-              onClick={() => setWorkspaceRegex((enabled) => !enabled)}>.*</button>
-            {searchScope === "files" ? <>
-              <button type="button" onClick={() => void chooseSearchRoot()}>Folder…</button>
-              <button type="button" aria-label="Run file search" onClick={() => void findInFiles()}>Search</button>
-            </> : null}
-          </div>
-          {searchScope === "file" ? <>
-            <div className="workspace-search-options search-actions">
-              <button type="button" onClick={() => searchInFile("previous")}>Find Previous</button>
-              <button type="button" onClick={() => searchInFile("next")}>Find Next</button>
-              <button type="button" onClick={() => searchInFile("replace")}>Replace</button>
-              <button type="button" onClick={() => searchInFile("replaceAll")}>Replace All</button>
-            </div>
-            <p className="search-root">{activeDocument ? `In ${activeDocument.name}` : "No document is open"}</p>
-          </> : <>
-          <p className="search-root" title={searchRoot}>{searchRoot || "No folder selected"}</p>
-          {workspaceResults ? <div className="search-results" aria-label="File search results">
-            <p>{workspaceResults.matches.length} matches · {workspaceResults.filesScanned} files{workspaceResults.truncated ? " · limited" : ""}</p>
-            {workspaceResults.matches.map((match, index) => <button type="button"
-              key={`${match.path}-${match.startByte}-${index}`} onClick={() => void openWorkspaceMatch(match)}>
-              <strong>{match.path.split(/[\\/]/).pop()}</strong><span>byte {match.startByte}</span>
-            </button>)}
-          </div> : null}
-          </>}
-        </div> : <FileExplorer tab={explorerTab} onTab={(next) => { setExplorerTab(next); saveExplorerTab(next); }}
+        : <FileExplorer tab={explorerTab} onTab={(next) => { setExplorerTab(next); saveExplorerTab(next); }}
           documents={documents} activeDocumentId={activeDocumentId} onShowDocument={showDocument}
           onOpenPath={(path) => void openPath(path)} onStatus={setStatus} onDocumentMenu={openDocumentMenu}
           folder={<>
@@ -1890,6 +1831,16 @@ export function App() {
           }}
           onMainAction={handleSettingsAction} onClose={() => setSettingsOpen(false)} />
       </div> : null}
+      {findTab ? <FindReplacePanel tab={findTab} onTab={setFindTab} onClose={() => setFindTab(null)} seed={findSeed}
+        activeDocument={activeDocument && viewModes[activeDocument.documentId] !== "hex" ? activeDocument : null}
+        textDocuments={documents.filter((document) => viewModes[document.documentId] !== "hex")}
+        selection={caret && caret.documentId === activeDocument?.documentId ? caret.selection : undefined}
+        onEditorSearch={searchInEditor} onOpenMatch={(target) => void openMatch(target)}
+        onDocumentChange={upsertDocument} onResults={setSearchResults} onChooseFolder={chooseFolder} defaultFolder={workspace?.root}
+        onStatus={setStatus} /> : null}
+      {searchResults ? <ResultsWindow list={searchResults} onClose={() => setSearchResults(null)}
+        onOpenMatch={(target) => void openMatch(target)} onStatus={setStatus}
+        openDocumentIds={new Set(documents.map((document) => document.documentId))} /> : null}
       {contextMenu ? <ContextMenu {...contextMenu} onClose={() => setContextMenu(null)} /> : null}
       {aboutOpen ? <div className="decision-backdrop" onPointerDown={(event) => {
         if (event.target === event.currentTarget) setAboutOpen(false);

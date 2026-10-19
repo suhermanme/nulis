@@ -12,17 +12,18 @@ pub use command::{
 };
 pub use editor::{
     BookmarkDirection, ClipboardPayload, DocumentId, DocumentManager, DocumentMapChange,
-    DocumentMapSample, DocumentMapSnapshot, DocumentSummary, EditorError, FindDirection,
-    FindResult, HexCaret, HexClipboardPayload, HexCursor, HexEditResult, HexViewportRequest,
-    HexViewportRow, HexViewportSnapshot, HorizontalDirection, LanguageDescriptor,
-    MarkdownPreviewSource, RecoveryCandidate, RectangularSelection, ReplaceAllResult, SearchMode,
-    SearchOptions, Selection, SyntaxBracketPair, SyntaxFold, SyntaxHighlight, SyntaxSnapshot,
-    SyntaxSymbol, TextEncoding, TextTransform, VerticalDirection, ViewportAtRequest,
-    ViewportCursor, ViewportLine, ViewportLineRequest, ViewportRequest, ViewportSnapshot,
-    WorkspaceSearchMatch, WorkspaceSearchResult, MAX_BOOKMARKS, MAX_CLIPBOARD_BYTES,
-    MAX_EDIT_BYTES, MAX_HEX_CLIPBOARD_BYTES, MAX_HEX_EDIT_BYTES, MAX_HEX_VIEWPORT_BYTES,
-    MAX_MARKDOWN_PREVIEW_BYTES, MAX_MERGE_BYTES, MAX_RECTANGULAR_ROWS, MAX_SELECTIONS,
-    MAX_VIEWPORT_BYTES, MAX_WORKSPACE_SEARCH_FILES, MAX_WORKSPACE_SEARCH_RESULTS,
+    DocumentMapSample, DocumentMapSnapshot, DocumentSummary, EditorError, FileSearchScope,
+    FindAllResult, FindDirection, FindResult, FoundLine, FoundMatch, HexCaret, HexClipboardPayload,
+    HexCursor, HexEditResult, HexViewportRequest, HexViewportRow, HexViewportSnapshot,
+    HorizontalDirection, LanguageDescriptor, LineEditResult, LineOperation, MarkdownPreviewSource,
+    RecoveryCandidate, RectangularSelection, ReplaceAllResult, SearchMode, SearchOptions,
+    Selection, SyntaxBracketPair, SyntaxFold, SyntaxHighlight, SyntaxSnapshot, SyntaxSymbol,
+    TextEncoding, TextTransform, VerticalDirection, ViewportAtRequest, ViewportCursor,
+    ViewportLine, ViewportLineRequest, ViewportRequest, ViewportSnapshot, WorkspaceSearchMatch,
+    WorkspaceSearchResult, MAX_BOOKMARKS, MAX_CLIPBOARD_BYTES, MAX_EDIT_BYTES, MAX_FIND_ALL_LINES,
+    MAX_FIND_ALL_MATCHES, MAX_HEX_CLIPBOARD_BYTES, MAX_HEX_EDIT_BYTES, MAX_HEX_VIEWPORT_BYTES,
+    MAX_LINE_PREVIEW_BYTES, MAX_MARKDOWN_PREVIEW_BYTES, MAX_MERGE_BYTES, MAX_RECTANGULAR_ROWS,
+    MAX_SELECTIONS, MAX_VIEWPORT_BYTES, MAX_WORKSPACE_SEARCH_FILES, MAX_WORKSPACE_SEARCH_RESULTS,
 };
 pub use format_tools::ToolKind;
 pub use line_changes::{LineChange, LineChangeStatus};
@@ -72,7 +73,7 @@ use nulis_automation::{
     CURRENT_REVISION_ARGUMENT,
 };
 
-pub const IPC_PROTOCOL_VERSION: u32 = 26;
+pub const IPC_PROTOCOL_VERSION: u32 = 28;
 pub const PRODUCT_NAME: &str = "Nulis";
 pub const APPLICATION_ID: &str = "com.nulis.editor";
 const MAX_SCRIPT_MESSAGES: usize = 100;
@@ -1593,6 +1594,14 @@ struct BookmarkMoveArguments {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct LineOperationArguments {
+    #[serde(with = "editor::decimal_u64")]
+    expected_revision: u64,
+    operation: LineOperation,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct TransformArguments {
     #[serde(with = "editor::decimal_u64")]
     expected_revision: u64,
@@ -1654,6 +1663,47 @@ struct ReplaceAllArguments {
     replacement: String,
     #[serde(default)]
     options: SearchOptions,
+    /// Limits the search to a byte range, for "selected text".
+    #[serde(default)]
+    within: Option<ByteRangeArguments>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ByteRangeArguments {
+    #[serde(with = "editor::decimal_u64")]
+    start_byte: u64,
+    #[serde(with = "editor::decimal_u64")]
+    end_byte: u64,
+}
+
+impl ByteRangeArguments {
+    fn pair(self) -> (u64, u64) {
+        (self.start_byte, self.end_byte)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct FindAllArguments {
+    query: String,
+    #[serde(default)]
+    options: SearchOptions,
+    #[serde(default)]
+    within: Option<ByteRangeArguments>,
+    #[serde(default = "default_find_all_limit")]
+    max_matches: usize,
+}
+
+fn default_find_all_limit() -> usize {
+    editor::MAX_FIND_ALL_MATCHES
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct AddBookmarksArguments {
+    /// Decimal byte offsets.
+    offsets: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1663,6 +1713,8 @@ struct FindInFilesArguments {
     query: String,
     #[serde(default)]
     options: SearchOptions,
+    #[serde(default)]
+    scope: editor::FileSearchScope,
     #[serde(default = "default_workspace_result_limit")]
     max_results: usize,
 }
@@ -1825,6 +1877,9 @@ fn is_recordable_command(id: &str) -> bool {
     matches!(
         id,
         "editor.deleteBackward"
+            | "editor.deleteForward"
+            | "editor.selectAll"
+            | "editor.lineOperation"
             | "editor.replace"
             | "editor.setSelections"
             | "editor.undo"
@@ -2483,6 +2538,9 @@ fn register_editor_commands(commands: &mut CommandRegistry, documents: &Arc<Docu
         )
         .expect("built-in command is unique");
 
+    register_line_commands(commands, documents);
+    register_find_all_commands(commands, documents);
+
     let manager = Arc::clone(documents);
     commands
         .register(
@@ -2743,6 +2801,7 @@ fn register_search_commands(commands: &mut CommandRegistry, documents: &Arc<Docu
                         &arguments.query,
                         &arguments.replacement,
                         arguments.options,
+                        arguments.within.map(ByteRangeArguments::pair),
                     )
                     .map_err(|error| editor_command_error(&error))?;
                 serde_json::to_value(result).map_err(|error| serialization_command_error(&error))
@@ -2762,10 +2821,60 @@ fn register_search_commands(commands: &mut CommandRegistry, documents: &Arc<Docu
                         std::path::Path::new(&arguments.root),
                         &arguments.query,
                         arguments.options,
+                        &arguments.scope,
                         arguments.max_results,
                     )
                     .map_err(|error| editor_command_error(&error))?;
                 serde_json::to_value(result).map_err(|error| serialization_command_error(&error))
+            },
+        )
+        .expect("built-in command is unique");
+}
+
+fn register_find_all_commands(commands: &mut CommandRegistry, documents: &Arc<DocumentManager>) {
+    let manager = Arc::clone(documents);
+    commands
+        .register(
+            CommandDescriptor::new("search.findAll", "Find All", "Search")
+                .expect("built-in command ID is valid"),
+            move |context, arguments| {
+                let document_id = context_document(&context)?;
+                let arguments: FindAllArguments = parse_arguments(arguments)?;
+                let result = manager
+                    .find_all(
+                        &document_id,
+                        &arguments.query,
+                        arguments.options,
+                        arguments.within.map(ByteRangeArguments::pair),
+                        arguments.max_matches,
+                    )
+                    .map_err(|error| editor_command_error(&error))?;
+                serde_json::to_value(result).map_err(|error| serialization_command_error(&error))
+            },
+        )
+        .expect("built-in command is unique");
+
+    let manager = Arc::clone(documents);
+    commands
+        .register(
+            CommandDescriptor::new("editor.addBookmarks", "Add Bookmarks", "Editor")
+                .expect("built-in command ID is valid"),
+            move |context, arguments| {
+                let document_id = context_document(&context)?;
+                let arguments: AddBookmarksArguments = parse_arguments(arguments)?;
+                let offsets = arguments
+                    .offsets
+                    .iter()
+                    .map(|offset| offset.parse::<u64>())
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(|_| {
+                        CommandError::Failed("offsets must be decimal byte offsets".into())
+                    })?;
+                let result = manager
+                    .add_bookmarks(&document_id, &offsets)
+                    .map_err(|error| editor_command_error(&error))?;
+                serde_json::to_value(result.iter().map(u64::to_string).collect::<Vec<_>>())
+                    .map_err(|error| serialization_command_error(&error))
             },
         )
         .expect("built-in command is unique");
@@ -2844,6 +2953,58 @@ fn register_transform_and_bookmark_commands(
                     .clear_bookmarks(&context_document(&context)?)
                     .map_err(|error| editor_command_error(&error))?;
                 Ok(Value::Null)
+            },
+        )
+        .expect("built-in command is unique");
+}
+
+fn register_line_commands(commands: &mut CommandRegistry, documents: &Arc<DocumentManager>) {
+    let manager = Arc::clone(documents);
+    commands
+        .register(
+            CommandDescriptor::new("editor.deleteForward", "Delete Forward", "Editor")
+                .expect("built-in command ID is valid"),
+            move |context, arguments| {
+                let document_id = context_document(&context)?;
+                let arguments: RevisionArguments = parse_arguments(arguments)?;
+                let result = manager
+                    .delete_forward(&document_id, arguments.expected_revision)
+                    .map_err(|error| editor_command_error(&error))?;
+                serde_json::to_value(result).map_err(|error| serialization_command_error(&error))
+            },
+        )
+        .expect("built-in command is unique");
+
+    let manager = Arc::clone(documents);
+    commands
+        .register(
+            CommandDescriptor::new("editor.selectAll", "Select All", "Editor")
+                .expect("built-in command ID is valid"),
+            move |context, _arguments| {
+                let result = manager
+                    .select_all(&context_document(&context)?)
+                    .map_err(|error| editor_command_error(&error))?;
+                serde_json::to_value(result).map_err(|error| serialization_command_error(&error))
+            },
+        )
+        .expect("built-in command is unique");
+
+    let manager = Arc::clone(documents);
+    commands
+        .register(
+            CommandDescriptor::new("editor.lineOperation", "Line Operation", "Editor")
+                .expect("built-in command ID is valid"),
+            move |context, arguments| {
+                let document_id = context_document(&context)?;
+                let arguments: LineOperationArguments = parse_arguments(arguments)?;
+                let result = manager
+                    .line_operation(
+                        &document_id,
+                        arguments.expected_revision,
+                        arguments.operation,
+                    )
+                    .map_err(|error| editor_command_error(&error))?;
+                serde_json::to_value(result).map_err(|error| serialization_command_error(&error))
             },
         )
         .expect("built-in command is unique");

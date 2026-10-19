@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeAll, expect, test, vi } from "vitest";
 import { useState } from "react";
 import type { DocumentSummary } from "./contracts";
-import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { EditorViewport } from "./EditorViewport";
 import { executeCommand, getDocumentMap, getMarkdownPreviewSource, getViewport, getViewportAt, getViewportLine } from "./ipc";
 
@@ -30,6 +30,7 @@ vi.mock("./ipc", () => ({
 }));
 
 vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({
+  readText: vi.fn().mockResolvedValue("pasted"),
   writeText: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -954,40 +955,23 @@ test("exposes wrapping, transforms, bookmarks, and encoding controls", async () 
   })));
 });
 
-test("opens bounded find with the keyboard and reveals the returned match", async () => {
-  vi.mocked(executeCommand).mockResolvedValueOnce({
-    revision: "0",
-    selection: { anchorByte: "4", activeByte: "7" },
-    wrapped: false,
-  });
-  const onStatus = vi.fn();
+test("Ctrl/Cmd F and H open the Find and Replace panel, seeded with a short selection", async () => {
+  const onOpenFind = vi.fn();
   render(
     <EditorViewport
       document={{ documentId: "document-1", name: "Untitled", byteLen: "7", revision: "0", encoding: "utf8" }}
       onDocumentChange={() => undefined}
-      onStatus={onStatus}
+      onStatus={() => undefined}
+      onOpenFind={onOpenFind}
     />,
   );
   const editor = await screen.findByRole("textbox", { name: "Untitled editor" });
-
   fireEvent.keyDown(editor, { key: "f", ctrlKey: true });
-  fireEvent.change(screen.getByRole("textbox", { name: "Find text" }), {
-    target: { value: "two" },
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Next match" }));
-
-  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
-    id: "search.find",
-    context: { windowId: "main", documentId: "document-1" },
-    arguments: {
-      query: "two",
-      options: { mode: "literal", caseSensitive: true },
-      startByte: "0",
-      direction: "next",
-      wrap: true,
-    },
-  }));
-  expect(onStatus).toHaveBeenCalledWith("next match");
+  expect(onOpenFind).toHaveBeenLastCalledWith("find");
+  fireEvent.keyDown(editor, { key: "h", metaKey: true });
+  expect(onOpenFind).toHaveBeenLastCalledWith("replace");
+  fireEvent.click(screen.getByRole("button", { name: "Find" }));
+  expect(onOpenFind).toHaveBeenCalledTimes(3);
 });
 
 const untitled = { documentId: "document-1", name: "Untitled", byteLen: "7", revision: "0", encoding: "utf8" } as const;
@@ -1261,7 +1245,7 @@ test("goes to a line through a bounded core query and places the caret there", a
   await waitFor(() => expect(screen.queryByRole("textbox", { name: "Line number" })).not.toBeInTheDocument());
 });
 
-test("highlights every visible occurrence of the find query when enabled", async () => {
+test("highlights every visible occurrence of the find query when the panel asks", async () => {
   vi.mocked(getViewport).mockResolvedValueOnce({
     documentId: "document-1", revision: "0", documentByteLen: "22", encoding: "utf8",
     lines: [
@@ -1270,21 +1254,26 @@ test("highlights every visible occurrence of the find query when enabled", async
     ],
     selections: [{ anchorByte: "21", activeByte: "21" }], bookmarks: [],
   });
-  const { container } = render(<EditorViewport document={untitled} onDocumentChange={() => undefined} onStatus={() => undefined} />);
+  const props = { document: untitled, onDocumentChange: () => undefined, onStatus: () => undefined };
+  const request = { action: "highlight" as const, replacement: "", regex: false, highlight: true };
+  const { container, rerender } = render(<EditorViewport {...props} />);
   await screen.findByRole("textbox", { name: "Untitled editor" });
-  fireEvent.click(screen.getByRole("button", { name: "Find" }));
-  fireEvent.change(screen.getByRole("textbox", { name: "Find text" }), { target: { value: "one" } });
   expect(container.querySelectorAll(".find-highlight")).toHaveLength(0);
-  const highlight = screen.getByRole("button", { name: "Highlight matches" });
-  fireEvent.click(highlight);
-  expect(highlight).toHaveAttribute("aria-pressed", "true");
-  expect([...container.querySelectorAll(".find-highlight")].map((item) => item.textContent)).toEqual(["one", "one", "one"]);
-  fireEvent.click(screen.getByRole("button", { name: "Match case" }));
-  expect(container.querySelectorAll(".find-highlight")).toHaveLength(4);
+  rerender(<EditorViewport {...props} searchRequest={{ id: 1, ...request, query: "one", caseSensitive: true }} />);
+  await waitFor(() => expect([...container.querySelectorAll(".find-highlight")].map((item) => item.textContent))
+    .toEqual(["one", "one", "one"]));
+  expect(screen.getByRole("button", { name: "Highlight matches" })).toHaveAttribute("aria-pressed", "true");
+  rerender(<EditorViewport {...props} searchRequest={{ id: 2, ...request, query: "one", caseSensitive: false }} />);
+  await waitFor(() => expect(container.querySelectorAll(".find-highlight")).toHaveLength(4));
+  // Whole words: "none" no longer counts.
+  rerender(<EditorViewport {...props} searchRequest={{ id: 3, ...request, query: "one", caseSensitive: false, wholeWord: true }} />);
+  await waitFor(() => expect(container.querySelectorAll(".find-highlight")).toHaveLength(3));
   // An invalid pattern highlights nothing instead of failing.
-  fireEvent.click(screen.getByRole("button", { name: "Regular expression" }));
-  fireEvent.change(screen.getByRole("textbox", { name: "Find text" }), { target: { value: "(" } });
-  expect(container.querySelectorAll(".find-highlight")).toHaveLength(0);
+  rerender(<EditorViewport {...props} searchRequest={{ id: 4, ...request, query: "(", caseSensitive: true, regex: true }} />);
+  await waitFor(() => expect(container.querySelectorAll(".find-highlight")).toHaveLength(0));
+  // Turning highlighting off clears it.
+  rerender(<EditorViewport {...props} searchRequest={{ id: 5, ...request, query: "one", caseSensitive: true, highlight: false }} />);
+  await waitFor(() => expect(container.querySelectorAll(".find-highlight")).toHaveLength(0));
 });
 
 test("column editing mode makes a plain drag select a rectangle", async () => {
@@ -1369,7 +1358,7 @@ test("a Search panel request runs find, replace, and replace all with its own op
   rerender(<EditorViewport {...props} searchRequest={{ id: 5, action: "next", ...request }} />);
   await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
     id: "search.find", context: { windowId: "main", documentId: "document-1" },
-    arguments: { query: "t.o", options: { mode: "regex", caseSensitive: false }, startByte: "0", direction: "next", wrap: true },
+    arguments: { query: "t.o", options: { mode: "regex", caseSensitive: false, wholeWord: false }, startByte: "0", direction: "next", wrap: true },
   }));
   expect(await screen.findByText("two")).toHaveClass("selection");
 
@@ -1386,7 +1375,7 @@ test("a Search panel request runs find, replace, and replace all with its own op
   rerender(<EditorViewport {...props} searchRequest={{ id: 7, action: "replaceAll", ...request, query: "o" }} />);
   await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
     id: "search.replaceAll",
-    arguments: expect.objectContaining({ query: "o", replacement: "2", options: { mode: "regex", caseSensitive: false } }),
+    arguments: expect.objectContaining({ query: "o", replacement: "2", options: { mode: "regex", caseSensitive: false, wholeWord: false } }),
   })));
   await waitFor(() => expect(props.onStatus).toHaveBeenCalledWith("Replaced 3 matches"));
 });
@@ -1429,4 +1418,99 @@ test("keys typed faster than the core answers are applied in order, none dropped
     .toEqual(["0", "1", "2"]);
   expect(onStatus).not.toHaveBeenCalledWith("stale revision");
   await waitFor(() => expect(screen.getByText("llo")).toBeInTheDocument());
+});
+
+const lineSummary = { documentId: "document-1", name: "Untitled", byteLen: "7", revision: "1", encoding: "utf8" };
+
+/** Answers each command the way the core would for the two-line test document. */
+function respondLikeCore() {
+  vi.mocked(executeCommand).mockImplementation(async (request) => {
+    switch (request.id) {
+      case "editor.moveHorizontal":
+        return [{ anchorByte: "0", activeByte: "3" }];
+      case "editor.selectAll":
+        return [{ anchorByte: "0", activeByte: "7" }];
+      case "editor.lineOperation":
+        return { document: lineSummary, selections: [{ anchorByte: "4", activeByte: "4" }] };
+      default:
+        return lineSummary;
+    }
+  });
+}
+
+test("Home, End, Delete, Select All, and line keys reach the core commands", async () => {
+  respondLikeCore();
+  render(<EditorViewport document={{ documentId: "document-1", name: "Untitled", byteLen: "7", revision: "0", encoding: "utf8" }}
+    onDocumentChange={() => undefined} onStatus={() => undefined} />);
+  const editor = await screen.findByRole("textbox", { name: "Untitled editor" });
+  const sent = (id: string, args: Record<string, unknown>) => expect(executeCommand).toHaveBeenCalledWith(
+    expect.objectContaining({ id, arguments: expect.objectContaining(args) }),
+  );
+
+  fireEvent.keyDown(editor, { key: "Home" });
+  await waitFor(() => sent("editor.moveHorizontal", { direction: "lineStart", extend: false }));
+  fireEvent.keyDown(editor, { key: "End", shiftKey: true, ctrlKey: true });
+  await waitFor(() => sent("editor.moveHorizontal", { direction: "documentEnd", extend: true }));
+  fireEvent.keyDown(editor, { key: "Delete" });
+  await waitFor(() => sent("editor.deleteForward", { expectedRevision: expect.any(String) }));
+  fireEvent.keyDown(editor, { key: "a", ctrlKey: true });
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({ id: "editor.selectAll" })));
+  fireEvent.keyDown(editor, { key: "ArrowDown", altKey: true });
+  await waitFor(() => sent("editor.lineOperation", { operation: "moveLinesDown" }));
+  fireEvent.keyDown(editor, { key: "K", ctrlKey: true, shiftKey: true });
+  await waitFor(() => sent("editor.lineOperation", { operation: "deleteLines" }));
+  fireEvent.keyDown(editor, { key: "D", ctrlKey: true, shiftKey: true });
+  await waitFor(() => sent("editor.lineOperation", { operation: "duplicateLines" }));
+  expect(executeCommand).not.toHaveBeenCalledWith(expect.objectContaining({ id: "editor.selectWordAt" }));
+});
+
+test("the right-click menu runs editor actions and app actions", async () => {
+  respondLikeCore();
+  const onToggleHexMode = vi.fn();
+  const onCopyPath = vi.fn();
+  render(<EditorViewport document={{ documentId: "document-1", name: "Untitled", byteLen: "7", revision: "0", encoding: "utf8" }}
+    onDocumentChange={() => undefined} onStatus={() => undefined}
+    onToggleHexMode={onToggleHexMode} onCopyPath={onCopyPath} />);
+  const editor = await screen.findByRole("textbox", { name: "Untitled editor" });
+
+  fireEvent.contextMenu(editor, { clientX: 20, clientY: 30 });
+  const menu = screen.getByRole("menu", { name: "Editor" });
+  expect(menu).toBeInTheDocument();
+  expect(screen.getByRole("menuitem", { name: /^Copy(?! File)/ })).toBeDisabled();
+  fireEvent.click(screen.getByRole("menuitem", { name: /^Duplicate Line/ }));
+  expect(screen.queryByRole("menu", { name: "Editor" })).not.toBeInTheDocument();
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
+    id: "editor.lineOperation", arguments: expect.objectContaining({ operation: "duplicateLines" }),
+  })));
+
+  fireEvent.contextMenu(editor);
+  fireEvent.click(screen.getByRole("menuitem", { name: /^Paste/ }));
+  await waitFor(() => expect(readText).toHaveBeenCalled());
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
+    id: "editor.insertText", arguments: expect.objectContaining({ text: "pasted" }),
+  })));
+
+  fireEvent.contextMenu(editor);
+  fireEvent.click(screen.getByRole("menuitem", { name: /^Hex Mode/ }));
+  expect(onToggleHexMode).toHaveBeenCalledOnce();
+  fireEvent.contextMenu(editor);
+  fireEvent.click(screen.getByRole("menuitem", { name: /^Copy File Path/ }));
+  expect(onCopyPath).toHaveBeenCalledOnce();
+});
+
+test("read-only documents disable editing items and refuse line edits", async () => {
+  respondLikeCore();
+  const onStatus = vi.fn();
+  render(<EditorViewport document={{ documentId: "document-1", name: "Untitled", byteLen: "7", revision: "0", encoding: "utf8", readOnly: true }}
+    onDocumentChange={() => undefined} onStatus={onStatus} />);
+  const editor = await screen.findByRole("textbox", { name: "Untitled editor" });
+  fireEvent.contextMenu(editor);
+  expect(screen.getByRole("menuitem", { name: /^Delete Line/ })).toBeDisabled();
+  expect(screen.getByRole("menuitem", { name: /^Select All/ })).toBeEnabled();
+  fireEvent.keyDown(editor, { key: "Escape" });
+  fireEvent.keyDown(editor, { key: "Delete" });
+  fireEvent.keyDown(editor, { key: "ArrowUp", altKey: true });
+  await waitFor(() => expect(onStatus).toHaveBeenCalled());
+  expect(executeCommand).not.toHaveBeenCalledWith(expect.objectContaining({ id: "editor.deleteForward" }));
+  expect(executeCommand).not.toHaveBeenCalledWith(expect.objectContaining({ id: "editor.lineOperation" }));
 });

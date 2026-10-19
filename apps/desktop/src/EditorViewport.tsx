@@ -12,15 +12,18 @@ import {
   useRef,
   useState,
 } from "react";
-import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import type {
   CaretPosition,
   ClipboardPayload,
   DocumentMapSnapshot,
   DocumentSummary,
   FindResult,
+  HorizontalDirection,
   LanguageDescriptor,
   LineChange,
+  LineEditResult,
+  LineOperation,
   MarkdownPreviewSource,
   RectangularSelection,
   ReplaceAllResult,
@@ -33,6 +36,7 @@ import type {
   ViewportSnapshot,
 } from "./contracts";
 import { Icon, IconButton } from "./icons";
+import { ContextMenu, type MenuItem } from "./Toolbar";
 import {
   executeCommand, getDocumentMap, getMarkdownPreviewSource, getViewport, getViewportAt, getViewportLine,
 } from "./ipc";
@@ -55,6 +59,32 @@ const LINE_CHANGE_LABELS: Record<LineChange, string> = {
 const textEncoder = new TextEncoder();
 
 /** Option copies a dragged selection on Apple platforms; Control does elsewhere. */
+function isApplePlatform(): boolean {
+  return typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
+}
+
+/** A shortcut as the platform writes it, for menu hints. */
+function chordLabel(chord: string): string {
+  const parts = chord.split("+");
+  const key = (parts.at(-1) ?? "").replace("ArrowUp", "↑").replace("ArrowDown", "↓");
+  if (isApplePlatform()) {
+    return `${parts.includes("Alt") ? "⌥" : ""}${parts.includes("Shift") ? "⇧" : ""}${parts.includes("Primary") ? "⌘" : ""}${key}`;
+  }
+  return [parts.includes("Primary") ? "Ctrl" : "", parts.includes("Alt") ? "Alt" : "",
+    parts.includes("Shift") ? "Shift" : "", key].filter(Boolean).join("+");
+}
+
+const LINE_OPERATION_STATUS: Record<LineOperation, string> = {
+  selectLines: "Selected line",
+  deleteLines: "Deleted line",
+  duplicateLines: "Duplicated line",
+  moveLinesUp: "Moved line up",
+  moveLinesDown: "Moved line down",
+  deleteToLineStart: "Deleted to line start",
+  deleteToLineEnd: "Deleted to line end",
+  insertLineBelow: "Inserted line",
+};
+
 function copyModifierHeld(event: { altKey: boolean; ctrlKey: boolean }): boolean {
   return /Mac|iPhone|iPad/.test(navigator.platform) ? event.altKey : event.ctrlKey;
 }
@@ -201,12 +231,20 @@ function renderLineText(
 }
 
 /** UTF-16 ranges of every visible occurrence of the find query in one rendered line. */
-function findHighlights(text: string, query: string, regex: boolean, caseSensitive: boolean): Array<{ start: number; end: number }> {
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function findHighlights(
+  text: string, query: string, regex: boolean, caseSensitive: boolean, wholeWord = false,
+): Array<{ start: number; end: number }> {
   if (!query || !text) return [];
   const ranges: Array<{ start: number; end: number }> = [];
-  if (regex) {
+  if (regex || wholeWord) {
+    const source = regex ? query : escapeRegExp(query);
+    const bounded = wholeWord ? `(?<![\\p{L}\\p{N}_])(?:${source})(?![\\p{L}\\p{N}_])` : source;
     let pattern: RegExp;
-    try { pattern = new RegExp(query, caseSensitive ? "gu" : "giu"); } catch { return []; }
+    try { pattern = new RegExp(bounded, caseSensitive ? "gu" : "giu"); } catch { return []; }
     for (const match of text.matchAll(pattern)) {
       if (match[0].length > 0) ranges.push({ start: match.index, end: match.index + match[0].length });
       if (ranges.length >= MAX_HIGHLIGHTS_PER_LINE) break;
@@ -259,6 +297,12 @@ interface EditorViewportProps {
   onCaret?(position: CaretPosition | null): void;
   /** Switches the document between Edit and Read-Only mode. */
   onToggleReadOnly?(): void;
+  /** Switches the document between the text and hexadecimal editors. */
+  onToggleHexMode?(): void;
+  /** Copies the document's path (or name) to the clipboard. */
+  onCopyPath?(): void;
+  /** Opens the Find and Replace panel on a tab, seeded with selected text. */
+  onOpenFind?(tab: "find" | "replace", seed?: string): void;
 }
 
 export function EditorViewport({
@@ -280,6 +324,9 @@ export function EditorViewport({
   searchRequest,
   onCaret,
   onToggleReadOnly,
+  onToggleHexMode,
+  onCopyPath,
+  onOpenFind,
 }: EditorViewportProps) {
   const rowHeight = Math.max(12, Math.min(100, lineHeight));
   // Several panes can show views at once, so element IDs are per view.
@@ -298,11 +345,12 @@ export function EditorViewport({
   const [previewSource, setPreviewSource] = useState<MarkdownPreviewSource | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [mapHeight, setMapHeight] = useState(800);
-  const [findOpen, setFindOpen] = useState(false);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null);
   const [findQuery, setFindQuery] = useState("");
   const [replacement, setReplacement] = useState("");
   const [regexSearch, setRegexSearch] = useState(false);
   const [caseSensitive, setCaseSensitive] = useState(true);
+  const [wholeWord, setWholeWord] = useState(false);
   const [collapsedFolds, setCollapsedFolds] = useState<string[]>([]);
   const [currentFindMatch, setCurrentFindMatch] = useState<Selection | null>(null);
   const [currentCursor, setCurrentCursor] = useState<ViewportCursor>(FIRST_CURSOR);
@@ -401,7 +449,7 @@ export function EditorViewport({
 
   useEffect(() => {
     setCurrentFindMatch(null);
-  }, [caseSensitive, document.documentId, findQuery, regexSearch]);
+  }, [caseSensitive, document.documentId, findQuery, regexSearch, wholeWord]);
 
   useEffect(() => {
     setCollapsedFolds([]);
@@ -605,7 +653,10 @@ export function EditorViewport({
   const refreshRef = useRef(refresh);
   refreshRef.current = refresh;
   const queueEdit = useCallback(
-    (id: "editor.insertText" | "editor.deleteBackward", details: Record<string, unknown>) => {
+    (
+      id: "editor.insertText" | "editor.deleteBackward" | "editor.deleteForward",
+      details: Record<string, unknown>,
+    ) => {
       const run = async () => {
         const revision = editRevisionRef.current;
         if (revision === null) return false;
@@ -811,7 +862,7 @@ export function EditorViewport({
   }, [commitRectangularSelection, commitSelections, document.documentId, onDocumentChange, onStatus, refresh, snapshot]);
 
   const moveHorizontal = useCallback(
-    async (direction: "left" | "right", extend: boolean) => {
+    async (direction: HorizontalDirection, extend: boolean) => {
       const selections = await executeCommand<Selection[]>({
         id: "editor.moveHorizontal",
         context: { windowId: "main", documentId: document.documentId },
@@ -852,6 +903,65 @@ export function EditorViewport({
     },
     [document.documentId, onDocumentChange, onStatus, refresh, snapshot],
   );
+
+  const deleteForward = useCallback(async () => {
+    if (refuseEdit()) return;
+    try {
+      await queueEdit("editor.deleteForward", {});
+    } catch (error: unknown) {
+      onStatus(error instanceof Error ? error.message : "Could not delete");
+    }
+  }, [onStatus, queueEdit, refuseEdit]);
+
+  const selectAll = useCallback(async () => {
+    try {
+      const selections = await executeCommand<Selection[]>({
+        id: "editor.selectAll",
+        context: { windowId: "main", documentId: document.documentId },
+        arguments: null,
+      });
+      setSnapshot((current) => current ? { ...current, selections, rectangularSelection: undefined } : current);
+      onStatus("Selected all");
+    } catch (error: unknown) {
+      onStatus(error instanceof Error ? error.message : "Could not select all");
+    }
+  }, [document.documentId, onStatus]);
+
+  // Line operations join the typed-edit queue so they never act on a stale revision.
+  const runLineOperation = useCallback(async (operation: LineOperation) => {
+    if (operation !== "selectLines" && refuseEdit()) return;
+    const run = async () => {
+      const revision = editRevisionRef.current;
+      if (revision === null) return;
+      const result = await executeCommand<LineEditResult>({
+        id: "editor.lineOperation",
+        context: { windowId: "main", documentId: document.documentId },
+        arguments: { expectedRevision: revision, operation },
+      });
+      editRevisionRef.current = result.document.revision;
+      onDocumentChange(result.document);
+      await refreshRef.current();
+    };
+    const result = editChainRef.current.then(run, run);
+    editChainRef.current = result.catch(() => undefined);
+    try {
+      await result;
+      onStatus(LINE_OPERATION_STATUS[operation]);
+    } catch (error: unknown) {
+      onStatus(error instanceof Error ? error.message : "Line operation failed");
+    }
+  }, [document.documentId, onDocumentChange, onStatus, refuseEdit]);
+
+  const pasteFromClipboard = useCallback(async () => {
+    if (refuseEdit()) return;
+    try {
+      const text = await readText();
+      if (text) await insertText(text);
+      else onStatus("The clipboard holds no text");
+    } catch (error: unknown) {
+      onStatus(error instanceof Error ? error.message : "Could not read the clipboard");
+    }
+  }, [insertText, onStatus, refuseEdit]);
 
   const toggleBookmark = useCallback(async () => {
     await executeCommand({
@@ -919,7 +1029,8 @@ export function EditorViewport({
   const searchOptions = useCallback((): SearchOptions => ({
     mode: regexSearch ? "regex" : "literal",
     caseSensitive,
-  }), [caseSensitive, regexSearch]);
+    wholeWord,
+  }), [caseSensitive, regexSearch, wholeWord]);
 
   const runFind = useCallback(async (direction: "previous" | "next") => {
     if (!snapshot || findQuery.length === 0) {
@@ -995,7 +1106,7 @@ export function EditorViewport({
     }
   }, [currentFindMatch, document.documentId, onDocumentChange, onStatus, refresh, replacement, runFind, snapshot]);
 
-  const replaceAll = useCallback(async () => {
+  const replaceAll = useCallback(async (within?: { startByte: string; endByte: string }) => {
     if (!snapshot || findQuery.length === 0) {
       onStatus("Enter text to replace");
       return;
@@ -1009,6 +1120,7 @@ export function EditorViewport({
           query: findQuery,
           replacement,
           options: searchOptions(),
+          ...(within ? { within } : {}),
         },
       });
       onDocumentChange(result.document);
@@ -1042,6 +1154,7 @@ export function EditorViewport({
   // find functions have picked them up.
   const handledSearch = useRef(searchRequest?.id ?? 0);
   const pendingSearch = useRef<SearchRequest["action"] | null>(null);
+  const pendingWithin = useRef<SearchRequest["within"]>(undefined);
   const [searchTick, setSearchTick] = useState(0);
   useEffect(() => {
     if (!searchRequest || searchRequest.id === handledSearch.current) return;
@@ -1050,6 +1163,9 @@ export function EditorViewport({
     setReplacement(searchRequest.replacement);
     setRegexSearch(searchRequest.regex);
     setCaseSensitive(searchRequest.caseSensitive);
+    setWholeWord(searchRequest.wholeWord ?? false);
+    if (searchRequest.highlight !== undefined) setHighlightMatches(searchRequest.highlight);
+    pendingWithin.current = searchRequest.within;
     pendingSearch.current = searchRequest.action;
     setSearchTick((tick) => tick + 1);
   }, [searchRequest]);
@@ -1058,8 +1174,8 @@ export function EditorViewport({
     if (!action || !snapshot) return;
     pendingSearch.current = null;
     if (action === "replace") void replaceCurrent();
-    else if (action === "replaceAll") void replaceAll();
-    else void runFind(action);
+    else if (action === "replaceAll") void replaceAll(pendingWithin.current);
+    else if (action === "next" || action === "previous") void runFind(action);
     // Runs once per request; the functions above are current for this render.
   }, [searchTick, snapshot === null]);
 
@@ -1145,16 +1261,112 @@ export function EditorViewport({
     }
   };
 
-  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+  /** Opens the Find and Replace panel, seeded with a short selection. */
+  const openFind = (tab: "find" | "replace") => {
+    if (!onOpenFind) return;
+    if (!hasSelection || snapshot?.rectangularSelection) { onOpenFind(tab); return; }
+    void executeCommand<ClipboardPayload>({
+      id: "editor.selectionText",
+      context: { windowId: "main", documentId: document.documentId },
+      arguments: null,
+    }).then((payload) => onOpenFind(tab, payload.text.length <= 1000 ? payload.text : undefined))
+      .catch(() => onOpenFind(tab));
+  };
+
+  const selectWordAtCaret = () => {
+    if (!snapshot) return;
+    void executeCommand<Selection>({
+      id: "editor.selectWordAt",
+      context: { windowId: "main", documentId: document.documentId },
+      arguments: {
+        expectedRevision: snapshot.revision,
+        byteOffset: snapshot.selections[0]?.activeByte ?? "0",
+      },
+    }).then((selected) => revealSelections([selected])).catch((error: unknown) => onStatus(
+      error instanceof Error ? error.message : "Could not select word",
+    ));
+  };
+
+  const hasSelection = snapshot
+    ? snapshot.rectangularSelection !== undefined
+      || snapshot.selections.some((selection) => selection.anchorByte !== selection.activeByte)
+    : false;
+  const contextMenuItems: MenuItem[] = [
+    { label: "Undo", shortcut: chordLabel("Primary+Z"), disabled: readOnly, onSelect: () => void runHistory("editor.undo") },
+    { label: "Redo", shortcut: chordLabel("Primary+Shift+Z"), disabled: readOnly, onSelect: () => void runHistory("editor.redo") },
+    { kind: "separator" },
+    { label: "Cut", shortcut: chordLabel("Primary+X"), disabled: readOnly || !hasSelection, onSelect: () => void transferSelection(true) },
+    { label: "Copy", shortcut: chordLabel("Primary+C"), disabled: !hasSelection, onSelect: () => void transferSelection(false) },
+    { label: "Paste", shortcut: chordLabel("Primary+V"), disabled: readOnly, onSelect: () => void pasteFromClipboard() },
+    { kind: "separator" },
+    { label: "Find…", shortcut: chordLabel("Primary+F"), disabled: !onOpenFind, onSelect: () => openFind("find") },
+    { label: "Replace…", shortcut: chordLabel("Primary+H"), disabled: !onOpenFind, onSelect: () => openFind("replace") },
+    { kind: "separator" },
+    { label: "Select All", shortcut: chordLabel("Primary+A"), onSelect: () => void selectAll() },
+    { label: "Select Line", shortcut: chordLabel("Primary+L"), onSelect: () => void runLineOperation("selectLines") },
+    { label: "Select Word", shortcut: chordLabel("Primary+D"), onSelect: selectWordAtCaret },
+    { kind: "separator" },
+    { label: "Duplicate Line", shortcut: chordLabel("Primary+Shift+D"), disabled: readOnly, onSelect: () => void runLineOperation("duplicateLines") },
+    { label: "Delete Line", shortcut: chordLabel("Primary+Shift+K"), disabled: readOnly, onSelect: () => void runLineOperation("deleteLines") },
+    { label: "Move Line Up", shortcut: chordLabel("Alt+ArrowUp"), disabled: readOnly, onSelect: () => void runLineOperation("moveLinesUp") },
+    { label: "Move Line Down", shortcut: chordLabel("Alt+ArrowDown"), disabled: readOnly, onSelect: () => void runLineOperation("moveLinesDown") },
+    ...(onToggleHexMode || onCopyPath ? [{ kind: "separator" } as const] : []),
+    ...(onToggleHexMode ? [{ label: "Hex Mode", onSelect: onToggleHexMode }] : []),
+    ...(onCopyPath ? [{ label: "Copy File Path", onSelect: onCopyPath }] : []),
+  ];
+
+  /** Caret, selection, and line keys; true when the key was handled. */
+  const handleEditingKey = (event: KeyboardEvent<HTMLTextAreaElement>): boolean => {
+    if (event.nativeEvent.isComposing || composingRef.current) return false;
     const modifier = event.metaKey || event.ctrlKey;
-    if (modifier && event.key.toLowerCase() === "f") {
+    const apple = isApplePlatform();
+    const key = event.key.toLowerCase();
+    const run = (action: () => Promise<unknown>) => {
       event.preventDefault();
-      setFindOpen(true);
-      return;
+      void action();
+      return true;
+    };
+    if (modifier && !event.altKey) {
+      if (!event.shiftKey && key === "a") return run(selectAll);
+      if (!event.shiftKey && key === "l") return run(() => runLineOperation("selectLines"));
+      if (event.shiftKey && key === "k") return run(() => runLineOperation("deleteLines"));
+      if (event.shiftKey && key === "d") return run(() => runLineOperation("duplicateLines"));
+      if (!event.shiftKey && event.key === "Enter") return run(() => runLineOperation("insertLineBelow"));
     }
-    if (modifier && event.key.toLowerCase() === "h") {
+    // Command+Delete and Command+Forward Delete are macOS text conventions;
+    // elsewhere Control+Backspace means "delete word" and is left alone.
+    if (apple && event.metaKey && !event.altKey && !event.shiftKey) {
+      if (event.key === "Backspace") return run(() => runLineOperation("deleteToLineStart"));
+      if (event.key === "Delete") return run(() => runLineOperation("deleteToLineEnd"));
+    }
+    if (event.altKey && !modifier && !event.shiftKey && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+      return run(() => runLineOperation(event.key === "ArrowUp" ? "moveLinesUp" : "moveLinesDown"));
+    }
+    if (!event.altKey && (event.key === "Home" || event.key === "End")) {
+      const start = event.key === "Home";
+      const direction: HorizontalDirection = modifier
+        ? start ? "documentStart" : "documentEnd"
+        : start ? "lineStart" : "lineEnd";
+      return run(() => moveHorizontal(direction, event.shiftKey));
+    }
+    // macOS: Command+arrows go to the line or document edges.
+    if (apple && event.metaKey && !event.altKey && !event.ctrlKey) {
+      const direction: HorizontalDirection | null = event.key === "ArrowLeft" ? "lineStart"
+        : event.key === "ArrowRight" ? "lineEnd"
+          : event.key === "ArrowUp" ? "documentStart"
+            : event.key === "ArrowDown" ? "documentEnd" : null;
+      if (direction) return run(() => moveHorizontal(direction, event.shiftKey));
+    }
+    if (event.key === "Delete" && !modifier && !event.altKey) return run(deleteForward);
+    return false;
+  };
+
+  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (handleEditingKey(event)) return;
+    const modifier = event.metaKey || event.ctrlKey;
+    if (modifier && !event.altKey && (event.key.toLowerCase() === "f" || event.key.toLowerCase() === "h")) {
       event.preventDefault();
-      setFindOpen(true);
+      openFind(event.key.toLowerCase() === "f" ? "find" : "replace");
       return;
     }
     if (modifier && event.key.toLowerCase() === "g") {
@@ -1164,17 +1376,7 @@ export function EditorViewport({
     }
     if (modifier && event.key.toLowerCase() === "d") {
       event.preventDefault();
-      if (!snapshot) return;
-      void executeCommand<Selection>({
-        id: "editor.selectWordAt",
-        context: { windowId: "main", documentId: document.documentId },
-        arguments: {
-          expectedRevision: snapshot.revision,
-          byteOffset: snapshot.selections[0]?.activeByte ?? "0",
-        },
-      }).then((selected) => revealSelections([selected])).catch((error: unknown) => onStatus(
-        error instanceof Error ? error.message : "Could not select word",
-      ));
+      selectWordAtCaret();
       return;
     }
     if (modifier && event.key.toLowerCase() === "z") {
@@ -1190,11 +1392,6 @@ export function EditorViewport({
     if (event.key === "F2") {
       event.preventDefault();
       void moveToBookmark(event.shiftKey ? "previous" : "next");
-      return;
-    }
-    if (event.key === "Escape" && findOpen) {
-      event.preventDefault();
-      setFindOpen(false);
       return;
     }
     if (event.key === "Escape" && dragSelectionRef.current?.move) {
@@ -1450,6 +1647,12 @@ export function EditorViewport({
   caretRef.current = caretLine ? {
     line: caretLine.line, column: caretColumn, carets: snapshot.selections.length,
     selectedBytes: selectionBytes.toString(),
+    selection: snapshot.selections[0] && !snapshot.rectangularSelection ? {
+      startByte: (BigInt(snapshot.selections[0].anchorByte) < BigInt(snapshot.selections[0].activeByte)
+        ? snapshot.selections[0].anchorByte : snapshot.selections[0].activeByte),
+      endByte: (BigInt(snapshot.selections[0].anchorByte) > BigInt(snapshot.selections[0].activeByte)
+        ? snapshot.selections[0].anchorByte : snapshot.selections[0].activeByte),
+    } : undefined,
   } : null;
 
   const accessibilityStatus = compositionText
@@ -1482,6 +1685,11 @@ export function EditorViewport({
 
   return (
     <div className={`editor-stage${readOnly ? " read-only" : ""}`}>
+      {contextMenu ? <ContextMenu x={contextMenu.x} y={contextMenu.y} label="Editor" items={contextMenuItems}
+        onClose={() => {
+          setContextMenu(null);
+          inputRef.current?.focus({ preventScroll: true });
+        }} /> : null}
       <p className="screen-reader-only" id={instructionsId}>
         Text editor. Use arrow keys to move, Shift plus arrows to select, and Page Up or Page Down
         to move between bounded viewports. Double-click, or press Control or Command plus D, to
@@ -1491,38 +1699,6 @@ export function EditorViewport({
       <div className="screen-reader-only" role="status" aria-live="polite" aria-atomic="true">
         {accessibilityStatus}
       </div>
-      {findOpen ? <div className="findbar" role="search" aria-label="Find and replace">
-        <input
-          autoFocus
-          aria-label="Find text"
-          value={findQuery}
-          onChange={(event) => setFindQuery(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              void runFind(event.shiftKey ? "previous" : "next");
-            } else if (event.key === "Escape") {
-              setFindOpen(false);
-              inputRef.current?.focus();
-            }
-          }}
-          placeholder="Find"
-        />
-        <input
-          aria-label="Replace text"
-          value={replacement}
-          onChange={(event) => setReplacement(event.currentTarget.value)}
-          placeholder="Replace"
-        />
-        <IconButton icon="previous" label="Previous match" shortcut="Shift Enter" onClick={() => void runFind("previous")} />
-        <IconButton icon="next" label="Next match" shortcut="Enter" onClick={() => void runFind("next")} />
-        <IconButton icon="caseSensitive" label="Match case" pressed={caseSensitive} onClick={() => setCaseSensitive((enabled) => !enabled)} />
-        <IconButton icon="regex" label="Regular expression" pressed={regexSearch} onClick={() => setRegexSearch((enabled) => !enabled)} />
-        <IconButton icon="highlight" label="Highlight matches" pressed={highlightMatches} onClick={() => setHighlightMatches((enabled) => !enabled)} />
-        <IconButton icon="replace" label="Replace" onClick={() => void replaceCurrent()} />
-        <button type="button" onClick={() => void replaceAll()}>All</button>
-        <IconButton icon="close" label="Close find" shortcut="Escape" onClick={() => setFindOpen(false)} />
-      </div> : null}
       {goToOpen ? <div className="findbar gotobar" role="search" aria-label="Go to line">
         <input autoFocus aria-label="Line number" inputMode="numeric" placeholder="Line number" value={goToLine}
           onChange={(event) => setGoToLine(event.currentTarget.value)}
@@ -1539,7 +1715,9 @@ export function EditorViewport({
           <IconButton icon="preview" label="View" tooltip="Preview formatted Markdown" pressed={isMarkdownView} onClick={() => setMarkdownMode("view")} />
         </div> : null}
         {!isMarkdownView ? <>
-        <IconButton icon="find" label="Find" tooltip="Find and replace" shortcut="Ctrl/⌘ F" pressed={findOpen} onClick={() => setFindOpen((shown) => !shown)} />
+        <IconButton icon="find" label="Find" tooltip="Find and replace" shortcut="Ctrl/⌘ F" disabled={!onOpenFind} onClick={() => openFind("find")} />
+        <IconButton icon="highlight" label="Highlight matches" pressed={highlightMatches} disabled={!findQuery}
+          onClick={() => setHighlightMatches((enabled) => !enabled)} />
         <IconButton icon="goTo" label="Go to line" shortcut="Ctrl/⌘ G" pressed={goToOpen} onClick={() => setGoToOpen((shown) => !shown)} />
         <IconButton icon="bookmark" label="Toggle bookmark" shortcut="Ctrl/⌘ F2" onClick={() => void toggleBookmark()} />
         <IconButton icon="bookmarkPrevious" label="Previous bookmark" shortcut="Shift F2" onClick={() => void moveToBookmark("previous")} />
@@ -1647,6 +1825,11 @@ export function EditorViewport({
         ref={surfaceRef}
         className={`editor-surface${wordWrap ? " word-wrap" : ""}`}
         onScroll={onScroll}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          inputRef.current?.focus({ preventScroll: true });
+          setContextMenu({ x: event.clientX, y: event.clientY });
+        }}
         onPointerDown={(event) => {
           if (event.button !== 0) return;
           inputRef.current?.focus({ preventScroll: true });
@@ -1696,6 +1879,10 @@ export function EditorViewport({
             void transferSelection(true);
           }}
           onPaste={onPaste}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            setContextMenu({ x: event.clientX, y: event.clientY });
+          }}
           onCompositionStart={() => {
             composingRef.current = true;
             suppressedCompositionRef.current = null;
@@ -1994,7 +2181,7 @@ export function EditorViewport({
                             Number(BigInt(dropTargetByte) - lineStartByte),
                           )
                         : undefined,
-                      highlightMatches ? findHighlights(line.text, findQuery, regexSearch, caseSensitive) : [],
+                      highlightMatches ? findHighlights(line.text, findQuery, regexSearch, caseSensitive, wholeWord) : [],
                     )}
                     {foldCollapsed ? <span className="fold-placeholder"> … </span> : null}
                     {selectsLineEnding ? <span className="selection line-ending"> </span> : null}

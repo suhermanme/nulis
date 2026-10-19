@@ -17,6 +17,7 @@ const PATHS = {
   column: <><rect x="4" y="4" width="16" height="16" rx="1.5" strokeDasharray="2.4 2.4" /><path d="M10 7.5v9M14 7.5v9" /></>,
   hex: <><path d="M12 3.5l7.4 4.25v8.5L12 20.5l-7.4-4.25v-8.5z" /><path d="M9.2 10v4M9.2 12h2.4M11.6 10v4M14.6 10v4" /></>,
   find: <><circle cx="10.5" cy="10.5" r="6" /><path d="M15 15l5 5" /></>,
+  history: <><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3" /><path d="M4.5 4.5v3.2h3.2" /><path d="M12 8v4.2l2.8 1.8" /></>,
   previous: <path d="M6 14.5l6-6 6 6" />,
   next: <path d="M6 9.5l6 6 6-6" />,
   replace: <><path d="M4 8h10.5a4 4 0 0 1 4 4" /><path d="M7 5L4 8l3 3" /><path d="M20 16H9.5a4 4 0 0 1-4-4" /><path d="M17 19l3-3-3-3" /></>,

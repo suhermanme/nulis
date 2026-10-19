@@ -59,14 +59,19 @@ vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: vi.fn(() => ({
 })) }));
 
 vi.mock("./EditorViewport", () => ({
-  EditorViewport: ({ document, showLineChanges, searchRequest, onCaret, onToggleReadOnly }: {
+  EditorViewport: ({ document, showLineChanges, searchRequest, onCaret, onToggleReadOnly, onOpenFind }: {
     document: { name: string; readOnly?: boolean }; showLineChanges?: boolean; searchRequest?: object;
     onCaret?: (position: object | null) => void; onToggleReadOnly?: () => void;
+    onOpenFind?: (tab: "find" | "replace", seed?: string) => void;
   }) => (
     <div>
       <div data-line-changes={String(showLineChanges)} data-search={JSON.stringify(searchRequest ?? null)}>{document.name} editor</div>
       <button type="button" onClick={() => onCaret?.({ line: "1234", column: 7, carets: 1, selectedBytes: "0" })}>Move caret in {document.name}</button>
       <button type="button" onClick={() => onToggleReadOnly?.()}>Editor mode of {document.name}: {document.readOnly ? "read-only" : "edit"}</button>
+      {onOpenFind ? <>
+        <button type="button" onClick={() => onOpenFind("find", "seeded")}>Find in {document.name}</button>
+        <button type="button" onClick={() => onOpenFind("replace")}>Replace in {document.name}</button>
+      </> : null}
     </div>
   ),
 }));
@@ -453,34 +458,42 @@ test("switches an open document between text and hexadecimal views", async () =>
   expect(screen.getByText("bytes.bin editor")).toBeInTheDocument();
 });
 
-test("runs a bounded folder search from the Search sidebar", async () => {
+test("Find in Files searches a filtered folder from the floating panel and opens a result at its line", async () => {
+  await openDocuments("Second");
+  expect(screen.queryByRole("button", { name: "Search" })).not.toBeInTheDocument();
   vi.mocked(open).mockResolvedValueOnce("/tmp/project");
   responses["search.findInFiles"] = [{
-    matches: [{ path: "/tmp/project/a.txt", startByte: "5", endByte: "11" }],
+    matches: [{ path: "/tmp/project/a.txt", startByte: "5", endByte: "11", line: "3", lineText: "  needle here" }],
     filesScanned: 2, skippedFiles: 0, truncated: false,
   }];
+  responses["file.open"] = [{ documentId: "document-9", name: "a.txt", byteLen: "20", revision: "0", encoding: "utf8", sourcePath: "/tmp/project/a.txt" }];
 
-  render(<App />);
-  await screen.findByText("Nulis 0.1.0");
-  fireEvent.click(screen.getByRole("button", { name: "Search" }));
-  fireEvent.click(screen.getByRole("tab", { name: "In Files" }));
-  fireEvent.change(screen.getByRole("textbox", { name: "Find in files text" }), {
-    target: { value: "needle" },
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Folder…" }));
-  await waitFor(() => expect(open).toHaveBeenCalledWith({ multiple: false, directory: true }));
-  fireEvent.click(screen.getByRole("button", { name: "Run file search" }));
+  fireEvent.click(screen.getByRole("button", { name: "Find in Second" }));
+  const panel = screen.getByRole("dialog", { name: "Find and Replace" });
+  fireEvent.click(within(panel).getByRole("tab", { name: "Find in Files" }));
+  fireEvent.change(within(panel).getByRole("textbox", { name: "Find what" }), { target: { value: "needle" } });
+  fireEvent.change(within(panel).getByRole("textbox", { name: "In files or types" }), { target: { value: "*.txt; *.md" } });
+  fireEvent.click(within(panel).getByRole("button", { name: "Browse…" }));
+  await waitFor(() => expect(within(panel).getByRole("textbox", { name: "In directory" })).toHaveValue("/tmp/project"));
+  fireEvent.click(within(panel).getByRole("checkbox", { name: "Include subdirectories" }));
+  fireEvent.click(within(panel).getByRole("button", { name: "Find" }));
 
   await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
     id: "search.findInFiles",
     context: { windowId: "main" },
     arguments: {
       root: "/tmp/project", query: "needle",
-      options: { mode: "literal", caseSensitive: true }, maxResults: 500,
+      options: { mode: "literal", caseSensitive: false, wholeWord: false },
+      scope: { include: ["*.txt", "*.md"], recursive: false }, maxResults: 2000,
     },
   }));
-  expect(await screen.findByText("a.txt")).toBeInTheDocument();
-  expect(screen.getByText("1 matches · 2 files")).toBeInTheDocument();
+  const results = await screen.findByRole("dialog", { name: "Search results" });
+  const row = within(results).getByRole("option", { name: /a\.txt\s*3\s*needle here/ });
+  fireEvent.click(row);
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
+    id: "editor.setSelections", context: { windowId: "main", documentId: "document-9" },
+    arguments: { selections: [{ anchorByte: "5", activeByte: "11" }] },
+  }));
 });
 
 test("stores remote credentials separately from persisted SFTP profile metadata", async () => {
@@ -1296,34 +1309,113 @@ test("a file chosen in Places opens through the file command, and an open one is
   expect(within(screen.getByRole("tree", { name: "Open files" })).getAllByRole("button")).toHaveLength(2);
 });
 
-test("the Search panel finds and replaces in the current file, with regular expressions", async () => {
+test("the Find and Replace panel drives find, replace, and replace all in the current editor", async () => {
   await openDocuments("First", "Second");
-  fireEvent.click(screen.getByRole("button", { name: "Search" }));
-  expect(screen.getByRole("tab", { name: "Current File" })).toHaveAttribute("aria-selected", "true");
-  expect(screen.getByText("In Second")).toBeInTheDocument();
   const sent = () => JSON.parse(screen.getByText("Second editor").getAttribute("data-search") ?? "null");
+  fireEvent.click(screen.getByRole("button", { name: "Replace in Second" }));
+  const panel = screen.getByRole("dialog", { name: "Find and Replace" });
+  expect(within(panel).getByRole("tab", { name: "Replace" })).toHaveAttribute("aria-selected", "true");
 
-  fireEvent.click(screen.getByRole("button", { name: "Find Next" }));
-  expect(screen.getByRole("status")).toHaveTextContent("Enter text to find");
+  fireEvent.click(within(panel).getByRole("button", { name: "Next" }));
+  expect(screen.getByText("Enter text to find")).toBeInTheDocument();
   expect(sent()).toBeNull();
 
-  fireEvent.change(screen.getByRole("textbox", { name: "Find" }), { target: { value: "l(a|i)ne" } });
-  fireEvent.click(screen.getByRole("button", { name: "Regular expression" }));
-  fireEvent.keyDown(screen.getByRole("textbox", { name: "Find" }), { key: "Enter" });
-  expect(sent()).toEqual({ id: 1, action: "next", query: "l(a|i)ne", replacement: "", regex: true, caseSensitive: true });
-  fireEvent.keyDown(screen.getByRole("textbox", { name: "Find" }), { key: "Enter", shiftKey: true });
-  expect(sent()).toMatchObject({ id: 2, action: "previous" });
+  const find = within(panel).getByRole("textbox", { name: "Find what" });
+  fireEvent.change(find, { target: { value: "l(a|i)ne" } });
+  fireEvent.click(within(panel).getByRole("checkbox", { name: "Use regular expressions" }));
+  fireEvent.keyDown(find, { key: "Enter" });
+  await waitFor(() => expect(sent()).toMatchObject({
+    id: 1, action: "next", query: "l(a|i)ne", regex: true, caseSensitive: false, wholeWord: false,
+  }));
+  fireEvent.keyDown(find, { key: "Enter", shiftKey: true });
+  await waitFor(() => expect(sent()).toMatchObject({ id: 2, action: "previous" }));
 
-  fireEvent.change(screen.getByRole("textbox", { name: "Replace with" }), { target: { value: "row" } });
-  fireEvent.click(screen.getByRole("button", { name: "Match case" }));
-  fireEvent.click(screen.getByRole("button", { name: "Replace" }));
-  expect(sent()).toMatchObject({ id: 3, action: "replace", replacement: "row", caseSensitive: false });
-  fireEvent.click(screen.getByRole("button", { name: "Replace All" }));
-  expect(sent()).toMatchObject({ id: 4, action: "replaceAll" });
-  // Repeating the same action is a new request, so Find Next keeps advancing.
-  fireEvent.click(screen.getByRole("button", { name: "Find Next" }));
-  fireEvent.click(screen.getByRole("button", { name: "Find Next" }));
-  expect(sent()).toMatchObject({ id: 6, action: "next" });
+  fireEvent.change(within(panel).getByRole("textbox", { name: "Replace with" }), { target: { value: "row" } });
+  fireEvent.click(within(panel).getByRole("checkbox", { name: "Match case" }));
+  fireEvent.click(within(panel).getByRole("checkbox", { name: "Match whole word" }));
+  fireEvent.click(within(panel).getByRole("button", { name: "Replace" }));
+  await waitFor(() => expect(sent()).toMatchObject({
+    id: 3, action: "replace", replacement: "row", caseSensitive: true, wholeWord: true,
+  }));
+  fireEvent.click(within(panel).getByRole("button", { name: "Replace All" }));
+  await waitFor(() => expect(sent()).toMatchObject({ id: 4, action: "replaceAll" }));
+  expect(sent().within).toBeUndefined();
+
+  // The panel is not modal and closes with Escape.
+  fireEvent.keyDown(find, { key: "Escape" });
+  expect(screen.queryByRole("dialog", { name: "Find and Replace" })).not.toBeInTheDocument();
+});
+
+test("Count All and the lines list go to the chosen line and can bookmark every line", async () => {
+  await openDocuments("Second");
+  responses["search.findAll"] = [{
+    revision: "0", truncated: false,
+    matches: [
+      { startByte: "0", endByte: "3", line: "1" },
+      { startByte: "10", endByte: "13", line: "2" },
+      { startByte: "14", endByte: "17", line: "2" },
+    ],
+    lines: [
+      { line: "1", startByte: "0", text: "let a", truncated: false, matches: 1 },
+      { line: "2", startByte: "6", text: "  let b let", truncated: false, matches: 2 },
+    ],
+  }];
+  responses["editor.addBookmarks"] = [["0", "6"]];
+  fireEvent.click(screen.getByRole("button", { name: "Find in Second" }));
+  const panel = screen.getByRole("dialog", { name: "Find and Replace" });
+  expect(within(panel).getByRole("textbox", { name: "Find what" })).toHaveValue("seeded");
+  fireEvent.change(within(panel).getByRole("textbox", { name: "Find what" }), { target: { value: "let" } });
+  fireEvent.click(within(panel).getByRole("checkbox", { name: "List lines containing find string" }));
+  fireEvent.click(within(panel).getByRole("button", { name: "Count All" }));
+
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
+    id: "search.findAll", context: { windowId: "main", documentId: "document-1" },
+    arguments: { query: "let", options: { mode: "literal", caseSensitive: false, wholeWord: false } },
+  }));
+  expect(await within(panel).findByText("3 matches on 2 lines")).toBeInTheDocument();
+  const results = screen.getByRole("dialog", { name: "Search results" });
+  const options = within(results).getAllByRole("option");
+  expect(options.map((option) => option.textContent)).toEqual(["1let a", "2  let b let"]);
+  fireEvent.click(options[1]!);
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
+    id: "editor.setSelections", context: { windowId: "main", documentId: "document-1" },
+    arguments: { selections: [{ anchorByte: "10", activeByte: "13" }] },
+  }));
+  fireEvent.click(within(results).getByRole("button", { name: "Bookmark All" }));
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
+    id: "editor.addBookmarks", context: { windowId: "main", documentId: "document-1" },
+    arguments: { offsets: ["0", "6"] },
+  }));
+  fireEvent.click(within(results).getByRole("checkbox", { name: "Show line numbers" }));
+  expect(within(results).getAllByRole("option")[0]).toHaveTextContent(/^let a$/);
+});
+
+test("Replace All can cover every open file and refuses an empty selection scope", async () => {
+  await openDocuments("First", "Second");
+  responses["search.replaceAll"] = [
+    { document: { documentId: "document-1", name: "First", byteLen: "3", revision: "1", encoding: "utf8" }, replacements: 2 },
+    { document: { documentId: "document-2", name: "Second", byteLen: "3", revision: "1", encoding: "utf8" }, replacements: 0 },
+  ];
+  fireEvent.click(screen.getByRole("button", { name: "Replace in Second" }));
+  const panel = screen.getByRole("dialog", { name: "Find and Replace" });
+  fireEvent.change(within(panel).getByRole("textbox", { name: "Find what" }), { target: { value: "a" } });
+  fireEvent.change(within(panel).getByRole("textbox", { name: "Replace with" }), { target: { value: "b" } });
+
+  fireEvent.change(within(panel).getByRole("combobox", { name: "Replace where" }), { target: { value: "selection" } });
+  fireEvent.click(within(panel).getByRole("button", { name: "Replace All" }));
+  expect(await screen.findByText("Select the text to replace in first")).toBeInTheDocument();
+
+  fireEvent.change(within(panel).getByRole("combobox", { name: "Replace where" }), { target: { value: "openFiles" } });
+  expect(within(panel).getByRole("button", { name: "Replace" })).toBeDisabled();
+  fireEvent.click(within(panel).getByRole("button", { name: "Replace All" }));
+  await waitFor(() => expect(within(panel).getByText("Replaced 2 matches in 1 file")).toBeInTheDocument());
+  for (const documentId of ["document-1", "document-2"]) {
+    expect(executeCommand).toHaveBeenCalledWith({
+      id: "search.replaceAll", context: { windowId: "main", documentId },
+      arguments: { expectedRevision: "0", query: "a", replacement: "b",
+        options: { mode: "literal", caseSensitive: false, wholeWord: false } },
+    });
+  }
 });
 
 test("right-clicking a tab offers close, close others, save, and save as", async () => {

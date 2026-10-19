@@ -27,6 +27,14 @@ use std::{
 use thiserror::Error;
 use unicode_segmentation::UnicodeSegmentation;
 
+mod find_all;
+mod line_ops;
+pub use find_all::{
+    FindAllResult, FoundLine, FoundMatch, MAX_FIND_ALL_LINES, MAX_FIND_ALL_MATCHES,
+    MAX_LINE_PREVIEW_BYTES,
+};
+pub use line_ops::{LineEditResult, LineOperation};
+
 pub const MAX_VIEWPORT_BYTES: u64 = 256 * 1024;
 pub const MAX_DOCUMENT_MAP_SAMPLES: usize = 1024;
 pub const MAX_MARKDOWN_PREVIEW_BYTES: u64 = 1024 * 1024;
@@ -500,6 +508,72 @@ pub struct WorkspaceSearchMatch {
     pub start_byte: u64,
     #[serde(with = "decimal_u64")]
     pub end_byte: u64,
+    #[serde(with = "decimal_u64")]
+    pub line: u64,
+    /// The start of the matching line (see [`MAX_LINE_PREVIEW_BYTES`]).
+    pub line_text: String,
+}
+
+/// Which files Find in Files reads below its root.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FileSearchScope {
+    /// File-name patterns such as `*.rs`; `*` and `?` are wildcards,
+    /// letters match either case, and an empty list means every file.
+    #[serde(default)]
+    pub include: Vec<String>,
+    /// Whether folders below the root are searched too.
+    #[serde(default = "default_true_scope")]
+    pub recursive: bool,
+}
+
+fn default_true_scope() -> bool {
+    true
+}
+
+impl FileSearchScope {
+    fn includes(&self, path: &Path) -> bool {
+        let patterns = self
+            .include
+            .iter()
+            .map(|pattern| pattern.trim())
+            .filter(|pattern| !pattern.is_empty())
+            .collect::<Vec<_>>();
+        if patterns.is_empty() {
+            return true;
+        }
+        let name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        patterns
+            .iter()
+            .any(|pattern| wildcard_match(&pattern.to_lowercase(), &name))
+    }
+}
+
+/// Matches `*` (any run) and `?` (one character) against a whole name.
+fn wildcard_match(pattern: &str, name: &str) -> bool {
+    let pattern = pattern.chars().collect::<Vec<_>>();
+    let name = name.chars().collect::<Vec<_>>();
+    let (mut p, mut n) = (0, 0);
+    let mut star: Option<(usize, usize)> = None;
+    while n < name.len() {
+        if p < pattern.len() && (pattern[p] == '?' || pattern[p] == name[n]) {
+            p += 1;
+            n += 1;
+        } else if p < pattern.len() && pattern[p] == '*' {
+            star = Some((p, n));
+            p += 1;
+        } else if let Some((star_p, star_n)) = star {
+            p = star_p + 1;
+            n = star_n + 1;
+            star = Some((star_p, star_n + 1));
+        } else {
+            return false;
+        }
+    }
+    pattern[p..].iter().all(|character| *character == '*')
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -2634,7 +2708,8 @@ impl DocumentManager {
     }
 
     /// Moves every caret by one decoded UTF-8 scalar while preserving
-    /// malformed bytes as individually navigable units.
+    /// malformed bytes as individually navigable units, or to the start or
+    /// end of its line or of the document.
     ///
     /// # Errors
     /// Returns an error for an unknown document or backing-store read failure.
@@ -2672,7 +2747,7 @@ impl DocumentManager {
                         )
                         .ok_or(EditorError::OffsetOverflow)?
                 }
-                HorizontalDirection::Left => 0,
+                HorizontalDirection::Left | HorizontalDirection::DocumentStart => 0,
                 HorizontalDirection::Right
                     if current.active_byte < session.document.table().len() =>
                 {
@@ -2687,7 +2762,17 @@ impl DocumentManager {
                         .checked_add(u64::try_from(width).map_err(|_| EditorError::OffsetOverflow)?)
                         .ok_or(EditorError::OffsetOverflow)?
                 }
-                HorizontalDirection::Right => session.document.table().len(),
+                HorizontalDirection::Right | HorizontalDirection::DocumentEnd => {
+                    session.document.table().len()
+                }
+                HorizontalDirection::LineStart => {
+                    line_ops::smart_line_start(session.document.table(), current.active_byte)?
+                }
+                HorizontalDirection::LineEnd => {
+                    let table = session.document.table();
+                    find_line_boundary(table, find_line_start(table, current.active_byte)?)?
+                        .content_end
+                }
             };
             moved.push(if extend {
                 Selection {
@@ -3032,6 +3117,7 @@ impl DocumentManager {
         query: &str,
         replacement: &str,
         options: SearchOptions,
+        within: Option<(u64, u64)>,
     ) -> Result<ReplaceAllResult, EditorError> {
         let mut sessions = self
             .sessions
@@ -3043,17 +3129,28 @@ impl DocumentManager {
         validate_revision(session, expected_revision)?;
         let pattern = search_pattern(session.encoding, query, options)?;
         let replacement = encode_text(session.encoding, replacement)?;
-        let page = search(
+        let len = session.document.table().len();
+        let (start, end) = within.map_or((0, len), |(start, end)| {
+            (start.min(len), end.min(len).max(start))
+        });
+        let mut page = search(
             session.document.table(),
             &pattern,
             options,
-            0,
+            start,
             MAX_PAGE_MATCHES,
             &CancellationToken::default(),
         )?;
-        if !page.complete {
+        let inside = page
+            .matches
+            .iter()
+            .take_while(|found| found.range.end.0 <= end)
+            .count();
+        // An incomplete page is fine when it already reached past the range.
+        if !page.complete && inside == page.matches.len() {
             return Err(EditorError::TooManySearchMatches(MAX_PAGE_MATCHES));
         }
+        page.matches.truncate(inside);
         if page.matches.is_empty() {
             return Ok(ReplaceAllResult {
                 document: summary(document_id, session),
@@ -3096,6 +3193,7 @@ impl DocumentManager {
         root: &Path,
         query: &str,
         options: SearchOptions,
+        scope: &FileSearchScope,
         max_results: usize,
     ) -> Result<WorkspaceSearchResult, EditorError> {
         if max_results == 0 || max_results > MAX_WORKSPACE_SEARCH_RESULTS {
@@ -3107,14 +3205,14 @@ impl DocumentManager {
         }
         let pattern = query.as_bytes();
         validate_pattern(pattern, options)?;
-        let mut stack = vec![root.to_path_buf()];
+        let mut stack = vec![(root.to_path_buf(), 0_usize)];
         let mut result = WorkspaceSearchResult {
             matches: Vec::new(),
             files_scanned: 0,
             skipped_files: 0,
             truncated: false,
         };
-        while let Some(path) = stack.pop() {
+        while let Some((path, depth)) = stack.pop() {
             let Ok(metadata) = fs::symlink_metadata(&path) else {
                 result.skipped_files += 1;
                 continue;
@@ -3123,12 +3221,15 @@ impl DocumentManager {
                 continue;
             }
             if metadata.is_dir() {
+                if depth > 0 && !scope.recursive {
+                    continue;
+                }
                 let mut entries = fs::read_dir(&path)
                     .map_err(|error| EditorError::io(&error))?
                     .filter_map(Result::ok)
-                    .map(|entry| entry.path())
+                    .map(|entry| (entry.path(), depth + 1))
                     .collect::<Vec<_>>();
-                entries.sort_by(|left, right| right.cmp(left));
+                entries.sort_by(|left, right| right.0.cmp(&left.0));
                 if stack.len().saturating_add(entries.len()) > MAX_WORKSPACE_SEARCH_FILES {
                     result.truncated = true;
                     entries.truncate(MAX_WORKSPACE_SEARCH_FILES.saturating_sub(stack.len()));
@@ -3136,7 +3237,7 @@ impl DocumentManager {
                 stack.extend(entries);
                 continue;
             }
-            if !metadata.is_file() {
+            if !metadata.is_file() || !scope.includes(&path) {
                 continue;
             }
             if result.files_scanned == MAX_WORKSPACE_SEARCH_FILES {
@@ -3157,13 +3258,23 @@ impl DocumentManager {
                 remaining,
                 &CancellationToken::default(),
             )?;
-            result
-                .matches
-                .extend(page.matches.into_iter().map(|found| WorkspaceSearchMatch {
+            let mut lines = find_all::LineTracker::at_start();
+            let mut previous_line_start = None;
+            let mut line_text = String::new();
+            for found in page.matches {
+                let (line, line_start) = lines.advance(&source, found.range.start.0)?;
+                if previous_line_start != Some(line_start) {
+                    line_text = find_all::line_preview(&source, TextEncoding::Utf8, line_start)?.0;
+                    previous_line_start = Some(line_start);
+                }
+                result.matches.push(WorkspaceSearchMatch {
                     path: path.to_string_lossy().into_owned(),
                     start_byte: found.range.start.0,
                     end_byte: found.range.end.0,
-                }));
+                    line,
+                    line_text: line_text.clone(),
+                });
+            }
             if result.matches.len() == max_results {
                 result.truncated = !page.complete || !stack.is_empty();
                 break;
@@ -4354,6 +4465,11 @@ fn windows_1252_byte(character: char) -> Option<u8> {
 pub enum HorizontalDirection {
     Left,
     Right,
+    /// Home: the first non-blank character, or the line start from there.
+    LineStart,
+    LineEnd,
+    DocumentStart,
+    DocumentEnd,
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
@@ -6496,6 +6612,7 @@ mod tests {
         let options = super::SearchOptions {
             mode: super::SearchMode::Literal,
             case_sensitive: false,
+            whole_word: false,
         };
         let first = manager
             .find(
@@ -6535,6 +6652,7 @@ mod tests {
                 "one",
                 "three",
                 super::SearchOptions::default(),
+                None,
             )
             .expect("replace all");
         assert_eq!(result.replacements, 2);
@@ -6569,11 +6687,55 @@ mod tests {
         fs::write(root.path().join("a.txt"), "needle once").expect("first file");
         fs::write(root.path().join("nested/b.txt"), "needle twice needle").expect("second file");
         let result = DocumentManager::default()
-            .find_in_files(root.path(), "needle", super::SearchOptions::default(), 2)
+            .find_in_files(
+                root.path(),
+                "needle",
+                super::SearchOptions::default(),
+                &super::FileSearchScope {
+                    include: Vec::new(),
+                    recursive: true,
+                },
+                2,
+            )
             .expect("find in files");
         assert_eq!(result.matches.len(), 2);
         assert!(result.truncated);
         assert!(result.files_scanned <= 2);
+    }
+
+    #[test]
+    fn find_in_files_filters_names_skips_subfolders_and_reports_lines() {
+        let root = tempfile::tempdir().expect("temp root");
+        fs::create_dir(root.path().join("nested")).expect("nested");
+        fs::write(root.path().join("a.RS"), "x\r\n  needle here\n").expect("rust file");
+        fs::write(root.path().join("b.md"), "needle").expect("markdown file");
+        fs::write(root.path().join("nested/c.rs"), "needle").expect("nested file");
+        let result = DocumentManager::default()
+            .find_in_files(
+                root.path(),
+                "needle",
+                super::SearchOptions::default(),
+                &super::FileSearchScope {
+                    include: vec!["*.rs".into(), " ".into()],
+                    recursive: false,
+                },
+                100,
+            )
+            .expect("find in files");
+        assert_eq!(result.matches.len(), 1);
+        let found = &result.matches[0];
+        assert!(found.path.ends_with("a.RS"));
+        assert_eq!(found.line, 2);
+        assert_eq!(found.line_text, "  needle here");
+    }
+
+    #[test]
+    fn wildcards_match_whole_names() {
+        assert!(super::wildcard_match("*.rs", "lib.rs"));
+        assert!(super::wildcard_match("a?c*", "abcdef"));
+        assert!(!super::wildcard_match("*.rs", "lib.rsx"));
+        assert!(super::wildcard_match("*", ""));
+        assert!(!super::wildcard_match("?", ""));
     }
 
     fn document_text(manager: &DocumentManager, id: &super::DocumentId) -> String {

@@ -992,3 +992,74 @@ kbd,
   .settings-pending { background: Mark; }
   .find-highlight { outline: 1px solid Highlight; background: transparent; }
 }
+
+/* ── Find and Replace panel and results (floating, non-modal) ─────────────── */
+.floating-window {
+  position: fixed; z-index: 250; display: flex; flex-direction: column; max-width: calc(100vw - 16px);
+  max-height: calc(100vh - 16px); border: 1px solid var(--border); border-radius: 10px;
+  color: var(--ui-text); background: var(--menu); box-shadow: 0 22px 60px #0008; overflow: hidden;
+}
+.floating-title {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 34px;
+  padding: 0 6px 0 12px; border-bottom: 1px solid var(--border); background: var(--toolbar);
+  font-size: 12px; font-weight: 600; cursor: move; user-select: none; touch-action: none;
+}
+.floating-title > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.floating-body { display: flex; flex-direction: column; min-height: 0; overflow: auto; }
+.find-tabs {
+  display: flex; align-self: center; gap: 2px; margin: 10px 12px 0; padding: 2px;
+  border: 1px solid var(--border); border-radius: 7px; background: var(--input-bg);
+}
+.find-tabs button {
+  padding: 4px 12px; border: 0; border-radius: 5px; color: var(--ui-text); background: transparent;
+  font-size: 12px; cursor: pointer;
+}
+.find-tabs button.active { color: var(--accent-fg); background: var(--accent); }
+.find-tabs button:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.find-content { display: flex; flex-direction: column; gap: 9px; padding: 12px; }
+.find-label { display: block; margin-bottom: 4px; color: var(--muted); font-size: 11px; }
+.find-field-row { display: flex; gap: 6px; align-items: stretch; }
+.find-field textarea, .find-where select, .find-where input {
+  flex: 1; min-width: 0; padding: 6px 8px; border: 1px solid var(--input-border, var(--border)); border-radius: 5px;
+  color: var(--editor-fg); background: var(--input-bg); font: 12px var(--mono, monospace);
+}
+.find-field textarea { min-height: 54px; resize: vertical; }
+.find-field textarea:focus, .find-where select:focus, .find-where input:focus { border-color: var(--accent); outline: none; }
+.find-where { display: flex; flex-direction: column; }
+.find-where select { font-family: inherit; }
+.find-options-toggle {
+  align-self: flex-start; padding: 2px 4px; border: 0; color: var(--ui-text); background: transparent;
+  font-size: 12px; cursor: pointer;
+}
+.find-options { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; }
+.find-check { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; }
+.find-check input { accent-color: var(--accent); }
+.find-summary { min-height: 14px; margin: 0; color: var(--muted); font-size: 11px; }
+.find-actions { display: flex; gap: 6px; align-items: center; }
+.find-actions > span { flex: 1; }
+.find-actions button, .find-field-row > button, .results-actions button, .results-footer button {
+  min-width: 78px; padding: 5px 12px; border: 1px solid var(--border); border-radius: 5px;
+  color: var(--ui-text); background: var(--raised); font-size: 12px; cursor: pointer;
+}
+.find-actions button.primary { border-color: var(--accent); color: var(--accent-fg); background: var(--accent); }
+.find-actions button:disabled, .results-actions button:disabled { opacity: .5; cursor: default; }
+.results-layout { display: flex; gap: 10px; min-height: 0; padding: 10px 10px 0; }
+.results-list {
+  flex: 1; min-width: 0; height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: 5px;
+  background: var(--editor-bg); font: 12px var(--editor-font-family, monospace);
+}
+.results-list:focus-visible { outline: 2px solid var(--focus); }
+.results-list [role="option"] { display: flex; gap: 10px; padding: 2px 8px; white-space: pre; cursor: pointer; color: var(--editor-fg); }
+.results-list [role="option"]:hover { background: var(--hover); }
+.results-list [role="option"].selected { color: var(--accent-fg); background: var(--accent); }
+.result-source { color: var(--syntax-function); }
+.result-line { min-width: 4ch; color: var(--editor-line-number); text-align: right; }
+.results-list [role="option"].selected .result-source, .results-list [role="option"].selected .result-line { color: inherit; }
+.result-text { overflow: hidden; text-overflow: ellipsis; }
+.results-empty { padding: 8px; color: var(--muted); }
+.results-actions { display: flex; flex-direction: column; gap: 6px; }
+.results-footer { display: flex; align-items: center; gap: 12px; padding: 8px 10px 10px; }
+.results-footer .find-summary { flex: 1; }
+@media (forced-colors: active) {
+  .floating-window, .find-tabs button.active, .results-list [role="option"].selected { border: 1px solid CanvasText; }
+}
