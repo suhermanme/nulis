@@ -43,6 +43,51 @@ export interface ResultList {
   multipleSources: boolean;
 }
 
+/** What the editor window tells the separate Find window. */
+export interface FindContext {
+  activeDocument: DocumentSummary | null;
+  textDocuments: DocumentSummary[];
+  selection?: ByteRange;
+  defaultFolder?: string;
+}
+
+/** Events between the editor window and the separate Find and results windows. */
+export const FIND_EVENTS = {
+  /** Editor → Find window: a {@link FindContext}. */
+  context: "nulis://find-context",
+  /** Editor → Find window: `{ tab, seed? }`. */
+  open: "nulis://find-open",
+  /** Editor → results window: a {@link ResultList} with `openDocumentIds`. */
+  results: "nulis://find-results",
+  /** Find or results window → editor (relayed by the adapter): a {@link FindMessage}. */
+  message: "nulis://find-message",
+} as const;
+
+export type FindMessage =
+  | { kind: "ready" }
+  | { kind: "search"; request: Omit<SearchRequest, "id"> }
+  | { kind: "openMatch"; target: MatchTarget }
+  | { kind: "documentChange"; document: DocumentSummary }
+  | { kind: "status"; message: string }
+  | { kind: "results"; list: ResultList }
+  | { kind: "resultsReady" };
+
+/** The window chrome: a floating panel in the browser shell, nothing in a desktop window. */
+function Frame({ framed, title, label, initial, width, onClose, className, children }: {
+  framed: boolean; title: string; label: string; initial: { x: number; y: number }; width: number;
+  onClose(): void; className: string; children: ReactNode;
+}) {
+  if (framed) {
+    return <FloatingWindow title={title} label={label} initial={initial} width={width} onClose={onClose} className={className}>
+      {children}
+    </FloatingWindow>;
+  }
+  return <main className={`aux-window ${className}`} aria-label={label}
+    onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); onClose(); } }}>
+    {children}
+  </main>;
+}
+
 const HISTORY_LIMIT = 20;
 const HISTORY_KEYS = { find: "nulis.find.history", replace: "nulis.replace.history" } as const;
 const TABS: Array<{ id: FindTab; label: string }> = [
@@ -170,12 +215,14 @@ export interface FindReplacePanelProps {
   /** The open workspace folder, used until another folder is chosen. */
   defaultFolder?: string;
   onStatus(message: string): void;
+  /** False inside its own desktop window, which supplies the title bar. */
+  framed?: boolean;
 }
 
 /** The Find and Replace panel: Find, Find in Files, and Replace tabs. */
 export function FindReplacePanel(props: FindReplacePanelProps) {
   const { tab, onTab, onClose, seed, activeDocument, textDocuments, selection, onEditorSearch, onOpenMatch,
-    onDocumentChange, onResults, onChooseFolder, defaultFolder, onStatus } = props;
+    onDocumentChange, onResults, onChooseFolder, defaultFolder, onStatus, framed = true } = props;
   const [query, setQuery] = useState(seed?.text ?? "");
   const [replacement, setReplacement] = useState("");
   const [findHistory, setFindHistory] = useState(() => readHistory("find"));
@@ -200,6 +247,10 @@ export function FindReplacePanel(props: FindReplacePanelProps) {
   useEffect(() => {
     if (seed) setQuery(seed.text);
   }, [seed?.id]);
+  // The workspace folder may arrive after the window opened.
+  useEffect(() => {
+    if (defaultFolder) setFolder((current) => current || defaultFolder);
+  }, [defaultFolder]);
 
   const options: SearchOptions = { mode: regex ? "regex" : "literal", caseSensitive, wholeWord };
   const editorRequest = (action: SearchRequest["action"], within?: ByteRange): Omit<SearchRequest, "id"> => ({
@@ -405,7 +456,7 @@ export function FindReplacePanel(props: FindReplacePanelProps) {
   const optionsToggle = (label: string) => <button type="button" className="find-options-toggle" aria-expanded={optionsOpen}
     onClick={() => setOptionsOpen((open) => !open)}><span aria-hidden="true">{optionsOpen ? "▾" : "▸"}</span> {label}</button>;
 
-  return <FloatingWindow title="Find and Replace" label="Find and Replace" width={460}
+  return <Frame framed={framed} title="Find and Replace" label="Find and Replace" width={460}
     initial={{ x: Math.max(16, window.innerWidth - 500), y: 90 }} onClose={onClose} className="find-window">
     <div className="find-tabs" role="tablist" aria-label="Find and Replace mode">
       {TABS.map((item) => <button type="button" role="tab" key={item.id} aria-selected={tab === item.id}
@@ -476,13 +527,15 @@ export function FindReplacePanel(props: FindReplacePanelProps) {
         </div>}
       </>}
     </div>
-  </FloatingWindow>;
+  </Frame>;
 }
 
 /** The list of matching lines; choosing a row goes to it. */
-export function ResultsWindow({ list, onClose, onOpenMatch, onStatus, openDocumentIds }: {
+export function ResultsWindow({ list, onClose, onOpenMatch, onStatus, openDocumentIds, framed = true }: {
   list: ResultList; onClose(): void; onOpenMatch(target: MatchTarget): void; onStatus(message: string): void;
   openDocumentIds: ReadonlySet<string>;
+  /** False inside its own desktop window. */
+  framed?: boolean;
 }) {
   const [selected, setSelected] = useState(0);
   const [showLineNumbers, setShowLineNumbers] = useState(true);
@@ -514,7 +567,7 @@ export function ResultsWindow({ list, onClose, onOpenMatch, onStatus, openDocume
       .catch((error: unknown) => onStatus(errorText(error, "Could not copy")));
   };
 
-  return <FloatingWindow title={list.title} label="Search results" width={640} className="results-window"
+  return <Frame framed={framed} title={list.title} label="Search results" width={640} className="results-window"
     initial={{ x: 60, y: Math.max(80, window.innerHeight - 380) }} onClose={onClose}>
     <div className="results-layout">
       <div className="results-list" role="listbox" aria-label="Matching lines" tabIndex={0}
@@ -545,5 +598,5 @@ export function ResultsWindow({ list, onClose, onOpenMatch, onStatus, openDocume
       <span className="find-summary">{list.rows.length} line{list.rows.length === 1 ? "" : "s"}{list.truncated ? " (limit reached)" : ""}</span>
       <button type="button" onClick={onClose}>Close</button>
     </div>
-  </FloatingWindow>;
+  </Frame>;
 }

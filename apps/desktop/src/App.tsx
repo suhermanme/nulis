@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
 import { isTauri } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open, save as saveDialog } from "@tauri-apps/plugin-dialog";
@@ -41,11 +41,13 @@ import { WorkTabs } from "./EditorLayout";
 import { FileExplorer, loadExplorerTab, saveExplorerTab, type ExplorerTab } from "./FileExplorer";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { ContextMenu, MenuButton, OverflowToolbar, type MenuItem, type ToolbarItem } from "./Toolbar";
-import { FindReplacePanel, ResultsWindow, type FindTab, type MatchTarget, type ResultList } from "./FindReplacePanel";
+import {
+  FIND_EVENTS, FindReplacePanel, ResultsWindow, type FindContext, type FindMessage, type FindTab, type MatchTarget, type ResultList,
+} from "./FindReplacePanel";
 import { Icon, IconButton, iconForCommand, type IconName } from "./icons";
 import { PALETTE_COMMANDS, shortcutLabel } from "./commands";
 import {
-  closeWindowAfterSave, configureNativeMenu, executeCommand, getApplicationInfo, listCommands, openHelpWindow, openSettingsWindow, takeLaunchPaths,
+  closeWindowAfterSave, configureNativeMenu, executeCommand, getApplicationInfo, listCommands, openFindWindow, openHelpWindow, openResultsWindow, openSettingsWindow, takeLaunchPaths,
   setToolsMenu,
 } from "./ipc";
 import {
@@ -253,6 +255,9 @@ export function App() {
   const [findTab, setFindTab] = useState<FindTab | null>(null);
   const [findSeed, setFindSeed] = useState<{ id: number; text: string } | undefined>();
   const [searchResults, setSearchResults] = useState<ResultList | null>(null);
+  const pendingFindOpen = useRef<{ tab: FindTab; seed?: string } | null>(null);
+  const resultsForWindow = useRef<ResultList | null>(null);
+  const findMessageRef = useRef<(message: FindMessage) => void>(() => undefined);
   const [revealTarget, setRevealTarget] = useState<{ documentId: string; byteOffset: string } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
@@ -716,6 +721,50 @@ export function App() {
     });
     void configureNativeMenu(entries).catch((error: unknown) => setStatus(errorMessage(error, "Could not configure native menu")));
   }, [commands, customization.keybindings, customization.menu, desktopShell]);
+
+  // The separate Find window follows the focused document, its selection, and the open documents.
+  const findActiveDocument = activeDocument && viewModes[activeDocument.documentId] !== "hex" ? activeDocument : null;
+  const findContext: FindContext = {
+    activeDocument: findActiveDocument,
+    textDocuments: documents.filter((document) => viewModes[document.documentId] !== "hex"),
+    selection: caret && caret.documentId === findActiveDocument?.documentId ? caret.selection : undefined,
+    defaultFolder: workspace?.root,
+  };
+  const findContextKey = JSON.stringify(findContext);
+  const findContextRef = useRef(findContext);
+  findContextRef.current = findContext;
+  const documentsRef = useRef(documents);
+  documentsRef.current = documents;
+  useEffect(() => {
+    if (desktopShell) void emitTo("find", FIND_EVENTS.context, findContextRef.current).catch(() => undefined);
+  }, [desktopShell, findContextKey]);
+
+  findMessageRef.current = (message) => {
+    switch (message.kind) {
+      case "ready":
+        void emitTo("find", FIND_EVENTS.context, findContextRef.current).catch(() => undefined);
+        if (pendingFindOpen.current) {
+          void emitTo("find", FIND_EVENTS.open, pendingFindOpen.current).catch(() => undefined);
+          pendingFindOpen.current = null;
+        }
+        break;
+      case "search": searchInEditor(message.request); break;
+      case "openMatch": void openMatch(message.target); break;
+      case "documentChange": upsertDocument(message.document); break;
+      case "status": setStatus(message.message); break;
+      case "results": showSearchResults(message.list); break;
+      case "resultsReady": sendResultsToWindow(); break;
+    }
+  };
+  useEffect(() => {
+    if (!desktopShell) return;
+    let disposed = false;
+    let stop: (() => void) | undefined;
+    void listen<FindMessage>(FIND_EVENTS.message, (event) => findMessageRef.current(event.payload)).then((unlisten) => {
+      if (disposed) unlisten(); else stop = unlisten;
+    }).catch(() => undefined);
+    return () => { disposed = true; stop?.(); };
+  }, [desktopShell]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1443,8 +1492,30 @@ export function App() {
 
   /** Opens the Find and Replace panel on a tab, optionally with text to find. */
   const openFindPanel = (tab: FindTab, seed?: string) => {
+    if (desktopShell) {
+      // A new window asks for this once it is listening; an open one gets it now.
+      pendingFindOpen.current = { tab, seed };
+      void openFindWindow().catch((error: unknown) => setStatus(errorMessage(error, "Could not open Find and Replace")));
+      void emitTo("find", FIND_EVENTS.open, { tab, seed }).catch(() => undefined);
+      return;
+    }
     setFindTab(tab);
     if (seed) setFindSeed((previous) => ({ id: (previous?.id ?? 0) + 1, text: seed }));
+  };
+
+  /** Shows a list of matching lines: its own window on the desktop, a panel otherwise. */
+  const showSearchResults = (list: ResultList) => {
+    if (!desktopShell) { setSearchResults(list); return; }
+    resultsForWindow.current = list;
+    void openResultsWindow().catch((error: unknown) => setStatus(errorMessage(error, "Could not show the results")));
+    sendResultsToWindow();
+  };
+  const sendResultsToWindow = () => {
+    const list = resultsForWindow.current;
+    if (!list) return;
+    void emitTo("find-results", FIND_EVENTS.results, {
+      ...list, openDocumentIds: documentsRef.current.map((document) => document.documentId),
+    }).catch(() => undefined);
   };
 
   /** Sends a find or replace action to the editor in the focused pane. */
@@ -1836,7 +1907,7 @@ export function App() {
         textDocuments={documents.filter((document) => viewModes[document.documentId] !== "hex")}
         selection={caret && caret.documentId === activeDocument?.documentId ? caret.selection : undefined}
         onEditorSearch={searchInEditor} onOpenMatch={(target) => void openMatch(target)}
-        onDocumentChange={upsertDocument} onResults={setSearchResults} onChooseFolder={chooseFolder} defaultFolder={workspace?.root}
+        onDocumentChange={upsertDocument} onResults={showSearchResults} onChooseFolder={chooseFolder} defaultFolder={workspace?.root}
         onStatus={setStatus} /> : null}
       {searchResults ? <ResultsWindow list={searchResults} onClose={() => setSearchResults(null)}
         onOpenMatch={(target) => void openMatch(target)} onStatus={setStatus}

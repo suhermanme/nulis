@@ -1,7 +1,9 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { App } from "./App";
+import { FindApp } from "./FindApp";
 import { HelpApp } from "./HelpApp";
+import { ResultsApp } from "./ResultsApp";
 import { SettingsApp } from "./SettingsApp";
 import "./styles.css";
 
@@ -14,6 +16,7 @@ window.addEventListener("contextmenu", (event) => event.preventDefault());
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    {windowKind === "settings" ? <SettingsApp /> : windowKind === "help" ? <HelpApp /> : <App />}
+    {windowKind === "settings" ? <SettingsApp /> : windowKind === "help" ? <HelpApp />
+      : windowKind === "find" ? <FindApp /> : windowKind === "find-results" ? <ResultsApp /> : <App />}
   </React.StrictMode>,
 );

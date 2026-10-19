@@ -27,6 +27,33 @@ const MAX_NATIVE_MENU_ENTRIES: usize = 64;
 const MAIN_WINDOW_LABEL: &str = "main";
 const SETTINGS_WINDOW_LABEL: &str = "settings";
 const HELP_WINDOW_LABEL: &str = "help";
+const FIND_WINDOW_LABEL: &str = "find";
+const RESULTS_WINDOW_LABEL: &str = "find-results";
+/// Find and Replace searches and replaces; it cannot open, save, or show documents.
+const FIND_COMMANDS: &[&str] = &[
+    "customization.state",
+    "theme.list",
+    "search.findAll",
+    "search.replaceAll",
+    "search.findInFiles",
+];
+/// The list of matching lines can only bookmark lines.
+const RESULTS_COMMANDS: &[&str] = &["customization.state", "theme.list", "editor.addBookmarks"];
+/// Messages from the Find and results windows to the editor window.
+const FIND_MESSAGE_EVENT: &str = "nulis://find-message";
+const FIND_MESSAGE_KINDS: &[&str] = &[
+    "ready",
+    "search",
+    "openMatch",
+    "documentChange",
+    "status",
+    "results",
+    "resultsReady",
+];
+/// A list of matching lines is at most 5,000 lines of 512 bytes, plus names.
+const MAX_FIND_MESSAGE_BYTES: usize = 8 * 1024 * 1024;
+const FIND_MIN_SIZE: (u32, u32) = (420, 360);
+const RESULTS_MIN_SIZE: (u32, u32) = (420, 220);
 /// Files the operating system asks Nulis to open while it is running.
 const OPEN_PATHS_EVENT: &str = "nulis://open-paths";
 /// Help only reads what it needs to follow the chosen theme and font.
@@ -228,7 +255,13 @@ async fn execute_command(
     let result = core.execute_command(&request.id, request.context, request.arguments)?;
     if CUSTOMIZATION_MUTATIONS.contains(&request.id.as_str()) {
         // Every other window refreshes its settings, toolbar, and native menu.
-        for label in [MAIN_WINDOW_LABEL, SETTINGS_WINDOW_LABEL, HELP_WINDOW_LABEL] {
+        for label in [
+            MAIN_WINDOW_LABEL,
+            SETTINGS_WINDOW_LABEL,
+            HELP_WINDOW_LABEL,
+            FIND_WINDOW_LABEL,
+            RESULTS_WINDOW_LABEL,
+        ] {
             if label != window.label() {
                 let _ = app.emit_to(label, CUSTOMIZATION_CHANGED_EVENT, ());
             }
@@ -242,6 +275,8 @@ fn authorize_window_command(label: &str, id: &str) -> Result<(), CommandError> {
     if label == MAIN_WINDOW_LABEL
         || (label == SETTINGS_WINDOW_LABEL && SETTINGS_COMMANDS.contains(&id))
         || (label == HELP_WINDOW_LABEL && HELP_COMMANDS.contains(&id))
+        || (label == FIND_WINDOW_LABEL && FIND_COMMANDS.contains(&id))
+        || (label == RESULTS_WINDOW_LABEL && RESULTS_COMMANDS.contains(&id))
     {
         return Ok(());
     }
@@ -863,6 +898,107 @@ fn detach_application_menu(window: &tauri::WebviewWindow) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Opens a singleton auxiliary window or brings the existing one forward.
+fn show_aux_window(
+    app: &tauri::AppHandle,
+    label: &str,
+    title: &str,
+    size: (f64, f64),
+    min_size: (u32, u32),
+) -> tauri::Result<()> {
+    if let Some(window) = app.get_webview_window(label) {
+        window.unminimize()?;
+        window.show()?;
+        return window.set_focus();
+    }
+    let window = tauri::WebviewWindowBuilder::new(
+        app,
+        label,
+        tauri::WebviewUrl::App(format!("index.html?window={label}").into()),
+    )
+    .title(title)
+    .inner_size(size.0, size.1)
+    .min_inner_size(f64::from(min_size.0), f64::from(min_size.1))
+    .resizable(true)
+    .build()?;
+    detach_application_menu(&window)
+}
+
+// Async so the window is built off the main thread (see open_settings_window).
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri extracts AppHandle by value.
+async fn open_find_window(app: tauri::AppHandle) -> Result<(), String> {
+    show_aux_window(
+        &app,
+        FIND_WINDOW_LABEL,
+        "Find and Replace",
+        (480.0, 620.0),
+        FIND_MIN_SIZE,
+    )
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri extracts AppHandle by value.
+async fn open_results_window(app: tauri::AppHandle) -> Result<(), String> {
+    show_aux_window(
+        &app,
+        RESULTS_WINDOW_LABEL,
+        "Lines Containing",
+        (720.0, 360.0),
+        RESULTS_MIN_SIZE,
+    )
+    .map_err(|error| error.to_string())
+}
+
+/// Closes the calling Find or results window.
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri extracts WebviewWindow by value.
+fn close_find_window(window: tauri::WebviewWindow) -> Result<(), String> {
+    require_find_window(&window)?;
+    window.destroy().map_err(|error| error.to_string())
+}
+
+/// Relays a message from the Find or results window to the editor window,
+/// which validates and acts on it. Going to a match brings the editor forward.
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri extracts its arguments by value.
+fn find_message(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    message: Value,
+) -> Result<(), String> {
+    require_find_window(&window)?;
+    let kind = message
+        .get("kind")
+        .and_then(Value::as_str)
+        .ok_or("a find message needs a kind")?;
+    if !FIND_MESSAGE_KINDS.contains(&kind) {
+        return Err(format!("unknown find message: {kind}"));
+    }
+    let size = serde_json::to_vec(&message)
+        .map_err(|error| error.to_string())?
+        .len();
+    if size > MAX_FIND_MESSAGE_BYTES {
+        return Err("the find message is too large".into());
+    }
+    if kind == "openMatch" {
+        if let Some(main) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+            let _ = main.set_focus();
+        }
+    }
+    app.emit_to(MAIN_WINDOW_LABEL, FIND_MESSAGE_EVENT, message)
+        .map_err(|error| error.to_string())
+}
+
+fn require_find_window(window: &tauri::WebviewWindow) -> Result<(), String> {
+    if window.label() == FIND_WINDOW_LABEL || window.label() == RESULTS_WINDOW_LABEL {
+        Ok(())
+    } else {
+        Err("only the Find and results windows may do this".into())
+    }
+}
+
 fn require_settings_window(window: &tauri::WebviewWindow) -> Result<(), String> {
     if window.label() == SETTINGS_WINDOW_LABEL {
         Ok(())
@@ -929,7 +1065,9 @@ fn settings_preview(
 fn settings_changed(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<(), String> {
     require_settings_window(&window)?;
     // Help follows the theme too; it is simply absent when not open.
-    let _ = app.emit_to(HELP_WINDOW_LABEL, CUSTOMIZATION_CHANGED_EVENT, ());
+    for label in [HELP_WINDOW_LABEL, FIND_WINDOW_LABEL, RESULTS_WINDOW_LABEL] {
+        let _ = app.emit_to(label, CUSTOMIZATION_CHANGED_EVENT, ());
+    }
     app.emit_to(MAIN_WINDOW_LABEL, CUSTOMIZATION_CHANGED_EVENT, ())
         .map_err(|error| error.to_string())
 }
@@ -1005,6 +1143,46 @@ fn disable_webview_autofill_menu() {
     );
 }
 
+fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
+    match (window.label(), event) {
+        (SETTINGS_WINDOW_LABEL, tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_)) => {
+            remember_settings_frame(window);
+        }
+        (SETTINGS_WINDOW_LABEL, tauri::WindowEvent::Destroyed) => {
+            let app = window.app_handle();
+            persist_settings_frame(app);
+            // Any unapplied preview ends with the window that showed it.
+            let _ = app.emit_to(MAIN_WINDOW_LABEL, APPEARANCE_PREVIEW_EVENT, Value::Null);
+        }
+        // With nothing unsaved the window closes at once. This does not
+        // wait for the page, so the application can always be closed even
+        // if the page has stopped answering. With unsaved documents the
+        // page asks what to do with them, as before.
+        (MAIN_WINDOW_LABEL, tauri::WindowEvent::CloseRequested { .. }) => {
+            let clean = window
+                .app_handle()
+                .try_state::<NulisCore>()
+                .is_some_and(|core| matches!(core.has_dirty_documents(), Ok(false)));
+            if clean {
+                let _ = window.destroy();
+            }
+        }
+        (MAIN_WINDOW_LABEL, tauri::WindowEvent::Destroyed) => {
+            for label in [
+                SETTINGS_WINDOW_LABEL,
+                HELP_WINDOW_LABEL,
+                FIND_WINDOW_LABEL,
+                RESULTS_WINDOW_LABEL,
+            ] {
+                if let Some(secondary) = window.app_handle().get_webview_window(label) {
+                    let _ = secondary.destroy();
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// Starts the native Nulis desktop event loop.
 ///
@@ -1055,39 +1233,7 @@ pub fn run() {
             }
             _ => {}
         })
-        .on_window_event(|window, event| match (window.label(), event) {
-            (
-                SETTINGS_WINDOW_LABEL,
-                tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_),
-            ) => remember_settings_frame(window),
-            (SETTINGS_WINDOW_LABEL, tauri::WindowEvent::Destroyed) => {
-                let app = window.app_handle();
-                persist_settings_frame(app);
-                // Any unapplied preview ends with the window that showed it.
-                let _ = app.emit_to(MAIN_WINDOW_LABEL, APPEARANCE_PREVIEW_EVENT, Value::Null);
-            }
-            // With nothing unsaved the window closes at once. This does not
-            // wait for the page, so the application can always be closed even
-            // if the page has stopped answering. With unsaved documents the
-            // page asks what to do with them, as before.
-            (MAIN_WINDOW_LABEL, tauri::WindowEvent::CloseRequested { .. }) => {
-                let clean = window
-                    .app_handle()
-                    .try_state::<NulisCore>()
-                    .is_some_and(|core| matches!(core.has_dirty_documents(), Ok(false)));
-                if clean {
-                    let _ = window.destroy();
-                }
-            }
-            (MAIN_WINDOW_LABEL, tauri::WindowEvent::Destroyed) => {
-                for label in [SETTINGS_WINDOW_LABEL, HELP_WINDOW_LABEL] {
-                    if let Some(secondary) = window.app_handle().get_webview_window(label) {
-                        let _ = secondary.destroy();
-                    }
-                }
-            }
-            _ => {}
-        })
+        .on_window_event(handle_window_event)
         .setup(|app| {
             let session_root = app.path().app_data_dir()?.join("sessions");
             app.manage(NulisCore::with_session_root(session_root));
@@ -1116,6 +1262,10 @@ pub fn run() {
             close_settings_window,
             open_help_window,
             close_help_window,
+            open_find_window,
+            open_results_window,
+            close_find_window,
+            find_message,
             take_launch_paths,
             settings_preview,
             settings_changed,
@@ -1186,6 +1336,35 @@ mod tests {
             assert!(authorize_window_command("help", id).is_err(), "{id}");
         }
         assert!(authorize_window_command("other", "theme.list").is_err());
+    }
+
+    #[test]
+    fn find_windows_may_search_but_not_open_save_or_edit_directly() {
+        for id in [
+            "search.findAll",
+            "search.replaceAll",
+            "search.findInFiles",
+            "theme.list",
+        ] {
+            assert!(authorize_window_command("find", id).is_ok(), "{id}");
+        }
+        for id in [
+            "file.open",
+            "file.save",
+            "editor.insertText",
+            "editor.addBookmarks",
+            "terminal.create",
+            "customization.saveChecked",
+        ] {
+            assert!(authorize_window_command("find", id).is_err(), "{id}");
+        }
+        assert!(authorize_window_command("find-results", "editor.addBookmarks").is_ok());
+        for id in ["search.replaceAll", "file.open", "editor.replace"] {
+            assert!(
+                authorize_window_command("find-results", id).is_err(),
+                "{id}"
+            );
+        }
     }
 
     #[test]

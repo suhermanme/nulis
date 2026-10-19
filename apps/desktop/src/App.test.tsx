@@ -5,10 +5,13 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { listen } from "@tauri-apps/api/event";
+import { emitTo, listen } from "@tauri-apps/api/event";
 import { App } from "./App";
 import type { CustomizationDocument, ExecuteCommandRequest, WorkbenchSession } from "./contracts";
-import { closeWindowAfterSave, executeCommand, listCommands, openHelpWindow, openSettingsWindow, setToolsMenu, takeLaunchPaths } from "./ipc";
+import {
+  closeWindowAfterSave, executeCommand, listCommands, openFindWindow, openHelpWindow, openResultsWindow, openSettingsWindow,
+  setToolsMenu, takeLaunchPaths,
+} from "./ipc";
 import { DEFAULT_EDITOR_PREFERENCES } from "./preferences";
 
 const DEFAULT_SESSION: WorkbenchSession = {
@@ -43,6 +46,8 @@ vi.mock("./ipc", () => ({
   configureNativeMenu: vi.fn().mockResolvedValue(undefined),
   openSettingsWindow: vi.fn().mockResolvedValue(undefined),
   openHelpWindow: vi.fn().mockResolvedValue(undefined),
+  openFindWindow: vi.fn().mockResolvedValue(undefined),
+  openResultsWindow: vi.fn().mockResolvedValue(undefined),
   takeLaunchPaths: vi.fn().mockResolvedValue([]),
   setToolsMenu: vi.fn().mockResolvedValue(undefined),
 }));
@@ -53,7 +58,10 @@ vi.mock("@tauri-apps/api/core", () => ({ isTauri: vi.fn(() => false) }));
 vi.mock("@tauri-apps/api/webview", () => ({
   getCurrentWebview: vi.fn(() => ({ onDragDropEvent: vi.fn().mockResolvedValue(() => undefined) })),
 }));
-vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(() => undefined) }));
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn().mockResolvedValue(() => undefined),
+  emitTo: vi.fn().mockResolvedValue(undefined),
+}));
 vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: vi.fn(() => ({
   onCloseRequested: vi.fn().mockResolvedValue(() => undefined), destroy: vi.fn().mockResolvedValue(undefined),
 })) }));
@@ -759,6 +767,41 @@ test("the desktop shell opens Settings as its own window instead of an overlay",
   expect(screen.queryByRole("dialog", { name: "Settings" })).not.toBeInTheDocument();
   expect(listen).toHaveBeenCalledWith("nulis://customization-changed", expect.any(Function));
   expect(listen).toHaveBeenCalledWith("nulis://appearance-preview", expect.any(Function));
+});
+
+test("the desktop shell opens Find and Replace and its results as their own windows", async () => {
+  vi.mocked(isTauri).mockReturnValue(true);
+  await openDocuments("Second");
+  fireEvent.click(screen.getByRole("button", { name: "Find in Second" }));
+  expect(openFindWindow).toHaveBeenCalledOnce();
+  expect(screen.queryByRole("dialog", { name: "Find and Replace" })).not.toBeInTheDocument();
+  expect(emitTo).toHaveBeenCalledWith("find", "nulis://find-open", { tab: "find", seed: "seeded" });
+
+  const handler = vi.mocked(listen).mock.calls.find(([event]) => event === "nulis://find-message")?.[1];
+  expect(handler).toBeDefined();
+  const deliver = (payload: object) => act(() => { handler!({ event: "nulis://find-message", id: 1, payload } as never); });
+  vi.mocked(emitTo).mockClear();
+  deliver({ kind: "ready" });
+  expect(emitTo).toHaveBeenCalledWith("find", "nulis://find-context", expect.objectContaining({
+    activeDocument: expect.objectContaining({ documentId: "document-1" }),
+  }));
+  expect(emitTo).toHaveBeenCalledWith("find", "nulis://find-open", { tab: "find", seed: "seeded" });
+
+  deliver({ kind: "search", request: { action: "next", query: "x", replacement: "", regex: false, caseSensitive: true } });
+  expect(JSON.parse(screen.getByText("Second editor").getAttribute("data-search") ?? "null")).toMatchObject({ action: "next", query: "x" });
+
+  const list = { title: "Lines containing “x”", rows: [], truncated: false, multipleSources: false };
+  deliver({ kind: "results", list });
+  expect(openResultsWindow).toHaveBeenCalledOnce();
+  expect(emitTo).toHaveBeenCalledWith("find-results", "nulis://find-results", { ...list, openDocumentIds: ["document-1"] });
+
+  deliver({ kind: "openMatch", target: { documentId: "document-1", startByte: "2", endByte: "3" } });
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
+    id: "editor.setSelections", context: { windowId: "main", documentId: "document-1" },
+    arguments: { selections: [{ anchorByte: "2", activeByte: "3" }] },
+  }));
+  deliver({ kind: "status", message: "3 matches on 2 lines" });
+  expect(screen.getByText("3 matches on 2 lines")).toBeInTheDocument();
 });
 
 test("the View menu toggles line change indicators with a persistent default", async () => {

@@ -238,7 +238,7 @@ Turn the indicators on or off for one document with the button in the editor too
 
 ### The Find and Replace window
 
-Press **Ctrl/⌘ F** (Find) or **Ctrl/⌘ H** (Replace), click the magnifier in the editor toolbar, or right-click the text and choose **Find…** or **Replace…**. A small window opens over the editor; drag its title bar to move it. It is not modal, so you can keep editing while it is open. Selected text (up to 1,000 characters) is put into **Find what**. Escape or the close button closes it.
+Press **Ctrl/⌘ F** (Find) or **Ctrl/⌘ H** (Replace), click the magnifier in the editor toolbar, or right-click the text and choose **Find…** or **Replace…**. It opens as its own window, like Settings, so you can place it anywhere, including on another display. It is not modal, so you can keep editing while it is open. Selected text (up to 1,000 characters) is put into **Find what**. Escape or the close button closes it.
 
 The window has three tabs: **Find**, **Find in Files**, and **Replace**.
 
@@ -252,7 +252,7 @@ Regular expressions may match across lines. An expression that could match an un
 
 ### Lines containing the text
 
-With **List lines containing find string** checked, **Count All** or **Next** also opens a list of every matching line. Click a line, or select it and press **Go To** or Enter, to put the caret on that match. **Bookmark All** bookmarks every listed line in open documents, **Copy** copies the list, and **Show line numbers** turns the number column on or off. The list shows the first 512 bytes of each line and stops at 5,000 lines or 10,000 matches, and says so when it does.
+With **List lines containing find string** checked, **Count All** or **Next** also opens a separate window listing every matching line. Click a line, or select it and press **Go To** or Enter, to put the caret on that match. **Bookmark All** bookmarks every listed line in open documents, **Copy** copies the list, and **Show line numbers** turns the number column on or off. The list shows the first 512 bytes of each line and stops at 5,000 lines or 10,000 matches, and says so when it does.
 
 ### In files
 

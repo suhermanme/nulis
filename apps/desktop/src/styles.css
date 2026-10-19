@@ -1063,3 +1063,10 @@ kbd,
 @media (forced-colors: active) {
   .floating-window, .find-tabs button.active, .results-list [role="option"].selected { border: 1px solid CanvasText; }
 }
+
+/* Find and Replace and matching lines in their own desktop windows. */
+.aux-root { display: flex; flex-direction: column; height: 100vh; overflow: hidden; color: var(--ui-text); background: var(--menu); }
+.aux-window { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: auto; }
+.aux-window.results-window .results-layout { flex: 1; min-height: 0; }
+.aux-window.results-window .results-list { height: auto; min-height: 120px; }
+.aux-window.find-window .find-tabs { margin-top: 12px; }

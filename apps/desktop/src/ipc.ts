@@ -117,3 +117,23 @@ export function requestMainAction(action: string): Promise<void> {
 export function setToolsMenu(kind: ToolKind | null): Promise<void> {
   return invoke<void>("set_tools_menu", { kind });
 }
+
+/** Opens the separate Find and Replace window, or brings it forward. */
+export function openFindWindow(): Promise<void> {
+  return invoke<void>("open_find_window");
+}
+
+/** Opens the separate list of matching lines, or brings it forward. */
+export function openResultsWindow(): Promise<void> {
+  return invoke<void>("open_results_window");
+}
+
+/** Closes the calling Find or results window. */
+export function closeFindWindow(): Promise<void> {
+  return invoke<void>("close_find_window");
+}
+
+/** Sends a message from the Find or results window to the editor window. */
+export function sendFindMessage(message: { kind: string } & Record<string, unknown>): Promise<void> {
+  return invoke<void>("find_message", { message });
+}

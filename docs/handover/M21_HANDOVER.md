@@ -36,7 +36,7 @@ Replace the side-bar Search panel and the inline find bar with one floating Find
 
 ## Decisions
 
-- The window lives inside the main window (a positioned, draggable panel), not a separate OS window: it needs live editor state, and separately created windows are what failed on Windows (M19).
+- **Revised after user testing (2026-10-20):** the first version drew the window inside the main window; the user asked for independent windows like Settings. Find and Replace (`find`) and the matching-lines list (`find-results`) are now separate native windows created by the adapter (`open_find_window`, `open_results_window`, async to avoid the Windows deadlock, no menu bar on Windows/Linux). Each has its own command allowlist (`FIND_COMMANDS`: theme, `search.findAll`, `search.replaceAll`, `search.findInFiles`; `RESULTS_COMMANDS`: theme, `editor.addBookmarks`) and capability file `capabilities/find.json`. They send `FindMessage`s to the editor window through the validated `find_message` relay (known kinds, 8 MiB cap; going to a match focuses the editor); the editor window sends them `nulis://find-context`, `nulis://find-open`, and `nulis://find-results`. `FindApp.tsx` and `ResultsApp.tsx` are the window roots; `windowTheme.ts` is shared with Help. The in-window floating panel remains only for the browser shell used by tests.
 - Replace in Files is its own milestone (M22) because it writes files on disk.
 - Not implemented from the screenshots: search in column range, preserve case, regex dialect choice, ignore options, favorites.
 
@@ -45,7 +45,7 @@ Replace the side-bar Search panel and the inline find bar with one floating Find
 - **Replace** (single) works only in the current document; for other scopes use Replace All.
 - "Selected text" uses the selection at the moment the button is pressed; stepping matches in a selection or open files uses a list computed once and refreshed when a document's revision changes.
 - Line previews show the start of a line (512 bytes), so a match far into a very long line is not visible in the preview.
-- The window's position is not remembered between openings.
+- The windows' positions are not remembered between openings (Settings remembers its frame; Find does not yet).
 
 ## Resume
 

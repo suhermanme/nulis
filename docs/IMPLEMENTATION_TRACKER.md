@@ -108,6 +108,8 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 
 ## Design decisions and deviations
 
+- M21 (revised after user testing): Find and Replace and the matching-lines list are separate native windows like Settings, not panels inside the main window. Verification after the change: Vitest 121 passed; `cargo test -p nulis-desktop` 7 passed; clippy, lint, typecheck clean.
+
 - Milestones are numbered M19+ to continue `ROADMAP.md` rather than restart at M01.
 - Reference shortcuts are not copied; Nulis keeps its own bindings.
 
