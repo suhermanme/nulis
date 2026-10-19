@@ -1,5 +1,5 @@
 /** Versioned JSON-compatible values mirrored from nulis-core's public IPC DTOs. */
-export const IPC_PROTOCOL_VERSION = 28 as const;
+export const IPC_PROTOCOL_VERSION = 30 as const;
 
 export interface ThemeRecord {
   schema?: string;
@@ -305,6 +305,43 @@ export interface FindAllResult {
   matches: FoundMatch[];
   lines: FoundLine[];
   truncated: boolean;
+}
+
+/** An open document whose file another program changed or removed. */
+export interface ExternalChange {
+  documentId: string;
+  path: string;
+  kind: "modified" | "deleted";
+  dirty: boolean;
+}
+
+/** A file's size and modification time when it was previewed. */
+export interface FileStamp {
+  size: string;
+  modified: string | null;
+}
+
+/** One file found by `search.previewReplaceInFiles`. */
+export interface ReplacePreviewFile {
+  path: string;
+  matches: number;
+  stamp: FileStamp;
+  /** Open in the editor: its in-memory text is changed and left unsaved. */
+  open: boolean;
+}
+
+export interface ReplacePreview {
+  files: ReplacePreviewFile[];
+  filesScanned: number;
+  truncated: boolean;
+}
+
+/** Result for one file of `search.replaceInFiles`. */
+export interface ReplaceFileOutcome {
+  path: string;
+  replacements: number;
+  error: string | null;
+  document: DocumentSummary | null;
 }
 
 /** Which files `search.findInFiles` reads below its root. */

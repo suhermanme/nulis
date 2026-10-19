@@ -504,6 +504,69 @@ test("Find in Files searches a filtered folder from the floating panel and opens
   }));
 });
 
+test("Replace in Files previews, asks for confirmation, then reports each file", async () => {
+  await openDocuments("Second");
+  vi.mocked(open).mockResolvedValueOnce("/tmp/project");
+  const stamp = { size: "3", modified: "1" };
+  responses["search.previewReplaceInFiles"] = [{
+    files: [
+      { path: "/tmp/project/a.txt", matches: 2, stamp, open: false },
+      { path: "/tmp/Second", matches: 1, stamp, open: true },
+      { path: "/tmp/project/c.txt", matches: 1, stamp, open: false },
+    ],
+    filesScanned: 4, truncated: false,
+  }];
+  responses["search.replaceInFiles"] = [[
+    { path: "/tmp/project/a.txt", replacements: 2, error: null, document: null },
+    { path: "/tmp/Second", replacements: 1, error: null,
+      document: { documentId: "document-1", name: "Second", byteLen: "3", revision: "1", encoding: "utf8", dirty: true } },
+    { path: "/tmp/project/c.txt", replacements: 0, error: "the file changed on disk after the preview", document: null },
+  ]];
+
+  fireEvent.click(screen.getByRole("button", { name: "Replace in Second" }));
+  const panel = screen.getByRole("dialog", { name: "Find and Replace" });
+  fireEvent.click(within(panel).getByRole("tab", { name: "Replace in Files" }));
+  fireEvent.change(within(panel).getByRole("textbox", { name: "Find what" }), { target: { value: "cat" } });
+  fireEvent.change(within(panel).getByRole("textbox", { name: "Replace with" }), { target: { value: "dog" } });
+  fireEvent.click(within(panel).getByRole("button", { name: "Browse…" }));
+  await waitFor(() => expect(within(panel).getByRole("textbox", { name: "In directory" })).toHaveValue("/tmp/project"));
+  expect(within(panel).getByRole("button", { name: "Replace All" })).toBeDisabled();
+
+  fireEvent.click(within(panel).getByRole("button", { name: "Preview" }));
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
+    id: "search.previewReplaceInFiles", context: { windowId: "main" },
+    arguments: { root: "/tmp/project", query: "cat", options: { mode: "literal", caseSensitive: false, wholeWord: false },
+      scope: { include: [], recursive: true } },
+  }));
+  const files = await within(panel).findByRole("list", { name: "Files to change" });
+  expect(within(files).getAllByRole("listitem")).toHaveLength(3);
+  expect(within(files).getByText("open: changed in the editor, not saved")).toBeInTheDocument();
+  expect(executeCommand).not.toHaveBeenCalledWith(expect.objectContaining({ id: "search.replaceInFiles" }));
+
+  // Changing the replacement makes the preview stale.
+  fireEvent.change(within(panel).getByRole("textbox", { name: "Replace with" }), { target: { value: "dogs" } });
+  expect(within(panel).getByRole("button", { name: "Replace All" })).toBeDisabled();
+  fireEvent.change(within(panel).getByRole("textbox", { name: "Replace with" }), { target: { value: "dog" } });
+
+  fireEvent.click(within(panel).getByRole("button", { name: "Replace All" }));
+  const confirm = within(panel).getByRole("group", { name: "Confirm Replace in Files" });
+  expect(confirm).toHaveTextContent("Replace 4 matches in 3 files?");
+  fireEvent.click(within(confirm).getByRole("button", { name: "Replace" }));
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
+    id: "search.replaceInFiles", context: { windowId: "main" },
+    arguments: {
+      files: ["/tmp/project/a.txt", "/tmp/Second", "/tmp/project/c.txt"].map((path) => ({ path, stamp })),
+      query: "cat", replacement: "dog", options: { mode: "literal", caseSensitive: false, wholeWord: false },
+    },
+  }));
+  expect(await within(panel).findByText("Replaced 3 matches in 2 files; 1 file not changed")).toBeInTheDocument();
+  const failures = within(panel).getByRole("list", { name: "Files not changed" });
+  expect(failures).toHaveTextContent("c.txt");
+  expect(failures).toHaveTextContent("the file changed on disk after the preview");
+  // The open document's new state reached the editor: its tab is marked unsaved.
+  expect(screen.getByRole("tab", { name: /Second/ })).toHaveAccessibleName(/unsaved|modified|•/i);
+});
+
 test("stores remote credentials separately from persisted SFTP profile metadata", async () => {
   const saved = {
     id: "staging", label: "Staging", host: "example.test", port: 22,
@@ -802,6 +865,60 @@ test("the desktop shell opens Find and Replace and its results as their own wind
   }));
   deliver({ kind: "status", message: "3 matches on 2 lines" });
   expect(screen.getByText("3 matches on 2 lines")).toBeInTheDocument();
+});
+
+test("a file changed by another program is reported once and can be reloaded or kept", async () => {
+  vi.mocked(isTauri).mockReturnValue(true);
+  await openDocuments("First", "Second");
+  const focus = async () => { act(() => { window.dispatchEvent(new Event("focus")); }); await settle(); };
+  const modifiedSecond = [{ documentId: "document-2", path: "/tmp/Second", kind: "modified", dirty: true }];
+
+  responses["editor.externalChanges"] = [modifiedSecond];
+  responses["editor.keepExternalVersion"] = [{ documentId: "document-2", name: "Second", byteLen: "0", revision: "0", encoding: "utf8", sourcePath: "/tmp/Second" }];
+  await focus();
+  const changed = await screen.findByRole("dialog", { name: "Second was changed by another program" });
+  expect(changed).toHaveTextContent("discards your unsaved edits");
+  fireEvent.click(within(changed).getByRole("button", { name: "Keep Mine" }));
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
+    id: "editor.keepExternalVersion", context: { windowId: "main", documentId: "document-2" }, arguments: {},
+  }));
+
+  // The same change is not asked about twice.
+  responses["editor.externalChanges"] = [modifiedSecond];
+  await focus();
+  expect(screen.queryByRole("dialog", { name: "Second was changed by another program" })).not.toBeInTheDocument();
+
+  responses["editor.externalChanges"] = [[{ documentId: "document-1", path: "/tmp/First", kind: "modified", dirty: false }]];
+  responses["file.reload"] = [{ documentId: "document-1", name: "First", byteLen: "9", revision: "0", encoding: "utf8", sourcePath: "/tmp/First" }];
+  await focus();
+  const first = await screen.findByRole("dialog", { name: "First was changed by another program" });
+  fireEvent.click(within(first).getByRole("button", { name: "Reload" }));
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
+    id: "file.reload", context: { windowId: "main", documentId: "document-1" }, arguments: { discard: true },
+  }));
+  expect(await screen.findByText("Reloaded First from disk")).toBeInTheDocument();
+
+  responses["editor.externalChanges"] = [[{ documentId: "document-1", path: "/tmp/First", kind: "deleted", dirty: false }]];
+  await focus();
+  const deleted = await screen.findByRole("dialog", { name: "First was deleted or moved" });
+  fireEvent.click(within(deleted).getByRole("button", { name: "Close" }));
+  await waitFor(() => expect(screen.queryByText("First editor")).not.toBeInTheDocument());
+});
+
+test("Reload from Disk asks first when there are unsaved edits", async () => {
+  responses["file.new"] = [{ documentId: "document-1", name: "Draft", byteLen: "3", revision: "1", encoding: "utf8", sourcePath: "/tmp/Draft", dirty: true }];
+  responses["file.reload"] = [{ documentId: "document-1", name: "Draft", byteLen: "1", revision: "0", encoding: "utf8", sourcePath: "/tmp/Draft" }];
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  fireEvent.click(screen.getByRole("button", { name: "New text file" }));
+  await screen.findByText("Draft editor");
+  await chooseMenu("File", "Reload from Disk");
+  const dialog = screen.getByRole("dialog", { name: "Reload Draft from disk?" });
+  expect(executeCommand).not.toHaveBeenCalledWith(expect.objectContaining({ id: "file.reload" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Discard Edits and Reload" }));
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
+    id: "file.reload", context: { windowId: "main", documentId: "document-1" }, arguments: { discard: true },
+  }));
 });
 
 test("the View menu toggles line change indicators with a persistent default", async () => {

@@ -4,8 +4,8 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 
 ## Current state
 
-- **Current milestone:** M22 — pending (next to start)
-- **Overall:** 3 of 11 milestones completed (M19, M20, M21)
+- **Current milestone:** M24 — pending (next to start)
+- **Overall:** 5 of 11 milestones completed (M19–M23)
 - **Baseline before M19 (commit `66853e1`):** `cargo test -p nulis-core` 86 passed; desktop Vitest 11 files, 115 tests passed.
 
 | Milestone | Status | Handover |
@@ -13,8 +13,8 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 | M19 Audit and foundation (+ Windows Settings window bug) | Completed (Windows/Linux runtime check pending) | `handover/M19_HANDOVER.md` |
 | M20 Core editing keys, line operations, editor context menu | Completed (manual and Windows/Linux checks pending) | `handover/M20_HANDOVER.md` |
 | M21 Find and Replace window | Completed (manual and Windows/Linux checks pending) | `handover/M21_HANDOVER.md` |
-| M22 Replace in Files | Pending | – |
-| M23 External changes and Reload (user request) | Pending | – |
+| M22 Replace in Files | Completed (manual and Windows/Linux checks pending) | `handover/M22_HANDOVER.md` |
+| M23 External changes and Reload (user request) | Completed (manual and Windows/Linux checks pending) | `handover/M23_HANDOVER.md` |
 | M24 New application icon (user request) | Pending | – |
 | M25 Format and transforms | Pending | – |
 | M26 Search and navigation | Pending | – |
@@ -95,10 +95,28 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 
 **Risks / rollback:** existing tests that use the inline find bar or Search side panel must be rewritten; large documents: lists are capped (10,000 matches / 5,000 lines) and say when truncated. Revert the M21 commit to roll back.
 
-## M22 — Replace in Files (next)
+## M22 — Replace in Files
 
 **Scope:** a Replace in Files tab with the Find in Files fields plus Replace with; a preview list of files and match counts before anything changes; explicit confirmation; open documents changed in memory (one undo step each, left dirty); closed files saved with the existing atomic save after a fingerprint check; a per-file success/failure report; size and file-count limits.
 **Acceptance:** nothing is written before confirmation; a file changed on disk after the preview is skipped and reported; read-only documents are skipped; results agree with Find in Files.
+
+**Result (completed 2026-10-20, on `main`):** all acceptance criteria covered by tests. Verification on macOS: `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings` clean; `cargo test --workspace` all passed (nulis-core 104, nulis-desktop 7); lint and typecheck clean; Vitest 11 files / 122 tests passed. Details: `handover/M22_HANDOVER.md`.
+
+## M23 — External changes and Reload
+
+**Scope**
+
+1. Core `editor.externalChanges`: for every open local document, compare the file's current fingerprint with the one recorded at open/save; report `modified` or `deleted`, with the document's dirty state. Only `stat` calls; no file content is read.
+2. Core `file.reload` (`discard` flag): re-open the file in the same document (same tab and ID): new source, empty undo history, cleared line-change markers, caret kept on the same line where possible, bookmarks past the end dropped; refused while dirty unless `discard` is set.
+3. Core `editor.keepExternalVersion`: the user keeps the editor's version; the new fingerprint becomes the expected one so the next Save overwrites the outside change instead of failing.
+4. Desktop: check when the window regains focus and every 3 seconds while focused; one prompt per change: "*name* was changed by another program" with **Reload** / **Keep Mine** (a warning when there are unsaved edits); for a deleted file **Keep Open** / **Close**. 
+5. **File ▸ Reload from Disk** (palette, File menu, editor right-click menu): asks first when there are unsaved edits.
+
+**Exclusions:** remote (SFTP) documents; three-way merge of both versions; a file-system watcher (polling `stat` on focus/interval needs no new dependency).
+
+**Acceptance:** an outside edit is reported once; Reload shows the new text in every view of the document and keeps the tab; Keep Mine stops the prompt and a later Save succeeds; a deleted file is reported; Reload with unsaved edits needs confirmation; nothing is read from disk by the check itself.
+
+**Result (completed 2026-10-20, on `main`):** all criteria covered by tests. Verification on macOS: fmt and clippy clean; `cargo test --workspace` passed (nulis-core 108, nulis-desktop 7); lint and typecheck clean; Vitest 124 passed. Details: `handover/M23_HANDOVER.md`.
 
 ## User requests queued during M21
 
@@ -120,6 +138,7 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 
 ## Next steps
 
+0. M24 New application icon is next.
 1. Run the app (`npm run dev`) and try M20 keys/context menu and the M21 window by hand on macOS.
 2. Push to CI to build Windows/Linux, and check the M19 Settings/Help window fix there.
 3. Start M22 per the scope above, then M23 and M24 (user requests).

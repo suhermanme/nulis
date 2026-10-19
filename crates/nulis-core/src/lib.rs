@@ -12,17 +12,19 @@ pub use command::{
 };
 pub use editor::{
     BookmarkDirection, ClipboardPayload, DocumentId, DocumentManager, DocumentMapChange,
-    DocumentMapSample, DocumentMapSnapshot, DocumentSummary, EditorError, FileSearchScope,
-    FindAllResult, FindDirection, FindResult, FoundLine, FoundMatch, HexCaret, HexClipboardPayload,
-    HexCursor, HexEditResult, HexViewportRequest, HexViewportRow, HexViewportSnapshot,
-    HorizontalDirection, LanguageDescriptor, LineEditResult, LineOperation, MarkdownPreviewSource,
-    RecoveryCandidate, RectangularSelection, ReplaceAllResult, SearchMode, SearchOptions,
-    Selection, SyntaxBracketPair, SyntaxFold, SyntaxHighlight, SyntaxSnapshot, SyntaxSymbol,
-    TextEncoding, TextTransform, VerticalDirection, ViewportAtRequest, ViewportCursor,
-    ViewportLine, ViewportLineRequest, ViewportRequest, ViewportSnapshot, WorkspaceSearchMatch,
-    WorkspaceSearchResult, MAX_BOOKMARKS, MAX_CLIPBOARD_BYTES, MAX_EDIT_BYTES, MAX_FIND_ALL_LINES,
-    MAX_FIND_ALL_MATCHES, MAX_HEX_CLIPBOARD_BYTES, MAX_HEX_EDIT_BYTES, MAX_HEX_VIEWPORT_BYTES,
-    MAX_LINE_PREVIEW_BYTES, MAX_MARKDOWN_PREVIEW_BYTES, MAX_MERGE_BYTES, MAX_RECTANGULAR_ROWS,
+    DocumentMapSample, DocumentMapSnapshot, DocumentSummary, EditorError, ExternalChange,
+    ExternalChangeKind, FileSearchScope, FileStamp, FindAllResult, FindDirection, FindResult,
+    FoundLine, FoundMatch, HexCaret, HexClipboardPayload, HexCursor, HexEditResult,
+    HexViewportRequest, HexViewportRow, HexViewportSnapshot, HorizontalDirection,
+    LanguageDescriptor, LineEditResult, LineOperation, MarkdownPreviewSource, RecoveryCandidate,
+    RectangularSelection, ReplaceAllResult, ReplaceFileOutcome, ReplacePreview, ReplacePreviewFile,
+    ReplaceTarget, SearchMode, SearchOptions, Selection, SyntaxBracketPair, SyntaxFold,
+    SyntaxHighlight, SyntaxSnapshot, SyntaxSymbol, TextEncoding, TextTransform, VerticalDirection,
+    ViewportAtRequest, ViewportCursor, ViewportLine, ViewportLineRequest, ViewportRequest,
+    ViewportSnapshot, WorkspaceSearchMatch, WorkspaceSearchResult, MAX_BOOKMARKS,
+    MAX_CLIPBOARD_BYTES, MAX_EDIT_BYTES, MAX_FIND_ALL_LINES, MAX_FIND_ALL_MATCHES,
+    MAX_HEX_CLIPBOARD_BYTES, MAX_HEX_EDIT_BYTES, MAX_HEX_VIEWPORT_BYTES, MAX_LINE_PREVIEW_BYTES,
+    MAX_MARKDOWN_PREVIEW_BYTES, MAX_MERGE_BYTES, MAX_RECTANGULAR_ROWS, MAX_REPLACE_FILES,
     MAX_SELECTIONS, MAX_VIEWPORT_BYTES, MAX_WORKSPACE_SEARCH_FILES, MAX_WORKSPACE_SEARCH_RESULTS,
 };
 pub use format_tools::ToolKind;
@@ -73,7 +75,7 @@ use nulis_automation::{
     CURRENT_REVISION_ARGUMENT,
 };
 
-pub const IPC_PROTOCOL_VERSION: u32 = 28;
+pub const IPC_PROTOCOL_VERSION: u32 = 30;
 pub const PRODUCT_NAME: &str = "Nulis";
 pub const APPLICATION_ID: &str = "com.nulis.editor";
 const MAX_SCRIPT_MESSAGES: usize = 100;
@@ -1701,6 +1703,35 @@ fn default_find_all_limit() -> usize {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PreviewReplaceInFilesArguments {
+    root: String,
+    query: String,
+    #[serde(default)]
+    options: SearchOptions,
+    #[serde(default)]
+    scope: editor::FileSearchScope,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ReplaceInFilesArguments {
+    files: Vec<ReplaceTarget>,
+    query: String,
+    replacement: String,
+    #[serde(default)]
+    options: SearchOptions,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ReloadArguments {
+    /// Reload even though the document has unsaved edits.
+    #[serde(default)]
+    discard: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct AddBookmarksArguments {
     /// Decimal byte offsets.
     offsets: Vec<String>,
@@ -2540,6 +2571,8 @@ fn register_editor_commands(commands: &mut CommandRegistry, documents: &Arc<Docu
 
     register_line_commands(commands, documents);
     register_find_all_commands(commands, documents);
+    register_replace_in_files_commands(commands, documents);
+    register_external_change_commands(commands, documents);
 
     let manager = Arc::clone(documents);
     commands
@@ -2823,6 +2856,116 @@ fn register_search_commands(commands: &mut CommandRegistry, documents: &Arc<Docu
                         arguments.options,
                         &arguments.scope,
                         arguments.max_results,
+                    )
+                    .map_err(|error| editor_command_error(&error))?;
+                serde_json::to_value(result).map_err(|error| serialization_command_error(&error))
+            },
+        )
+        .expect("built-in command is unique");
+}
+
+fn register_external_change_commands(
+    commands: &mut CommandRegistry,
+    documents: &Arc<DocumentManager>,
+) {
+    let manager = Arc::clone(documents);
+    commands
+        .register(
+            CommandDescriptor::new(
+                "editor.externalChanges",
+                "Check for Outside Changes",
+                "File",
+            )
+            .expect("built-in command ID is valid"),
+            move |_context, _arguments| {
+                let result = manager
+                    .external_changes()
+                    .map_err(|error| editor_command_error(&error))?;
+                serde_json::to_value(result).map_err(|error| serialization_command_error(&error))
+            },
+        )
+        .expect("built-in command is unique");
+
+    let manager = Arc::clone(documents);
+    commands
+        .register(
+            CommandDescriptor::new("file.reload", "Reload from Disk", "File")
+                .expect("built-in command ID is valid"),
+            move |context, arguments| {
+                let document_id = context_document(&context)?;
+                let arguments: ReloadArguments = if arguments.is_null() {
+                    ReloadArguments::default()
+                } else {
+                    parse_arguments(arguments)?
+                };
+                let result = manager
+                    .reload(&document_id, arguments.discard)
+                    .map_err(|error| editor_command_error(&error))?;
+                serde_json::to_value(result).map_err(|error| serialization_command_error(&error))
+            },
+        )
+        .expect("built-in command is unique");
+
+    let manager = Arc::clone(documents);
+    commands
+        .register(
+            CommandDescriptor::new(
+                "editor.keepExternalVersion",
+                "Keep the Editor's Version",
+                "File",
+            )
+            .expect("built-in command ID is valid"),
+            move |context, _arguments| {
+                let result = manager
+                    .keep_external_version(&context_document(&context)?)
+                    .map_err(|error| editor_command_error(&error))?;
+                serde_json::to_value(result).map_err(|error| serialization_command_error(&error))
+            },
+        )
+        .expect("built-in command is unique");
+}
+
+fn register_replace_in_files_commands(
+    commands: &mut CommandRegistry,
+    documents: &Arc<DocumentManager>,
+) {
+    let manager = Arc::clone(documents);
+    commands
+        .register(
+            CommandDescriptor::new(
+                "search.previewReplaceInFiles",
+                "Preview Replace in Files",
+                "Search",
+            )
+            .expect("built-in command ID is valid"),
+            move |_context, arguments| {
+                let arguments: PreviewReplaceInFilesArguments = parse_arguments(arguments)?;
+                let result = manager
+                    .preview_replace_in_files(
+                        std::path::Path::new(&arguments.root),
+                        &arguments.query,
+                        arguments.options,
+                        &arguments.scope,
+                    )
+                    .map_err(|error| editor_command_error(&error))?;
+                serde_json::to_value(result).map_err(|error| serialization_command_error(&error))
+            },
+        )
+        .expect("built-in command is unique");
+
+    let manager = Arc::clone(documents);
+    commands
+        .register(
+            CommandDescriptor::new("search.replaceInFiles", "Replace in Files", "Search")
+                .expect("built-in command ID is valid"),
+            move |_context, arguments| {
+                let arguments: ReplaceInFilesArguments = parse_arguments(arguments)?;
+                let result = manager
+                    .replace_in_files(
+                        &arguments.files,
+                        &arguments.query,
+                        &arguments.replacement,
+                        arguments.options,
                     )
                     .map_err(|error| editor_command_error(&error))?;
                 serde_json::to_value(result).map_err(|error| serialization_command_error(&error))

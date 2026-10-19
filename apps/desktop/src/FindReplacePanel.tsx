@@ -6,6 +6,8 @@ import type {
   FileSearchScope,
   FindAllResult,
   ReplaceAllResult,
+  ReplaceFileOutcome,
+  ReplacePreview,
   SearchOptions,
   SearchRequest,
   WorkspaceSearchResult,
@@ -14,7 +16,7 @@ import { executeCommand } from "./ipc";
 import { IconButton } from "./icons";
 import { ContextMenu } from "./Toolbar";
 
-export type FindTab = "find" | "findInFiles" | "replace";
+export type FindTab = "find" | "findInFiles" | "replace" | "replaceInFiles";
 type DocumentScope = "document" | "selection" | "openFiles";
 type FileScope = "folder" | "openFiles";
 
@@ -94,6 +96,7 @@ const TABS: Array<{ id: FindTab; label: string }> = [
   { id: "find", label: "Find" },
   { id: "findInFiles", label: "Find in Files" },
   { id: "replace", label: "Replace" },
+  { id: "replaceInFiles", label: "Replace in Files" },
 ];
 
 function readHistory(kind: keyof typeof HISTORY_KEYS): string[] {
@@ -241,6 +244,10 @@ export function FindReplacePanel(props: FindReplacePanelProps) {
   const [closeAfter, setCloseAfter] = useState(false);
   const [summary, setSummary] = useState("");
   const [busy, setBusy] = useState(false);
+  // Replace in Files: the preview, what it was made for, and whether it awaits confirmation.
+  const [preview, setPreview] = useState<{ key: string; result: ReplacePreview } | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [failures, setFailures] = useState<ReplaceFileOutcome[]>([]);
   // Matches in "selected text" or "all open files", stepped through by Next and Previous.
   const stepping = useRef<{ key: string; targets: MatchTarget[]; index: number } | null>(null);
 
@@ -378,6 +385,13 @@ export function FindReplacePanel(props: FindReplacePanelProps) {
       if (!selection || selection.startByte === selection.endByte) throw new Error("Select the text to replace in first");
       onEditorSearch(editorRequest("replaceAll", selection));
     } else {
+      await replaceAllOpenFiles();
+    }
+    if (closeAfter) onClose();
+  });
+
+  const replaceAllOpenFiles = async () => {
+    {
       let total = 0;
       let changed = 0;
       const skipped: string[] = [];
@@ -395,6 +409,59 @@ export function FindReplacePanel(props: FindReplacePanelProps) {
       setSummary(message);
       onStatus(message);
     }
+  };
+
+  const fileScopeArgument = (): FileSearchScope => ({
+    include: include.split(/[;,]/).map((pattern) => pattern.trim()).filter(Boolean),
+    recursive,
+  });
+  // A preview is valid only for the exact search it was made for.
+  const previewKey = JSON.stringify([query, replacement, options, folder, include, recursive]);
+  const previewIsCurrent = preview?.key === previewKey;
+  const previewMatches = preview ? preview.result.files.reduce((total, file) => total + file.matches, 0) : 0;
+
+  const previewReplaceInFiles = () => run(async () => {
+    rememberQuery();
+    rememberReplacement();
+    if (!folder) throw new Error("Choose a folder to replace in");
+    setConfirming(false);
+    setFailures([]);
+    onStatus("Looking for files to change…");
+    const result = await executeCommand<ReplacePreview>({
+      id: "search.previewReplaceInFiles", context: { windowId: "main" },
+      arguments: { root: folder, query, options, scope: fileScopeArgument() },
+    });
+    setPreview({ key: previewKey, result });
+    const matches = result.files.reduce((total, file) => total + file.matches, 0);
+    const message = result.files.length === 0
+      ? `No matches in ${result.filesScanned} files`
+      : `${matches} match${matches === 1 ? "" : "es"} in ${result.files.length} file${result.files.length === 1 ? "" : "s"}${
+        result.truncated ? " (limit reached: only these files would change)" : ""}`;
+    setSummary(message);
+    onStatus(message);
+  });
+
+  const replaceInFiles = () => run(async () => {
+    if (fileScope === "openFiles") { await replaceAllOpenFiles(); return; }
+    if (!preview || !previewIsCurrent) throw new Error("Preview the files first");
+    setConfirming(false);
+    const outcomes = await executeCommand<ReplaceFileOutcome[]>({
+      id: "search.replaceInFiles", context: { windowId: "main" },
+      arguments: {
+        files: preview.result.files.map((file) => ({ path: file.path, stamp: file.stamp })),
+        query, replacement, options,
+      },
+    });
+    for (const outcome of outcomes) if (outcome.document) onDocumentChange(outcome.document);
+    const failed = outcomes.filter((outcome) => outcome.error);
+    const changed = outcomes.filter((outcome) => !outcome.error && outcome.replacements > 0);
+    const total = changed.reduce((sum, outcome) => sum + outcome.replacements, 0);
+    const message = `Replaced ${total} match${total === 1 ? "" : "es"} in ${changed.length} file${changed.length === 1 ? "" : "s"}${
+      failed.length ? `; ${failed.length} file${failed.length === 1 ? "" : "s"} not changed` : ""}`;
+    setFailures(failed);
+    setPreview(null);
+    setSummary(message);
+    onStatus(message);
     if (closeAfter) onClose();
   });
 
@@ -409,10 +476,7 @@ export function FindReplacePanel(props: FindReplacePanelProps) {
       return;
     }
     if (!folder) throw new Error("Choose a folder to search in");
-    const scope: FileSearchScope = {
-      include: include.split(/[;,]/).map((pattern) => pattern.trim()).filter(Boolean),
-      recursive,
-    };
+    const scope = fileScopeArgument();
     onStatus("Searching files…");
     const result = await executeCommand<WorkspaceSearchResult>({
       id: "search.findInFiles", context: { windowId: "main" },
@@ -466,15 +530,17 @@ export function FindReplacePanel(props: FindReplacePanelProps) {
       <HistoryField label="Find what:" value={query} onChange={setQuery} history={findHistory} autoFocus
         onEnter={(shift) => {
           if (tab === "findInFiles") void findInFiles();
+          else if (tab === "replaceInFiles") void previewReplaceInFiles();
           else void step(shift ? "previous" : "next");
         }} />
-      {tab === "replace" ? <HistoryField label="Replace with:" value={replacement} onChange={setReplacement}
-        history={replaceHistory} onEnter={() => void replaceOne()} /> : null}
+      {tab === "replace" || tab === "replaceInFiles" ? <HistoryField label="Replace with:" value={replacement}
+        onChange={setReplacement} history={replaceHistory}
+        onEnter={() => void (tab === "replace" ? replaceOne() : previewReplaceInFiles())} /> : null}
 
-      {tab === "findInFiles" ? <>
+      {tab === "findInFiles" || tab === "replaceInFiles" ? <>
         <label className="find-where">
-          <span className="find-label">Find where:</span>
-          <select aria-label="Find where" value={fileScope} onChange={(event) => setFileScope(event.currentTarget.value as FileScope)}>
+          <span className="find-label">{tab === "findInFiles" ? "Find where:" : "Replace where:"}</span>
+          <select aria-label={tab === "findInFiles" ? "Find where" : "Replace where"} value={fileScope} onChange={(event) => setFileScope(event.currentTarget.value as FileScope)}>
             <option value="folder">Files in a folder</option>
             <option value="openFiles">All open files</option>
           </select>
@@ -495,12 +561,40 @@ export function FindReplacePanel(props: FindReplacePanelProps) {
           <Check label="Include subdirectories" checked={recursive} onChange={setRecursive} />
         </> : null}
         {optionsToggle("Find options")}
-        {optionsOpen ? <div className="find-options">{optionChecks}</div> : null}
+        {optionsOpen ? <div className="find-options">
+          {optionChecks}
+          {tab === "replaceInFiles" ? <Check label="Close after replace all" checked={closeAfter} onChange={setCloseAfter} /> : null}
+        </div> : null}
         <p className="find-summary" role="status">{summary}</p>
-        <div className="find-actions">
+        {tab === "replaceInFiles" && fileScope === "folder" && preview ? <ul className="replace-preview" aria-label="Files to change">
+          {preview.result.files.map((file) => <li key={file.path} title={file.path}>
+            <span className="result-source">{fileName(file.path)}</span>
+            <span>{file.matches} match{file.matches === 1 ? "" : "es"}</span>
+            {file.open ? <span className="replace-open">open: changed in the editor, not saved</span> : null}
+          </li>)}
+        </ul> : null}
+        {failures.length ? <ul className="replace-failures" aria-label="Files not changed">
+          {failures.map((failure) => <li key={failure.path} title={failure.path}>
+            <span className="result-source">{fileName(failure.path)}</span><span>{failure.error}</span>
+          </li>)}
+        </ul> : null}
+        {tab === "findInFiles" ? <div className="find-actions">
           <span />
           <button type="button" className="primary" disabled={busy} onClick={() => void findInFiles()}>Find</button>
-        </div>
+        </div> : fileScope === "openFiles" ? <div className="find-actions">
+          <span />
+          <button type="button" className="primary" disabled={busy} onClick={() => void replaceInFiles()}>Replace All</button>
+        </div> : confirming && previewIsCurrent ? <div className="find-actions find-confirm" role="group" aria-label="Confirm Replace in Files">
+          <span>Replace {previewMatches} match{previewMatches === 1 ? "" : "es"} in {preview?.result.files.length} files?
+            Closed files are saved right away.</span>
+          <button type="button" onClick={() => setConfirming(false)}>Cancel</button>
+          <button type="button" className="primary" disabled={busy} onClick={() => void replaceInFiles()}>Replace</button>
+        </div> : <div className="find-actions">
+          <span />
+          <button type="button" disabled={busy} onClick={() => void previewReplaceInFiles()}>Preview</button>
+          <button type="button" className="primary" disabled={busy || !previewIsCurrent || previewMatches === 0}
+            title={previewIsCurrent ? undefined : "Preview the files first"} onClick={() => setConfirming(true)}>Replace All</button>
+        </div>}
       </> : <>
         {scopeSelect(tab === "replace" ? "Replace where:" : "Find where:")}
         {optionsToggle("Options")}

@@ -18,6 +18,7 @@ import type {
   PluginRunOutcome,
   RecoveryCandidate,
   SearchRequest,
+  ExternalChange,
   ThemeRecord,
   ToolKind,
   ValidationReport,
@@ -96,6 +97,7 @@ const NAV_ITEMS = ["Files", "Symbols", "Remote"] as const;
 const EXPLORER_ENTRY_LIMIT = 500;
 const MAX_LOADED_WORKSPACE_DIRECTORIES = 256;
 const NATIVE_MENU_EVENT = "nulis://menu-command";
+const EXTERNAL_CHECK_INTERVAL_MS = 3000;
 /** Files sent by the system while Nulis runs: Finder Open With, the Dock, a second launch. */
 const OPEN_PATHS_EVENT = "nulis://open-paths";
 const CUSTOMIZATION_CHANGED_EVENT = "nulis://customization-changed";
@@ -269,6 +271,13 @@ export function App() {
   const [themes, setThemes] = useState<ThemeRecord[]>(BUILT_IN_THEMES);
   const [customization, setCustomization] = useState<CustomizationDocument>(defaultCustomization);
   const [macroRefreshVersion, setMacroRefreshVersion] = useState(0);
+  // Bumped when a document is reloaded from disk, so its views read it afresh.
+  const [documentEpochs, setDocumentEpochs] = useState<Record<string, number>>({});
+  const [externalPrompt, setExternalPrompt] = useState<{
+    kind: "modified" | "deleted" | "confirmReload"; document: DocumentSummary;
+  } | null>(null);
+  // Outside changes already asked about, as `documentId:kind`, so each is asked once.
+  const promptedChanges = useRef(new Set<string>());
   const [paletteQuery, setPaletteQuery] = useState("");
   const [paletteIndex, setPaletteIndex] = useState(0);
   const [sessionReady, setSessionReady] = useState(false);
@@ -735,6 +744,19 @@ export function App() {
   findContextRef.current = findContext;
   const documentsRef = useRef(documents);
   documentsRef.current = documents;
+  const externalPromptRef = useRef(externalPrompt);
+  externalPromptRef.current = externalPrompt;
+  const checkExternalRef = useRef<() => Promise<void>>(async () => undefined);
+  // Other programs may change open files: check when the window comes back
+  // to the front and every few seconds while it is in front.
+  useEffect(() => {
+    if (!desktopShell || !sessionReady) return;
+    const check = () => { void checkExternalRef.current(); };
+    const timer = window.setInterval(() => { if (document.hasFocus()) check(); }, EXTERNAL_CHECK_INTERVAL_MS);
+    window.addEventListener("focus", check);
+    check();
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", check); };
+  }, [desktopShell, sessionReady]);
   useEffect(() => {
     if (desktopShell) void emitTo("find", FIND_EVENTS.context, findContextRef.current).catch(() => undefined);
   }, [desktopShell, findContextKey]);
@@ -1406,6 +1428,7 @@ export function App() {
         toggleViewMode(activeDocument.documentId);
         return;
       }
+      if (command.id === "file.reload") return void requestReload(activeDocument);
       if (command.id === "editor.toggleReadOnly") {
         if (!activeDocument) { setStatus("No active document"); return; }
         return void await toggleReadOnly(activeDocument.documentId);
@@ -1441,6 +1464,7 @@ export function App() {
       return;
     }
     if (commandId === "workbench.openPlugins") { if (sessionReady) setPluginOpen(true); return; }
+    if (commandId === "file.reload") { requestReload(activeDocument); return; }
     const command = commands.find(({ id }) => id === commandId)
       ?? (workbenchActions[commandId] || commandId.startsWith("tools.")
         ? { id: commandId, title: commandId, category: "View" } : undefined);
@@ -1489,6 +1513,73 @@ export function App() {
     "--sidebar-width": `${sidebarWidth}px`,
     ...preferenceCssVariables(preferences, themes),
   } as CSSProperties;
+
+  const forgetPrompts = (documentId: string) => {
+    for (const key of [...promptedChanges.current]) if (key.startsWith(`${documentId}:`)) promptedChanges.current.delete(key);
+  };
+
+  /** Replaces a document's text with its file as it is now. */
+  const reloadDocument = async (documentId: string, discard: boolean) => {
+    try {
+      const reloaded = await executeCommand<DocumentSummary>({
+        id: "file.reload", context: { windowId: "main", documentId }, arguments: { discard },
+      });
+      if (reloaded) upsertDocument(reloaded);
+      forgetPrompts(documentId);
+      setDocumentEpochs((current) => ({ ...current, [documentId]: (current[documentId] ?? 0) + 1 }));
+      setStatus(`Reloaded ${reloaded?.name ?? "the file"} from disk`);
+    } catch (error: unknown) {
+      setStatus(errorMessage(error, "Could not reload the file"));
+    }
+  };
+
+  /** File ▸ Reload from Disk: asks first when unsaved edits would be lost. */
+  const requestReload = (document: DocumentSummary | null | undefined) => {
+    if (!document?.sourcePath || document.remoteUri) { setStatus("Only a file on this computer can be reloaded"); return; }
+    if (document.dirty) setExternalPrompt({ kind: "confirmReload", document });
+    else void reloadDocument(document.documentId, false);
+  };
+
+  const keepEditorVersion = async (documentId: string) => {
+    try {
+      const kept = await executeCommand<DocumentSummary>({
+        id: "editor.keepExternalVersion", context: { windowId: "main", documentId }, arguments: {},
+      });
+      if (kept) upsertDocument(kept);
+      setStatus("Kept the version in the editor; saving will replace the file");
+    } catch (error: unknown) {
+      setStatus(errorMessage(error, "Could not keep the editor's version"));
+    }
+  };
+
+  const decideExternal = async (choice: "reload" | "keep" | "close" | "cancel") => {
+    const prompt = externalPrompt;
+    setExternalPrompt(null);
+    if (!prompt || choice === "cancel") return;
+    const { documentId } = prompt.document;
+    if (choice === "reload") await reloadDocument(documentId, true);
+    else if (choice === "keep") await keepEditorVersion(documentId);
+    else closeDocument(documentId);
+  };
+
+  /** Asks the core which open files were changed by other programs. */
+  const checkExternalChanges = async () => {
+    if (externalPromptRef.current || !sessionReady) return;
+    try {
+      const changes = await executeCommand<ExternalChange[]>({
+        id: "editor.externalChanges", context: { windowId: "main" }, arguments: {},
+      });
+      if (!Array.isArray(changes)) return;
+      const next = changes.find((change) => !promptedChanges.current.has(`${change.documentId}:${change.kind}`));
+      const document = next && documentsRef.current.find((item) => item.documentId === next.documentId);
+      if (!next || !document) return;
+      promptedChanges.current.add(`${next.documentId}:${next.kind}`);
+      setExternalPrompt({ kind: next.kind, document: { ...document, dirty: next.dirty } });
+    } catch {
+      // A failed check is retried on the next focus or tick.
+    }
+  };
+  checkExternalRef.current = checkExternalChanges;
 
   /** Opens the Find and Replace panel on a tab, optionally with text to find. */
   const openFindPanel = (tab: FindTab, seed?: string) => {
@@ -1626,7 +1717,13 @@ export function App() {
     disabled: needsDocument(entry.command) && !activeDocument,
     onSelect: () => runById(entry.command),
   });
-  // Close File is always offered, even in a customized menu that omits it.
+  // Reload and Close File are always offered, even in a customized menu that omits them.
+  if (!customization.menu.some((entry) => entry.kind === "command" && entry.command === "file.reload")) {
+    fileMenu.push({ kind: "separator" }, {
+      label: "Reload from Disk", disabled: !activeDocument?.sourcePath || Boolean(activeDocument.remoteUri),
+      onSelect: () => runById("file.reload"),
+    });
+  }
   if (!customization.menu.some((entry) => entry.kind === "command" && entry.command === "workbench.closeFile")) {
     fileMenu.push({ kind: "separator" }, {
       label: "Close File", shortcut: shortcutFor("workbench.closeFile"), disabled: !activeDocument,
@@ -1689,9 +1786,9 @@ export function App() {
   const renderView = (document: DocumentSummary, pane: PaneNode, active: boolean, ordinal: number, total: number) => {
     const viewId = total > 1 ? `pane ${ordinal}` : "primary";
     return viewModes[document.documentId] === "hex"
-      ? <HexViewport key={`${pane.id}-${macroRefreshVersion}`} document={document} onDocumentChange={upsertDocument}
+      ? <HexViewport key={`${pane.id}-${macroRefreshVersion}-${documentEpochs[document.documentId] ?? 0}`} document={document} onDocumentChange={upsertDocument}
           onStatus={setStatus} viewId={pane.id} />
-      : <EditorViewport key={`${pane.id}-${macroRefreshVersion}`} document={document} onDocumentChange={upsertDocument}
+      : <EditorViewport key={`${pane.id}-${macroRefreshVersion}-${documentEpochs[document.documentId] ?? 0}`} document={document} onDocumentChange={upsertDocument}
           onStatus={setStatus} viewId={viewId} autoFocus={active}
           lineHeight={preferences.fontSize * preferences.lineHeight} languages={languages}
           showLineChanges={lineChangeOverrides[document.documentId] ?? lineChangeDefault}
@@ -1702,6 +1799,7 @@ export function App() {
           onToggleReadOnly={() => void toggleReadOnly(document.documentId)}
           onToggleHexMode={() => toggleViewMode(document.documentId)}
           onCopyPath={() => copyPath(document)}
+          onReload={document.sourcePath && !document.remoteUri ? () => requestReload(document) : undefined}
           onOpenFind={active ? openFindPanel : undefined}
           searchRequest={active ? searchRequest : undefined}
           revealOffset={active && revealTarget?.documentId === document.documentId ? revealTarget.byteOffset : undefined} />;
@@ -1959,6 +2057,40 @@ export function App() {
             <button type="button" disabled={busyDecision} onClick={() => void decideClose("discard")}>Discard</button>
             <button className="primary" type="button" disabled={busyDecision} onClick={() => void decideClose("save")}>Save</button>
           </div>
+        </section>
+      </div> : null}
+      {externalPrompt && !pendingCloseDocument ? <div className="decision-backdrop">
+        <section className="decision-dialog" role="dialog" aria-modal="true" aria-labelledby="external-title"
+          aria-describedby="external-detail"
+          onKeyDown={(event) => {
+            keepFocusInDialog(event);
+            if (event.key === "Escape") void decideExternal(externalPrompt.kind === "confirmReload" ? "cancel" : "keep");
+          }}>
+          {externalPrompt.kind === "deleted" ? <>
+            <h2 id="external-title">{externalPrompt.document.name} was deleted or moved</h2>
+            <p id="external-detail">Another program removed the file. Keep it open to save it again, or close it.</p>
+            <div className="decision-actions">
+              <button type="button" onClick={() => void decideExternal("close")}>Close</button>
+              <button autoFocus className="primary" type="button" onClick={() => void decideExternal("keep")}>Keep Open</button>
+            </div>
+          </> : externalPrompt.kind === "modified" ? <>
+            <h2 id="external-title">{externalPrompt.document.name} was changed by another program</h2>
+            <p id="external-detail">{externalPrompt.document.dirty
+              ? "Reloading shows the new version and discards your unsaved edits. Keeping yours means saving will replace the other program's changes."
+              : "Reload to show the new version, or keep the version in the editor."}</p>
+            <div className="decision-actions">
+              <button type="button" onClick={() => void decideExternal("keep")}>Keep Mine</button>
+              <button autoFocus className="primary" type="button" onClick={() => void decideExternal("reload")}>
+                {externalPrompt.document.dirty ? "Discard Edits and Reload" : "Reload"}</button>
+            </div>
+          </> : <>
+            <h2 id="external-title">Reload {externalPrompt.document.name} from disk?</h2>
+            <p id="external-detail">Your unsaved edits will be lost.</p>
+            <div className="decision-actions">
+              <button autoFocus type="button" onClick={() => void decideExternal("cancel")}>Cancel</button>
+              <button className="primary" type="button" onClick={() => void decideExternal("reload")}>Discard Edits and Reload</button>
+            </div>
+          </>}
         </section>
       </div> : null}
       {recoveryCandidates.length > 0 && !pendingCloseDocument ? <div className="decision-backdrop">

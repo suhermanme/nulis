@@ -1468,9 +1468,10 @@ test("the right-click menu runs editor actions and app actions", async () => {
   respondLikeCore();
   const onToggleHexMode = vi.fn();
   const onCopyPath = vi.fn();
+  const onReload = vi.fn();
   render(<EditorViewport document={{ documentId: "document-1", name: "Untitled", byteLen: "7", revision: "0", encoding: "utf8" }}
     onDocumentChange={() => undefined} onStatus={() => undefined}
-    onToggleHexMode={onToggleHexMode} onCopyPath={onCopyPath} />);
+    onToggleHexMode={onToggleHexMode} onCopyPath={onCopyPath} onReload={onReload} />);
   const editor = await screen.findByRole("textbox", { name: "Untitled editor" });
 
   fireEvent.contextMenu(editor, { clientX: 20, clientY: 30 });
@@ -1496,6 +1497,9 @@ test("the right-click menu runs editor actions and app actions", async () => {
   fireEvent.contextMenu(editor);
   fireEvent.click(screen.getByRole("menuitem", { name: /^Copy File Path/ }));
   expect(onCopyPath).toHaveBeenCalledOnce();
+  fireEvent.contextMenu(editor);
+  fireEvent.click(screen.getByRole("menuitem", { name: /^Reload from Disk/ }));
+  expect(onReload).toHaveBeenCalledOnce();
 });
 
 test("read-only documents disable editing items and refuse line edits", async () => {

@@ -78,6 +78,15 @@ If you close a file, a tab, or the window while something is unsaved, Nulis asks
 
 Nulis never overwrites a file in place. It writes the new content to a temporary file in the same folder, flushes it to disk, checks its length, checks that the original was not changed by another program in the meantime, and only then replaces the original in one step. If anything fails, the original file is untouched.
 
+### Files changed by other programs
+
+Nulis notices when another program changes or removes a file you have open. It checks when its window comes back to the front and every few seconds while it is in front, without reading the file's content.
+
+- **Changed:** choose **Reload** to show the new version, or **Keep Mine** to keep the text in the editor. With unsaved edits, the button reads **Discard Edits and Reload**; keeping yours means the next Save replaces the other program's changes.
+- **Deleted or moved:** **Keep Open** keeps the text so you can save it again; **Close** closes it.
+
+Each change is asked about once. To reload at any time, choose **File ▸ Reload from Disk**, right-click the text and choose **Reload from Disk**, or use the command palette. If the document has unsaved edits, Nulis asks before discarding them. Reloading keeps the tab and caret position; undo history and line change markers start over. Remote (SFTP) documents are not checked.
+
 ### Sessions and recovery
 
 Nulis runs as a single copy. Starting it again while it is open brings the existing window to the front instead of opening a second one, so two copies never compete over the same session and recovery data.
@@ -240,7 +249,7 @@ Turn the indicators on or off for one document with the button in the editor too
 
 Press **Ctrl/⌘ F** (Find) or **Ctrl/⌘ H** (Replace), click the magnifier in the editor toolbar, or right-click the text and choose **Find…** or **Replace…**. It opens as its own window, like Settings, so you can place it anywhere, including on another display. It is not modal, so you can keep editing while it is open. Selected text (up to 1,000 characters) is put into **Find what**. Escape or the close button closes it.
 
-The window has three tabs: **Find**, **Find in Files**, and **Replace**.
+The window has four tabs: **Find**, **Find in Files**, **Replace**, and **Replace in Files**.
 
 - **Find what** and **Replace with** accept several lines. Enter runs the main action (Shift Enter finds the previous match); Ctrl/⌘ Enter adds a line break. The clock button next to each field lists your last 20 entries.
 - **Find where** / **Replace where**: **Current document**, **Selected text** (the selection at the moment you press the button), or **All open files**.
@@ -257,6 +266,18 @@ With **List lines containing find string** checked, **Count All** or **Next** al
 ### In files
 
 On the **Find in Files** tab, choose **Files in a folder** or **All open files**. For a folder, enter name patterns in **In files/types** (for example `*.rs; *.md`; empty means every file; letters match either case), choose the folder with **Browse…** (the open workspace folder is the default), and decide whether to **Include subdirectories**. Press **Find**. Results open in the list window with the file name, line number, and line; click one to open the file at that match. The search skips symbolic links and stops at fixed limits on the number of files and results, and says so when it does.
+
+### Replace in files
+
+On the **Replace in Files** tab, fill in **Find what** and **Replace with**, then choose **Files in a folder** (with the same file-type, folder, and subfolder fields as Find in Files) or **All open files**.
+
+For a folder, nothing changes until you confirm:
+
+1. Press **Preview**. The window lists every file that would change and how many matches it has. Files that are open in Nulis are marked; their text is changed in the editor and left unsaved, so you can review it and undo it.
+2. Press **Replace All**, then **Replace** to confirm. Closed files are saved right away, with the same safe save as **Save**.
+3. The result says how many matches were replaced and lists any file that was not changed and why: for example, a file that another program changed after the preview, or a document in Read-Only mode.
+
+Changing the text, the replacement, the options, or the folder after a preview makes it out of date; preview again before replacing. One Replace in Files changes at most 1,000 files.
 
 ### Go to a line
 

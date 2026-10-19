@@ -303,6 +303,8 @@ interface EditorViewportProps {
   onCopyPath?(): void;
   /** Opens the Find and Replace panel on a tab, seeded with selected text. */
   onOpenFind?(tab: "find" | "replace", seed?: string): void;
+  /** Reloads the document from its file. */
+  onReload?(): void;
 }
 
 export function EditorViewport({
@@ -327,6 +329,7 @@ export function EditorViewport({
   onToggleHexMode,
   onCopyPath,
   onOpenFind,
+  onReload,
 }: EditorViewportProps) {
   const rowHeight = Math.max(12, Math.min(100, lineHeight));
   // Several panes can show views at once, so element IDs are per view.
@@ -1313,6 +1316,7 @@ export function EditorViewport({
     ...(onToggleHexMode || onCopyPath ? [{ kind: "separator" } as const] : []),
     ...(onToggleHexMode ? [{ label: "Hex Mode", onSelect: onToggleHexMode }] : []),
     ...(onCopyPath ? [{ label: "Copy File Path", onSelect: onCopyPath }] : []),
+    ...(onReload ? [{ label: "Reload from Disk", onSelect: onReload }] : []),
   ];
 
   /** Caret, selection, and line keys; true when the key was handled. */

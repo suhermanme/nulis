@@ -27,13 +27,20 @@ use std::{
 use thiserror::Error;
 use unicode_segmentation::UnicodeSegmentation;
 
+mod external_changes;
 mod find_all;
+pub use external_changes::{ExternalChange, ExternalChangeKind};
 mod line_ops;
+mod replace_in_files;
 pub use find_all::{
     FindAllResult, FoundLine, FoundMatch, MAX_FIND_ALL_LINES, MAX_FIND_ALL_MATCHES,
     MAX_LINE_PREVIEW_BYTES,
 };
 pub use line_ops::{LineEditResult, LineOperation};
+pub use replace_in_files::{
+    FileStamp, ReplaceFileOutcome, ReplacePreview, ReplacePreviewFile, ReplaceTarget,
+    MAX_REPLACE_FILES,
+};
 
 pub const MAX_VIEWPORT_BYTES: u64 = 256 * 1024;
 pub const MAX_DOCUMENT_MAP_SAMPLES: usize = 1024;
@@ -917,38 +924,16 @@ impl DocumentManager {
     /// # Errors
     /// Returns an error if the source or persistent session storage cannot be opened.
     pub fn open_file(&self, path: &Path) -> Result<DocumentSummary, EditorError> {
-        let fingerprint_before = fingerprint(path).map_err(|error| EditorError::io(&error))?;
-        let source = FileSource::open(path).map_err(|error| EditorError::io(&error))?;
-        let source_fingerprint = fingerprint(path).map_err(|error| EditorError::io(&error))?;
-        if fingerprint_before != source_fingerprint || source_fingerprint.is_none() {
-            return Err(EditorError::SourceChangedWhileOpening);
-        }
-        fs::create_dir_all(&self.session_root).map_err(|error| EditorError::io(&error))?;
-        let temporary = tempfile::Builder::new()
-            .prefix("document-")
-            .suffix(".add")
-            .tempfile_in(&self.session_root)
-            .map_err(|error| EditorError::io(&error))?;
-        let (temporary_file, additions_path) = temporary
-            .keep()
-            .map_err(|error| EditorError::io(&error.error))?;
-        drop(temporary_file);
-        let additions = match DiskAppendStore::open(&additions_path) {
-            Ok(additions) => additions,
-            Err(error) => {
-                let _ = fs::remove_file(&additions_path);
-                return Err(EditorError::io(&error));
-            }
-        };
+        let external_changes::OpenedSource {
+            document,
+            fingerprint: source_fingerprint,
+            additions_path,
+        } = self.open_source(path)?;
         let number = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
         let id = DocumentId(format!("document-{number}"));
         let name = path.file_name().map_or_else(
             || path.display().to_string(),
             |name| name.to_string_lossy().into_owned(),
-        );
-        let document = Document::new(
-            PieceTable::new(std::sync::Arc::new(source), Box::new(additions)),
-            DEFAULT_HISTORY_BUDGET,
         );
         let mut language_id = self.languages.detect_path(path);
         if language_id.as_str() == "plaintext" {

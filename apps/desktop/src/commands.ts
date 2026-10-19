@@ -17,7 +17,7 @@ export const WORKBENCH_ACTIONS = [
 export const TOOL_COMMANDS = ["tools.validate", "tools.beautify", "tools.minify"] as const;
 
 const FILE_COMMANDS = [
-  "app.about", "file.new", "file.open", "file.save", "file.saveAs",
+  "app.about", "file.new", "file.open", "file.save", "file.saveAs", "file.reload",
   "workspace.open", "workspace.close", "editor.undo", "editor.redo", "editor.toggleReadOnly",
 ] as const;
 

@@ -21,6 +21,7 @@ const FILE_OPEN_MENU_ID: &str = "file.open";
 const FILE_SAVE_MENU_ID: &str = "file.save";
 const FILE_SAVE_AS_MENU_ID: &str = "file.saveAs";
 const CLOSE_FILE_MENU_ID: &str = "workbench.closeFile";
+const RELOAD_MENU_ID: &str = "file.reload";
 const CLOSE_WINDOW_MENU_ID: &str = "window.close";
 const QUIT_MENU_ID: &str = "app.quit";
 const MAX_NATIVE_MENU_ENTRIES: usize = 64;
@@ -29,13 +30,16 @@ const SETTINGS_WINDOW_LABEL: &str = "settings";
 const HELP_WINDOW_LABEL: &str = "help";
 const FIND_WINDOW_LABEL: &str = "find";
 const RESULTS_WINDOW_LABEL: &str = "find-results";
-/// Find and Replace searches and replaces; it cannot open, save, or show documents.
+/// Find and Replace searches and replaces (Replace in Files saves the files it
+/// changes, after a preview); it cannot open, show, or type into documents.
 const FIND_COMMANDS: &[&str] = &[
     "customization.state",
     "theme.list",
     "search.findAll",
     "search.replaceAll",
     "search.findInFiles",
+    "search.previewReplaceInFiles",
+    "search.replaceInFiles",
 ];
 /// The list of matching lines can only bookmark lines.
 const RESULTS_COMMANDS: &[&str] = &["customization.state", "theme.list", "editor.addBookmarks"];
@@ -499,7 +503,11 @@ fn install_native_menu(app: &tauri::AppHandle, entries: &[NativeMenuEntry]) -> t
     if !entries.is_empty() {
         file_builder = file_builder.separator();
     }
-    // Close File is always offered, even in a customized menu that omits it.
+    // Reload and Close File are always offered, even in a customized menu that omits them.
+    if !native_menu_has(entries, RELOAD_MENU_ID) {
+        file_builder = file_builder
+            .item(&MenuItemBuilder::with_id(RELOAD_MENU_ID, "Reload from Disk").build(app)?);
+    }
     if !native_menu_has(entries, CLOSE_FILE_MENU_ID) {
         file_builder = file_builder.item(
             &MenuItemBuilder::with_id(CLOSE_FILE_MENU_ID, "Close File")
@@ -1344,6 +1352,8 @@ mod tests {
             "search.findAll",
             "search.replaceAll",
             "search.findInFiles",
+            "search.previewReplaceInFiles",
+            "search.replaceInFiles",
             "theme.list",
         ] {
             assert!(authorize_window_command("find", id).is_ok(), "{id}");

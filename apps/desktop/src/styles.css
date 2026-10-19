@@ -1070,3 +1070,11 @@ kbd,
 .aux-window.results-window .results-layout { flex: 1; min-height: 0; }
 .aux-window.results-window .results-list { height: auto; min-height: 120px; }
 .aux-window.find-window .find-tabs { margin-top: 12px; }
+.replace-preview, .replace-failures {
+  max-height: 160px; margin: 0; padding: 4px 0; overflow: auto; list-style: none;
+  border: 1px solid var(--border); border-radius: 5px; background: var(--editor-bg); font-size: 12px;
+}
+.replace-preview li, .replace-failures li { display: flex; gap: 10px; padding: 2px 8px; white-space: nowrap; }
+.replace-open { color: var(--warning); }
+.replace-failures li > span:last-child { color: var(--danger); white-space: normal; }
+.find-confirm > span { flex: 1; font-size: 12px; }

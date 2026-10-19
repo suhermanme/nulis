@@ -27,14 +27,15 @@ Legend: `[ ]` not started, `[~]` partial, `[x]` complete. “Complete” require
 - [x] Multi-caret and multi-selection (bounded core fan-out, per-caret navigation, Alt-click creation, rendering, clipboard, and one-action undo/redo)
 - [x] Column/block editing (constant-size core rectangle, bounded line-local operations, virtual-space insert, row-distributed paste, and Alt-Shift drag)
 - [~] Encoding detection and conversion (lossless UTF-8 and Windows-1252 override/editing controls with source-byte mappings; automatic detection and broader conversion remain)
-- [~] File change detection and recovery (fingerprints, dirty-close decisions, durable local/untitled checkpoints, and startup recovery choices work; changed sources are flagged but cannot be merged, and remote recovery remains)
+- [~] File change detection and recovery (fingerprints, dirty-close decisions, durable local/untitled checkpoints, and startup recovery choices work; M23: open files changed or removed by other programs are detected on focus and every 3 s with Reload / Keep Mine prompts, and File ▸ Reload from Disk; versions cannot be merged, and remote documents are not checked)
 
 ## Search and languages
 
 - [x] Streaming find and replace (64 KiB reads, bounded results, wrap navigation, and atomic Replace All)
 - [x] Regular expressions and multiline search (finite-width regexes up to a 1 MiB match bound; unsafe unbounded expressions are rejected explicitly)
 - [x] Find in files (regular-file scan with symlink exclusion, name filters, optional subfolders, line numbers and line text per match, and hard file/result caps)
-- [~] Find and Replace window (M21: floating Find / Find in Files / Replace tabs; current document, selection, or all open files; whole word; Count All; matching-lines list with Go To, Bookmark All, Copy; history. Replace in Files is M22)
+- [~] Find and Replace window (M21: floating Find / Find in Files / Replace tabs; current document, selection, or all open files; whole word; Count All; matching-lines list with Go To, Bookmark All, Copy; history) in its own windows
+- [x] Replace in Files (M22: preview with match counts, explicit confirmation, open documents changed in memory, closed files saved atomically only if unchanged since the preview, per-file report)
 - [x] Modular syntax highlighting and folding (bounded JSON/Python Tree-sitter modules, a Markdown scanner, and table-driven lexers for 34 more languages including C/C++, C#, Java, JavaScript/TypeScript, Rust, Swift, Zig, Go, PHP, Perl, Ruby, shell, Batch, PowerShell, SQL dialects, Visual Basic, HTML/XML/XSL, and CSS; stable token classes, bracket pairs, and brace/element folding)
 - [x] Symbols, language detection, and bracket matching (file-name and extension detection, `#!`/XML/PHP/HTML content detection for names that say nothing, override command/control, bounded symbols, and paired-bracket rendering)
 
