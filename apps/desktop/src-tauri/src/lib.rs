@@ -717,6 +717,7 @@ fn show_settings_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     )
     .resizable(true)
     .build()?;
+    detach_application_menu(&window)?;
     let monitors = window
         .available_monitors()?
         .iter()
@@ -837,7 +838,7 @@ fn show_help_window(app: &tauri::AppHandle) -> tauri::Result<()> {
         window.show()?;
         return window.set_focus();
     }
-    tauri::WebviewWindowBuilder::new(
+    let window = tauri::WebviewWindowBuilder::new(
         app,
         HELP_WINDOW_LABEL,
         tauri::WebviewUrl::App("index.html?window=help".into()),
@@ -847,6 +848,18 @@ fn show_help_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     .min_inner_size(f64::from(HELP_MIN_SIZE.0), f64::from(HELP_MIN_SIZE.1))
     .resizable(true)
     .build()?;
+    detach_application_menu(&window)
+}
+
+/// On Windows and Linux the application menu is drawn inside every window.
+/// Settings and Help are auxiliary windows whose page has its own controls,
+/// so they show no menu bar. macOS has one global menu bar and needs nothing.
+#[cfg_attr(target_os = "macos", allow(clippy::unnecessary_wraps))]
+fn detach_application_menu(window: &tauri::WebviewWindow) -> tauri::Result<()> {
+    #[cfg(not(target_os = "macos"))]
+    window.remove_menu()?;
+    #[cfg(target_os = "macos")]
+    let _ = window;
     Ok(())
 }
 
@@ -858,9 +871,11 @@ fn require_settings_window(window: &tauri::WebviewWindow) -> Result<(), String> 
     }
 }
 
+// Async so the window is built off the main thread: WebView2 deadlocks, and
+// the window stays blank, when a window is built in a synchronous command.
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)] // Tauri extracts AppHandle by value.
-fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
+async fn open_settings_window(app: tauri::AppHandle) -> Result<(), String> {
     show_settings_window(&app).map_err(|error| error.to_string())
 }
 
@@ -873,9 +888,11 @@ fn close_settings_window(app: tauri::AppHandle) -> Result<(), String> {
     }
 }
 
+// Async so the window is built off the main thread: WebView2 deadlocks, and
+// the window stays blank, when a window is built in a synchronous command.
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)] // Tauri extracts AppHandle by value.
-fn open_help_window(app: tauri::AppHandle) -> Result<(), String> {
+async fn open_help_window(app: tauri::AppHandle) -> Result<(), String> {
     show_help_window(&app).map_err(|error| error.to_string())
 }
 
@@ -1013,11 +1030,18 @@ pub fn run() {
             }
             // Opened natively so it works whichever window has focus.
             OPEN_SETTINGS_MENU_ID => {
-                let _ = show_settings_window(app);
+                let app = app.clone();
+                // Never build a window inside a menu handler (WebView2 deadlock).
+                tauri::async_runtime::spawn(async move {
+                    let _ = show_settings_window(&app);
+                });
             }
             // Opened natively so it works whichever window has focus.
             HELP_MENU_ID => {
-                let _ = show_help_window(app);
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = show_help_window(&app);
+                });
             }
             // The About page lives in the main window, which may be behind another one.
             ABOUT_MENU_ID => {
