@@ -17,6 +17,10 @@
 - Core: rename keeps text and edits, re-detects the language, then saves to the new path; refuses bad names, an existing file (left untouched), and untitled documents; refuses a changed or deleted source.
 - Desktop: recent list recording, filtering, opening, and dropping a missing file; Save All, Rename, Show in Places, and Close All through the File menu; Places reveal with expansion, highlight, focus, and the hidden-file message.
 
+## Fix after M29 (Windows CI)
+
+Rename File treated an existing destination as "the same file under another letter case" when the fingerprints matched. On Windows a fingerprint is only size and modification time, so a different file of the same size written in the same instant matched and was overwritten. The case-only check now compares names: the new name must differ from the current one only in letter case, and no folder entry may be spelled exactly like it. Found by `refuses_bad_names_existing_files_and_untitled_documents` on the Windows runner; a test for a case-only rename was added.
+
 ## Known issues
 
 - The existence check and the rename are separate steps, so a file created at the destination in between could be replaced on Unix.

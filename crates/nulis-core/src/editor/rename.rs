@@ -58,10 +58,10 @@ impl DocumentManager {
             ));
         }
         // An existing destination is refused, unless it is this same file
-        // under another letter case on a case-insensitive file system.
-        if fs::symlink_metadata(&destination).is_ok()
-            && fingerprint(&destination).map_err(|error| EditorError::io(&error))? != current
-        {
+        // under another letter case on a case-insensitive file system. That
+        // is decided by name, not by fingerprint: on Windows two different
+        // files can share a fingerprint (size and modification time).
+        if fs::symlink_metadata(&destination).is_ok() && !is_case_only_rename(&source, name)? {
             return Err(EditorError::Rename(format!("{name} already exists")));
         }
         fs::rename(&source, &destination).map_err(|error| EditorError::io(&error))?;
@@ -72,6 +72,28 @@ impl DocumentManager {
         session.source_path = Some(destination);
         Ok(summary(document_id, session))
     }
+}
+
+/// Whether `name` differs from the source's name only in letter case and no
+/// other entry in the folder is spelled exactly `name`.
+fn is_case_only_rename(source: &Path, name: &str) -> Result<bool, EditorError> {
+    let current = source
+        .file_name()
+        .map(|current| current.to_string_lossy().to_lowercase());
+    if current.as_deref() != Some(name.to_lowercase().as_str()) {
+        return Ok(false);
+    }
+    let folder = source.parent().unwrap_or(Path::new("."));
+    let folder = if folder.as_os_str().is_empty() {
+        Path::new(".")
+    } else {
+        folder
+    };
+    let exact = fs::read_dir(folder)
+        .map_err(|error| EditorError::io(&error))?
+        .flatten()
+        .any(|entry| entry.file_name() == std::ffi::OsStr::new(name));
+    Ok(!exact)
 }
 
 fn validate_name(name: &str) -> Result<(), EditorError> {
@@ -151,6 +173,24 @@ mod tests {
             manager.rename_file(&untitled, "x.txt"),
             Err(EditorError::Rename(_))
         ));
+    }
+
+    #[test]
+    fn a_rename_that_only_changes_letter_case_is_allowed() {
+        let dir = folder();
+        let source = dir.path().join("readme.txt");
+        fs::write(&source, "r").unwrap();
+        let manager = DocumentManager::default();
+        let id = manager.open_file(&source).unwrap().document_id;
+        assert_eq!(
+            manager.rename_file(&id, "README.txt").unwrap().name,
+            "README.txt"
+        );
+        let names = fs::read_dir(dir.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(names, vec!["README.txt".to_owned()]);
     }
 
     #[test]
