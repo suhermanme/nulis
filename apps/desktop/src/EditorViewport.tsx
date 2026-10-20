@@ -24,6 +24,7 @@ import type {
   LineChange,
   LineEditResult,
   LineOperation,
+  TextTransformName,
   MarkdownPreviewSource,
   RectangularSelection,
   ReplaceAllResult,
@@ -37,6 +38,7 @@ import type {
 } from "./contracts";
 import { Icon, IconButton } from "./icons";
 import { ContextMenu, type MenuItem } from "./Toolbar";
+import type { EditorActionName } from "./commands";
 import {
   executeCommand, getDocumentMap, getMarkdownPreviewSource, getViewport, getViewportAt, getViewportLine,
 } from "./ipc";
@@ -83,6 +85,45 @@ const LINE_OPERATION_STATUS: Record<LineOperation, string> = {
   deleteToLineStart: "Deleted to line start",
   deleteToLineEnd: "Deleted to line end",
   insertLineBelow: "Inserted line",
+  indent: "Indented",
+  outdent: "Outdented",
+  toggleComment: "Toggled comments",
+  trimTrailingSpaces: "Trimmed trailing spaces",
+  tabsToSpaces: "Converted tabs to spaces",
+  spacesToTabs: "Converted leading spaces to tabs",
+  sortAscending: "Sorted lines",
+  sortDescending: "Sorted lines in descending order",
+  sortUnique: "Sorted lines and removed duplicates",
+};
+
+const TRANSFORM_STATUS: Record<TextTransformName, string> = {
+  uppercase: "Changed to upper case",
+  lowercase: "Changed to lower case",
+  trimWhitespace: "Trimmed the selection",
+  invertCase: "Inverted case",
+  capitalize: "Capitalized words",
+  base64Encode: "Encoded as Base64",
+  base64Decode: "Decoded Base64",
+};
+
+/** Local date and time as `YYYY-MM-DD HH:MM:SS`. */
+export function formatDateTime(date: Date): string {
+  const two = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())} `
+    + `${two(date.getHours())}:${two(date.getMinutes())}:${two(date.getSeconds())}`;
+}
+
+/** What each editor action does: a line operation, a selection transform, or inserted text. */
+const EDITOR_ACTION_KINDS: Record<EditorActionName, { line: LineOperation } | { transform: TextTransformName } | { insertDateTime: true }> = {
+  selectLines: { line: "selectLines" }, duplicateLines: { line: "duplicateLines" }, deleteLines: { line: "deleteLines" },
+  moveLinesUp: { line: "moveLinesUp" }, moveLinesDown: { line: "moveLinesDown" }, insertLineBelow: { line: "insertLineBelow" },
+  uppercase: { transform: "uppercase" }, lowercase: { transform: "lowercase" }, capitalize: { transform: "capitalize" },
+  invertCase: { transform: "invertCase" }, trimSelection: { transform: "trimWhitespace" },
+  indent: { line: "indent" }, outdent: { line: "outdent" }, toggleComment: { line: "toggleComment" },
+  trimTrailingSpaces: { line: "trimTrailingSpaces" }, tabsToSpaces: { line: "tabsToSpaces" }, spacesToTabs: { line: "spacesToTabs" },
+  sortAscending: { line: "sortAscending" }, sortDescending: { line: "sortDescending" }, sortUnique: { line: "sortUnique" },
+  base64Encode: { transform: "base64Encode" }, base64Decode: { transform: "base64Decode" },
+  insertDateTime: { insertDateTime: true },
 };
 
 function copyModifierHeld(event: { altKey: boolean; ctrlKey: boolean }): boolean {
@@ -305,6 +346,8 @@ interface EditorViewportProps {
   onOpenFind?(tab: "find" | "replace", seed?: string): void;
   /** Reloads the document from its file. */
   onReload?(): void;
+  /** The latest menu or palette editing command; only the focused editor receives one. */
+  editorAction?: { id: number; action: EditorActionName };
 }
 
 export function EditorViewport({
@@ -330,6 +373,7 @@ export function EditorViewport({
   onCopyPath,
   onOpenFind,
   onReload,
+  editorAction,
 }: EditorViewportProps) {
   const rowHeight = Math.max(12, Math.min(100, lineHeight));
   // Several panes can show views at once, so element IDs are per view.
@@ -889,8 +933,8 @@ export function EditorViewport({
   );
 
   const transformSelections = useCallback(
-    async (transform: "uppercase" | "lowercase" | "trimWhitespace") => {
-      if (!snapshot) return;
+    async (transform: TextTransformName) => {
+      if (!snapshot || refuseEdit()) return;
       try {
         const updated = await executeCommand<DocumentSummary>({
           id: "editor.transformSelections",
@@ -899,12 +943,12 @@ export function EditorViewport({
         });
         onDocumentChange(updated);
         await refresh();
-        onStatus(`Applied ${transform}`);
+        onStatus(TRANSFORM_STATUS[transform]);
       } catch (error: unknown) {
         onStatus(error instanceof Error ? error.message : "Text transform failed");
       }
     },
-    [document.documentId, onDocumentChange, onStatus, refresh, snapshot],
+    [document.documentId, onDocumentChange, onStatus, refresh, refuseEdit, snapshot],
   );
 
   const deleteForward = useCallback(async () => {
@@ -965,6 +1009,21 @@ export function EditorViewport({
       onStatus(error instanceof Error ? error.message : "Could not read the clipboard");
     }
   }, [insertText, onStatus, refuseEdit]);
+
+  const runEditorAction = (action: EditorActionName) => {
+    const kind = EDITOR_ACTION_KINDS[action];
+    if ("line" in kind) void runLineOperation(kind.line);
+    else if ("transform" in kind) void transformSelections(kind.transform);
+    else void insertText(formatDateTime(new Date()));
+  };
+  const runEditorActionRef = useRef(runEditorAction);
+  runEditorActionRef.current = runEditorAction;
+  const handledEditorAction = useRef(editorAction?.id);
+  useEffect(() => {
+    if (!editorAction || editorAction.id === handledEditorAction.current) return;
+    handledEditorAction.current = editorAction.id;
+    runEditorActionRef.current(editorAction.action);
+  }, [editorAction]);
 
   const toggleBookmark = useCallback(async () => {
     await executeCommand({
@@ -1319,6 +1378,21 @@ export function EditorViewport({
     ...(onReload ? [{ label: "Reload from Disk", onSelect: onReload }] : []),
   ];
 
+  const selectionSpansLines = () => {
+    if (!snapshot) return false;
+    const lineOf = (byte: string) => {
+      const offset = BigInt(byte);
+      return snapshot.lines.findIndex((line) => offset >= BigInt(line.startByte) && offset <= BigInt(line.endByte));
+    };
+    return snapshot.selections.some((selection) => {
+      if (selection.anchorByte === selection.activeByte) return false;
+      const anchor = lineOf(selection.anchorByte);
+      const active = lineOf(selection.activeByte);
+      // A selection reaching outside the loaded lines is long enough to span lines.
+      return anchor < 0 || active < 0 || anchor !== active;
+    });
+  };
+
   /** Caret, selection, and line keys; true when the key was handled. */
   const handleEditingKey = (event: KeyboardEvent<HTMLTextAreaElement>): boolean => {
     if (event.nativeEvent.isComposing || composingRef.current) return false;
@@ -1330,6 +1404,14 @@ export function EditorViewport({
       void action();
       return true;
     };
+    if (modifier && !event.altKey && !event.shiftKey && event.key === "/") {
+      return run(() => runLineOperation("toggleComment"));
+    }
+    // Tab indents when a selection covers more than one line; Shift Tab always outdents.
+    if (event.key === "Tab" && !modifier && !event.altKey) {
+      if (event.shiftKey) return run(() => runLineOperation("outdent"));
+      if (selectionSpansLines()) return run(() => runLineOperation("indent"));
+    }
     if (modifier && !event.altKey) {
       if (!event.shiftKey && key === "a") return run(selectAll);
       if (!event.shiftKey && key === "l") return run(() => runLineOperation("selectLines"));
@@ -1731,15 +1813,37 @@ export function EditorViewport({
           aria-label="Transform selections"
           defaultValue=""
           onChange={(event) => {
-            const transform = event.currentTarget.value as "uppercase" | "lowercase" | "trimWhitespace";
+            const action = event.currentTarget.value as EditorActionName | "";
             event.currentTarget.value = "";
-            if (transform) void transformSelections(transform);
+            if (action) runEditorAction(action);
           }}
         >
-          <option value="" disabled>Transform</option>
-          <option value="uppercase">Uppercase</option>
-          <option value="lowercase">Lowercase</option>
-          <option value="trimWhitespace">Trim whitespace</option>
+          <option value="" disabled>Format</option>
+          <optgroup label="Case">
+            <option value="uppercase">Upper case</option>
+            <option value="lowercase">Lower case</option>
+            <option value="capitalize">Capitalize words</option>
+            <option value="invertCase">Invert case</option>
+          </optgroup>
+          <optgroup label="Lines">
+            <option value="indent">Indent</option>
+            <option value="outdent">Outdent</option>
+            <option value="toggleComment">Toggle comment</option>
+            <option value="sortAscending">Sort ascending</option>
+            <option value="sortDescending">Sort descending</option>
+            <option value="sortUnique">Sort and remove duplicates</option>
+          </optgroup>
+          <optgroup label="Whitespace">
+            <option value="trimSelection">Trim selection</option>
+            <option value="trimTrailingSpaces">Trim trailing spaces</option>
+            <option value="tabsToSpaces">Tabs to spaces</option>
+            <option value="spacesToTabs">Leading spaces to tabs</option>
+          </optgroup>
+          <optgroup label="Other">
+            <option value="base64Encode">Encode Base64</option>
+            <option value="base64Decode">Decode Base64</option>
+            <option value="insertDateTime">Insert date and time</option>
+          </optgroup>
         </select>
         <select
           aria-label="Text encoding"

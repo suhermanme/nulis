@@ -11,6 +11,10 @@ use super::{
     MAX_EDIT_BYTES,
 };
 use nulis_document::PieceTable;
+
+mod format;
+use format::FormatKind;
+pub use format::LineFormatOptions;
 use serde::{Deserialize, Serialize};
 
 /// How far into a line Home looks for its first non-blank character.
@@ -28,6 +32,46 @@ pub enum LineOperation {
     DeleteToLineStart,
     DeleteToLineEnd,
     InsertLineBelow,
+    /// Adds one indentation unit to each non-empty line.
+    Indent,
+    /// Removes one indentation unit (a tab or up to a tab width of spaces).
+    Outdent,
+    /// Comments out the lines, or uncomments them when all are commented.
+    ToggleComment,
+    TrimTrailingSpaces,
+    TabsToSpaces,
+    /// Turns leading spaces into tabs.
+    SpacesToTabs,
+    SortAscending,
+    SortDescending,
+    /// Sorts ascending and keeps one copy of repeated lines.
+    SortUnique,
+}
+
+impl LineOperation {
+    fn format_kind(self) -> Option<FormatKind> {
+        Some(match self {
+            Self::Indent => FormatKind::Indent,
+            Self::Outdent => FormatKind::Outdent,
+            Self::ToggleComment => FormatKind::ToggleComment,
+            Self::TrimTrailingSpaces => FormatKind::TrimTrailingSpaces,
+            Self::TabsToSpaces => FormatKind::TabsToSpaces,
+            Self::SpacesToTabs => FormatKind::SpacesToTabs,
+            Self::SortAscending => FormatKind::Sort {
+                descending: false,
+                unique: false,
+            },
+            Self::SortDescending => FormatKind::Sort {
+                descending: true,
+                unique: false,
+            },
+            Self::SortUnique => FormatKind::Sort {
+                descending: false,
+                unique: true,
+            },
+            _ => return None,
+        })
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -176,6 +220,28 @@ impl DocumentManager {
         expected_revision: u64,
         operation: LineOperation,
     ) -> Result<LineEditResult, EditorError> {
+        self.line_operation_with(
+            document_id,
+            expected_revision,
+            operation,
+            LineFormatOptions::default(),
+        )
+    }
+
+    /// [`Self::line_operation`] with tab width, indentation, and sort
+    /// settings. Trimming, tab conversion, and sorting cover the whole
+    /// document when nothing is selected (within [`MAX_EDIT_BYTES`]).
+    ///
+    /// # Errors
+    /// As for [`Self::line_operation`], and for Toggle Comment in a language
+    /// without comments.
+    pub fn line_operation_with(
+        &self,
+        document_id: &DocumentId,
+        expected_revision: u64,
+        operation: LineOperation,
+        options: LineFormatOptions,
+    ) -> Result<LineEditResult, EditorError> {
         let mut sessions = self
             .sessions
             .lock()
@@ -186,10 +252,17 @@ impl DocumentManager {
         validate_revision(session, expected_revision)?;
         let ranges = selection_ranges(session)?;
         let table = session.document.table();
+        let format = operation.format_kind();
+        let whole_document = format.is_some_and(FormatKind::whole_document_without_selection)
+            && ranges.iter().all(|(start, end)| start == end);
         let plan = Plan {
             table,
             len: table.len(),
-            blocks: line_blocks(table, &ranges)?,
+            blocks: if whole_document {
+                line_blocks(table, &[(0, table.len())])?
+            } else {
+                line_blocks(table, &ranges)?
+            },
             points: selection_points(session),
         };
         let edits = match operation {
@@ -215,6 +288,11 @@ impl DocumentManager {
             LineOperation::DeleteToLineStart => plan.delete_to_line_edge(&ranges, true)?,
             LineOperation::DeleteToLineEnd => plan.delete_to_line_edge(&ranges, false)?,
             LineOperation::InsertLineBelow => plan.insert_line_below()?,
+            _ => {
+                let kind = format.ok_or(EditorError::StateUnavailable)?;
+                let comment = self.languages.comment_syntax(&session.language_id);
+                plan.format_lines(kind, options, comment)?
+            }
         };
         if edits.is_empty() {
             return Ok(unchanged(document_id, session));

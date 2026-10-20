@@ -16,12 +16,12 @@ pub use editor::{
     ExternalChangeKind, FileSearchScope, FileStamp, FindAllResult, FindDirection, FindResult,
     FoundLine, FoundMatch, HexCaret, HexClipboardPayload, HexCursor, HexEditResult,
     HexViewportRequest, HexViewportRow, HexViewportSnapshot, HorizontalDirection,
-    LanguageDescriptor, LineEditResult, LineOperation, MarkdownPreviewSource, RecoveryCandidate,
-    RectangularSelection, ReplaceAllResult, ReplaceFileOutcome, ReplacePreview, ReplacePreviewFile,
-    ReplaceTarget, SearchMode, SearchOptions, Selection, SyntaxBracketPair, SyntaxFold,
-    SyntaxHighlight, SyntaxSnapshot, SyntaxSymbol, TextEncoding, TextTransform, VerticalDirection,
-    ViewportAtRequest, ViewportCursor, ViewportLine, ViewportLineRequest, ViewportRequest,
-    ViewportSnapshot, WorkspaceSearchMatch, WorkspaceSearchResult, MAX_BOOKMARKS,
+    LanguageDescriptor, LineEditResult, LineFormatOptions, LineOperation, MarkdownPreviewSource,
+    RecoveryCandidate, RectangularSelection, ReplaceAllResult, ReplaceFileOutcome, ReplacePreview,
+    ReplacePreviewFile, ReplaceTarget, SearchMode, SearchOptions, Selection, SyntaxBracketPair,
+    SyntaxFold, SyntaxHighlight, SyntaxSnapshot, SyntaxSymbol, TextEncoding, TextTransform,
+    VerticalDirection, ViewportAtRequest, ViewportCursor, ViewportLine, ViewportLineRequest,
+    ViewportRequest, ViewportSnapshot, WorkspaceSearchMatch, WorkspaceSearchResult, MAX_BOOKMARKS,
     MAX_CLIPBOARD_BYTES, MAX_EDIT_BYTES, MAX_FIND_ALL_LINES, MAX_FIND_ALL_MATCHES,
     MAX_HEX_CLIPBOARD_BYTES, MAX_HEX_EDIT_BYTES, MAX_HEX_VIEWPORT_BYTES, MAX_LINE_PREVIEW_BYTES,
     MAX_MARKDOWN_PREVIEW_BYTES, MAX_MERGE_BYTES, MAX_RECTANGULAR_ROWS, MAX_REPLACE_FILES,
@@ -75,7 +75,7 @@ use nulis_automation::{
     CURRENT_REVISION_ARGUMENT,
 };
 
-pub const IPC_PROTOCOL_VERSION: u32 = 30;
+pub const IPC_PROTOCOL_VERSION: u32 = 31;
 pub const PRODUCT_NAME: &str = "Nulis";
 pub const APPLICATION_ID: &str = "com.nulis.editor";
 const MAX_SCRIPT_MESSAGES: usize = 100;
@@ -1600,6 +1600,8 @@ struct LineOperationArguments {
     #[serde(with = "editor::decimal_u64")]
     expected_revision: u64,
     operation: LineOperation,
+    #[serde(default)]
+    options: LineFormatOptions,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2358,6 +2360,38 @@ const WORKBENCH_ACTIONS: &[(&str, &str, &str)] = &[
     ),
     ("workspace.growPane", "Grow Pane", "Workspace"),
     ("workspace.shrinkPane", "Shrink Pane", "Workspace"),
+    // Editing and formatting commands; the focused editor carries them out.
+    ("edit.selectLines", "Select Line", "Edit"),
+    ("edit.duplicateLines", "Duplicate Line", "Edit"),
+    ("edit.deleteLines", "Delete Line", "Edit"),
+    ("edit.moveLinesUp", "Move Line Up", "Edit"),
+    ("edit.moveLinesDown", "Move Line Down", "Edit"),
+    ("edit.insertLineBelow", "Insert Line Below", "Edit"),
+    ("format.uppercase", "To Upper Case", "Format"),
+    ("format.lowercase", "To Lower Case", "Format"),
+    ("format.capitalize", "Capitalize Words", "Format"),
+    ("format.invertCase", "Invert Case", "Format"),
+    ("format.trimSelection", "Trim Selection", "Format"),
+    ("format.indent", "Indent Lines", "Format"),
+    ("format.outdent", "Outdent Lines", "Format"),
+    ("format.toggleComment", "Toggle Line Comment", "Format"),
+    (
+        "format.trimTrailingSpaces",
+        "Trim Trailing Spaces",
+        "Format",
+    ),
+    ("format.tabsToSpaces", "Tabs to Spaces", "Format"),
+    ("format.spacesToTabs", "Leading Spaces to Tabs", "Format"),
+    ("format.sortAscending", "Sort Lines Ascending", "Format"),
+    ("format.sortDescending", "Sort Lines Descending", "Format"),
+    (
+        "format.sortUnique",
+        "Sort Lines and Remove Duplicates",
+        "Format",
+    ),
+    ("format.base64Encode", "Encode Base64", "Format"),
+    ("format.base64Decode", "Decode Base64", "Format"),
+    ("format.insertDateTime", "Insert Date and Time", "Format"),
 ];
 
 fn register_workbench_commands(commands: &mut CommandRegistry) {
@@ -3141,10 +3175,11 @@ fn register_line_commands(commands: &mut CommandRegistry, documents: &Arc<Docume
                 let document_id = context_document(&context)?;
                 let arguments: LineOperationArguments = parse_arguments(arguments)?;
                 let result = manager
-                    .line_operation(
+                    .line_operation_with(
                         &document_id,
                         arguments.expected_revision,
                         arguments.operation,
+                        arguments.options,
                     )
                     .map_err(|error| editor_command_error(&error))?;
                 serde_json::to_value(result).map_err(|error| serialization_command_error(&error))

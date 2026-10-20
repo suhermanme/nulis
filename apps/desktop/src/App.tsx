@@ -47,7 +47,7 @@ import {
   FIND_EVENTS, FindReplacePanel, ResultsWindow, type FindContext, type FindMessage, type FindTab, type MatchTarget, type ResultList,
 } from "./FindReplacePanel";
 import { Icon, IconButton, iconForCommand, type IconName } from "./icons";
-import { PALETTE_COMMANDS, shortcutLabel } from "./commands";
+import { EDITOR_ACTIONS, PALETTE_COMMANDS, shortcutLabel, type EditorActionName } from "./commands";
 import {
   closeWindowAfterSave, configureNativeMenu, executeCommand, getApplicationInfo, listCommands, openFindWindow, openHelpWindow, openResultsWindow, openSettingsWindow, takeLaunchPaths,
   setToolsMenu,
@@ -254,6 +254,7 @@ export function App() {
   const [expandedDirectories, setExpandedDirectories] = useState<string[]>([]);
   const [workspaceDocumentIds, setWorkspaceDocumentIds] = useState<Record<string, string>>({});
   const [searchRequest, setSearchRequest] = useState<SearchRequest | undefined>();
+  const [editorAction, setEditorAction] = useState<{ id: number; action: EditorActionName } | undefined>();
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; label: string; items: MenuItem[] } | null>(null);
   const [findTab, setFindTab] = useState<FindTab | null>(null);
   const [findSeed, setFindSeed] = useState<{ id: number; text: string } | undefined>();
@@ -1370,7 +1371,16 @@ export function App() {
   };
 
   /** Local effects of the presentation-only commands; one dispatch path for every entry point. */
+  /** Hands an editing or formatting command to the focused text editor. */
+  const sendEditorAction = (action: EditorActionName) => {
+    if (!activeDocument || viewModes[activeDocument.documentId] === "hex") {
+      setStatus("Open a text document first");
+      return;
+    }
+    setEditorAction((previous) => ({ id: (previous?.id ?? 0) + 1, action }));
+  };
   const workbenchActions: Record<string, (() => void | Promise<void>) | undefined> = {
+    ...Object.fromEntries(Object.entries(EDITOR_ACTIONS).map(([commandId, action]) => [commandId, () => sendEditorAction(action)])),
     "workbench.toggleSplit": toggleSplit,
     "workbench.splitRight": () => splitActive("right"),
     "workbench.splitDown": () => splitActive("bottom"),
@@ -1803,6 +1813,7 @@ export function App() {
           onReload={document.sourcePath && !document.remoteUri ? () => requestReload(document) : undefined}
           onOpenFind={active ? openFindPanel : undefined}
           searchRequest={active ? searchRequest : undefined}
+          editorAction={active ? editorAction : undefined}
           revealOffset={active && revealTarget?.documentId === document.documentId ? revealTarget.byteOffset : undefined} />;
   };
 

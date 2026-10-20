@@ -1,3 +1,32 @@
+/** Editing and formatting commands carried out by the focused editor. */
+export const EDITOR_ACTIONS = {
+  "edit.selectLines": "selectLines",
+  "edit.duplicateLines": "duplicateLines",
+  "edit.deleteLines": "deleteLines",
+  "edit.moveLinesUp": "moveLinesUp",
+  "edit.moveLinesDown": "moveLinesDown",
+  "edit.insertLineBelow": "insertLineBelow",
+  "format.uppercase": "uppercase",
+  "format.lowercase": "lowercase",
+  "format.capitalize": "capitalize",
+  "format.invertCase": "invertCase",
+  "format.trimSelection": "trimSelection",
+  "format.indent": "indent",
+  "format.outdent": "outdent",
+  "format.toggleComment": "toggleComment",
+  "format.trimTrailingSpaces": "trimTrailingSpaces",
+  "format.tabsToSpaces": "tabsToSpaces",
+  "format.spacesToTabs": "spacesToTabs",
+  "format.sortAscending": "sortAscending",
+  "format.sortDescending": "sortDescending",
+  "format.sortUnique": "sortUnique",
+  "format.base64Encode": "base64Encode",
+  "format.base64Decode": "base64Decode",
+  "format.insertDateTime": "insertDateTime",
+} as const;
+export type EditorActionName = typeof EDITOR_ACTIONS[keyof typeof EDITOR_ACTIONS];
+const EDITOR_ACTION_IDS = Object.keys(EDITOR_ACTIONS) as Array<keyof typeof EDITOR_ACTIONS>;
+
 /**
  * Presentation-only commands the core names and validates and the desktop
  * applies. Mirrors `WORKBENCH_ACTIONS` in nulis-core.
@@ -11,6 +40,7 @@ export const WORKBENCH_ACTIONS = [
   "workspace.rename", "workspace.groupRight", "workspace.groupDown", "workspace.ungroup",
   "workspace.popOutPane", "workspace.closePane", "workspace.focusNextPane", "workspace.focusPreviousPane",
   "workspace.growPane", "workspace.shrinkPane",
+  ...EDITOR_ACTION_IDS,
 ] as const;
 
 /** JSON and XML tools; offered only while such a document is focused. */

@@ -205,6 +205,15 @@ impl LanguageModule {
     }
 }
 
+/// How a language writes comments, for the Toggle Comment command.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CommentSyntax {
+    /// A marker that comments out the rest of a line (`//`, `#`, `--`).
+    pub line: Option<&'static str>,
+    /// Markers around a comment, used when there is no line marker (`<!--`, `-->`).
+    pub block: Option<(&'static str, &'static str)>,
+}
+
 #[derive(Debug)]
 pub struct LanguageRegistry {
     modules: BTreeMap<LanguageId, LanguageModule>,
@@ -245,6 +254,34 @@ impl LanguageRegistry {
         }
         self.modules.insert(id, module);
         Ok(())
+    }
+
+    /// The comment markers of a language, or `None` when it has none
+    /// (plain text, JSON).
+    #[must_use]
+    pub fn comment_syntax(&self, id: &LanguageId) -> Option<CommentSyntax> {
+        let module = self.modules.get(id)?;
+        let syntax = match (module.lexer, id.as_str()) {
+            (Some(spec), _) => CommentSyntax {
+                line: spec.line_comments.first().copied(),
+                // Markup comments are recognized by the markup scanner itself.
+                block: spec.block_comments.first().copied().or(matches!(
+                    spec.mode,
+                    lexer::Mode::Markup
+                )
+                .then_some(("<!--", "-->"))),
+            },
+            (None, "python") => CommentSyntax {
+                line: Some("#"),
+                block: None,
+            },
+            (None, "markdown") => CommentSyntax {
+                line: None,
+                block: Some(("<!--", "-->")),
+            },
+            (None, _) => return None,
+        };
+        (syntax.line.is_some() || syntax.block.is_some()).then_some(syntax)
     }
 
     #[must_use]
@@ -841,6 +878,33 @@ pub enum SyntaxError {
 mod tests {
     use super::{LanguageId, LanguageRegistry, SyntaxToken, MAX_HIGHLIGHT_SPANS, MAX_SYNTAX_BYTES};
     use std::path::Path;
+
+    #[test]
+    fn comment_syntax_comes_from_each_language() {
+        let registry = LanguageRegistry::with_builtins();
+        let line = |id: &str| {
+            registry
+                .comment_syntax(&LanguageId::new(id).expect("id"))
+                .and_then(|syntax| syntax.line)
+        };
+        assert_eq!(line("rust"), Some("//"));
+        assert_eq!(line("python"), Some("#"));
+        assert_eq!(line("sql"), Some("--"));
+        assert_eq!(
+            registry
+                .comment_syntax(&LanguageId::new("html").expect("id"))
+                .and_then(|syntax| syntax.block),
+            Some(("<!--", "-->"))
+        );
+        assert_eq!(
+            registry.comment_syntax(&LanguageId::new("json").expect("id")),
+            None
+        );
+        assert_eq!(
+            registry.comment_syntax(&LanguageId::new("plaintext").expect("id")),
+            None
+        );
+    }
 
     #[test]
     fn language_ids_and_registration_are_stable() {

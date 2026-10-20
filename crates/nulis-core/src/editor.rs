@@ -36,7 +36,7 @@ pub use find_all::{
     FindAllResult, FoundLine, FoundMatch, MAX_FIND_ALL_LINES, MAX_FIND_ALL_MATCHES,
     MAX_LINE_PREVIEW_BYTES,
 };
-pub use line_ops::{LineEditResult, LineOperation};
+pub use line_ops::{LineEditResult, LineFormatOptions, LineOperation};
 pub use replace_in_files::{
     FileStamp, ReplaceFileOutcome, ReplacePreview, ReplacePreviewFile, ReplaceTarget,
     MAX_REPLACE_FILES,
@@ -475,6 +475,49 @@ pub enum TextTransform {
     Uppercase,
     Lowercase,
     TrimWhitespace,
+    /// Swaps upper and lower case letter by letter.
+    InvertCase,
+    /// Upper-cases the first letter of each word and lower-cases the rest.
+    Capitalize,
+    /// Replaces the selected bytes with their Base64 text.
+    Base64Encode,
+    /// Replaces Base64 text with the bytes it encodes.
+    Base64Decode,
+}
+
+fn invert_case(text: &str) -> String {
+    text.chars()
+        .flat_map(|character| {
+            let swapped: Vec<char> = if character.is_uppercase() {
+                character.to_lowercase().collect()
+            } else if character.is_lowercase() {
+                character.to_uppercase().collect()
+            } else {
+                vec![character]
+            };
+            swapped
+        })
+        .collect()
+}
+
+fn capitalize_words(text: &str) -> String {
+    let mut output = String::with_capacity(text.len());
+    let mut at_word_start = true;
+    for character in text.chars() {
+        if character.is_alphanumeric() {
+            if at_word_start {
+                output.extend(character.to_uppercase());
+            } else {
+                output.extend(character.to_lowercase());
+            }
+            at_word_start = false;
+        } else {
+            // An apostrophe inside a word ("don't") does not start a new word.
+            at_word_start = character != '\'' && character != '’';
+            output.push(character);
+        }
+    }
+    output
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -2954,16 +2997,42 @@ impl DocumentManager {
         let mut output_bytes = 0_usize;
         for (start, end) in &ranges {
             let bytes = session.document.table().read_vec(*start, end - start)?;
-            if session.encoding == TextEncoding::Utf8 && std::str::from_utf8(&bytes).is_err() {
-                return Err(EditorError::InvalidUtf8Selection);
-            }
-            let text = decode_text(session.encoding, &bytes).0;
-            let output = match transform {
-                TextTransform::Uppercase => text.to_uppercase(),
-                TextTransform::Lowercase => text.to_lowercase(),
-                TextTransform::TrimWhitespace => text.trim().to_owned(),
+            let output = if transform == TextTransform::Base64Encode {
+                // Any bytes can be encoded, including text that is not valid in the encoding.
+                BASE64.encode(&bytes).into_bytes()
+            } else {
+                if session.encoding == TextEncoding::Utf8 && std::str::from_utf8(&bytes).is_err() {
+                    return Err(EditorError::InvalidUtf8Selection);
+                }
+                let text = decode_text(session.encoding, &bytes).0;
+                match transform {
+                    TextTransform::Base64Decode => {
+                        let compact = text.split_whitespace().collect::<String>();
+                        let decoded = BASE64
+                            .decode(compact.as_bytes())
+                            .map_err(|_| EditorError::InvalidBase64)?;
+                        if session.encoding == TextEncoding::Utf8
+                            && std::str::from_utf8(&decoded).is_err()
+                        {
+                            return Err(EditorError::Base64NotText);
+                        }
+                        decoded
+                    }
+                    _ => encode_text(
+                        session.encoding,
+                        &match transform {
+                            TextTransform::Uppercase => text.to_uppercase(),
+                            TextTransform::Lowercase => text.to_lowercase(),
+                            TextTransform::TrimWhitespace => text.trim().to_owned(),
+                            TextTransform::InvertCase => invert_case(&text),
+                            TextTransform::Capitalize => capitalize_words(&text),
+                            TextTransform::Base64Encode | TextTransform::Base64Decode => {
+                                unreachable!("handled above")
+                            }
+                        },
+                    )?,
+                }
             };
-            let output = encode_text(session.encoding, &output)?;
             output_bytes = output_bytes
                 .checked_add(output.len())
                 .ok_or(EditorError::OffsetOverflow)?;
@@ -5037,6 +5106,12 @@ pub enum EditorError {
     RegexRequiresUtf8,
     #[error("text transforms require valid UTF-8 selections")]
     InvalidUtf8Selection,
+    #[error("the selection is not valid Base64")]
+    InvalidBase64,
+    #[error("the decoded Base64 is binary data, not text; decode it in the hex editor")]
+    Base64NotText,
+    #[error("this language has no comment syntax")]
+    NoCommentSyntax,
     #[error("character {character:?} cannot be represented in {encoding:?}")]
     UnrepresentableText {
         character: char,

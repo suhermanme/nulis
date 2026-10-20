@@ -67,13 +67,15 @@ vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: vi.fn(() => ({
 })) }));
 
 vi.mock("./EditorViewport", () => ({
-  EditorViewport: ({ document, showLineChanges, searchRequest, onCaret, onToggleReadOnly, onOpenFind }: {
+  EditorViewport: ({ document, showLineChanges, searchRequest, onCaret, onToggleReadOnly, onOpenFind, editorAction }: {
     document: { name: string; readOnly?: boolean }; showLineChanges?: boolean; searchRequest?: object;
+    editorAction?: { action: string };
     onCaret?: (position: object | null) => void; onToggleReadOnly?: () => void;
     onOpenFind?: (tab: "find" | "replace", seed?: string) => void;
   }) => (
     <div>
-      <div data-line-changes={String(showLineChanges)} data-search={JSON.stringify(searchRequest ?? null)}>{document.name} editor</div>
+      <div data-line-changes={String(showLineChanges)} data-search={JSON.stringify(searchRequest ?? null)}
+        data-action={editorAction?.action ?? ""}>{document.name} editor</div>
       <button type="button" onClick={() => onCaret?.({ line: "1234", column: 7, carets: 1, selectedBytes: "0" })}>Move caret in {document.name}</button>
       <button type="button" onClick={() => onToggleReadOnly?.()}>Editor mode of {document.name}: {document.readOnly ? "read-only" : "edit"}</button>
       {onOpenFind ? <>
@@ -919,6 +921,18 @@ test("Reload from Disk asks first when there are unsaved edits", async () => {
   await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
     id: "file.reload", context: { windowId: "main", documentId: "document-1" }, arguments: { discard: true },
   }));
+});
+
+test("Format commands from the palette reach the focused editor", async () => {
+  vi.mocked(listCommands).mockResolvedValueOnce([
+    { id: "file.new", title: "New Text File", category: "File" },
+    { id: "format.sortAscending", title: "Sort Lines Ascending", category: "Format" },
+  ]);
+  await openDocuments("First");
+  fireEvent.click(screen.getByRole("button", { name: "Open command palette" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Search commands" }), { target: { value: "sort lines" } });
+  fireEvent.click(await screen.findByRole("option", { name: /Sort Lines Ascending/ }));
+  await waitFor(() => expect(screen.getByText("First editor")).toHaveAttribute("data-action", "sortAscending"));
 });
 
 test("the View menu toggles line change indicators with a persistent default", async () => {

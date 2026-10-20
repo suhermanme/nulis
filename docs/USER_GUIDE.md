@@ -155,8 +155,27 @@ Right-click the text for a menu with Undo, Redo, Cut, Copy, Paste, Find, Replace
 | Undo / redo | **Ctrl/⌘ Z** / **Ctrl/⌘ Shift Z**, or the toolbar buttons. |
 | Cut, copy, paste | The usual system shortcuts and the **Edit** menu. |
 | Insert / overwrite | Press **Insert**, or click the **INS** / **OVR** indicator in the editor toolbar. In overwrite mode, typing replaces the character under the caret. |
-| Change case, trim | Select text and choose **Uppercase**, **Lowercase**, or **Trim whitespace** from the **Transform** list. |
+| Change case, format, encode | Choose from the **Format** menu, the **Format** list in the editor toolbar, or the command palette; see *Formatting* below. |
 | Word wrap | The **Wrap** button in the editor toolbar. |
+
+### Formatting
+
+The **Format** menu, the **Format** list in the editor toolbar, and the command palette hold these commands. Each is one undo step.
+
+| Command | What it does |
+| --- | --- |
+| To Upper Case, To Lower Case, Invert Case | Changes the letters in the selection. |
+| Capitalize Words | Starts each word in the selection with a capital and lower-cases the rest. |
+| Trim Selection | Removes spaces at both ends of the selection. |
+| Indent Lines / Outdent Lines | Adds or removes one tab at the start of each selected line (outdent also removes up to four spaces). **Tab** indents when the selection covers more than one line; **Shift Tab** always outdents. |
+| Toggle Line Comment | **Ctrl/⌘ /**. Comments out the selected lines with the language's comment marker (`//`, `#`, `--`, or `<!-- -->` for markup), lined up at the shallowest indentation; if every line is already commented, removes the markers. Plain text and JSON have no comments. |
+| Trim Trailing Spaces | Removes spaces and tabs at the end of lines. |
+| Tabs to Spaces / Leading Spaces to Tabs | Converts using tab stops every four columns. |
+| Sort Lines Ascending / Descending, Sort and Remove Duplicates | Sorts the selected lines. Line endings stay in place; a file without a final line ending keeps it that way. |
+| Encode Base64 / Decode Base64 | Encodes the selected bytes, or decodes Base64 text. Decoding refuses text that is not Base64, and binary results (use the hex editor for those). |
+| Insert Date and Time | Inserts the local date and time as `2026-10-20 14:05:09`. |
+
+Trimming, tab conversion, and sorting apply to the whole document when nothing is selected (up to 1 MiB of text); the other commands work on the lines that hold a caret or selection. The tab width is four columns and indentation uses a tab.
 
 ### Line commands
 
@@ -437,6 +456,8 @@ These are the defaults. Shortcuts for commands can be changed under **Settings �
 | Ctrl/⌘ Shift K | Delete line |
 | Alt ↑ / Alt ↓ | Move line up / down |
 | Ctrl/⌘ Enter | Open a new line below |
+| Ctrl/⌘ / | Toggle line comment |
+| Tab / Shift Tab | Indent a multi-line selection / outdent |
 | Home / End | Line start (first non-blank, then column 1) / line end |
 | Ctrl/⌘ Home / End | Document start / end |
 | Delete | Delete the next character |

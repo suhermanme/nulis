@@ -4,8 +4,8 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 
 ## Current state
 
-- **Current milestone:** M25 — pending (next to start)
-- **Overall:** 6 of 11 milestones completed (M19–M24)
+- **Current milestone:** M26 — pending (next to start)
+- **Overall:** 7 of 11 milestones completed (M19–M25)
 - **Baseline before M19 (commit `66853e1`):** `cargo test -p nulis-core` 86 passed; desktop Vitest 11 files, 115 tests passed.
 
 | Milestone | Status | Handover |
@@ -16,7 +16,7 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 | M22 Replace in Files | Completed (manual and Windows/Linux checks pending) | `handover/M22_HANDOVER.md` |
 | M23 External changes and Reload (user request) | Completed (manual and Windows/Linux checks pending) | `handover/M23_HANDOVER.md` |
 | M24 New application icon (user request) | Completed | `handover/M24_HANDOVER.md` |
-| M25 Format and transforms | Pending | – |
+| M25 Format and transforms | Completed (manual and Windows/Linux checks pending) | `handover/M25_HANDOVER.md` |
 | M26 Search and navigation | Pending | – |
 | M27 View and file | Pending | – |
 | M28 Column and clipboard tools | Pending | – |
@@ -118,6 +118,12 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 
 **Result (completed 2026-10-20, on `main`):** all criteria covered by tests. Verification on macOS: fmt and clippy clean; `cargo test --workspace` passed (nulis-core 108, nulis-desktop 7); lint and typecheck clean; Vitest 124 passed. Details: `handover/M23_HANDOVER.md`.
 
+## M25 — Format and transforms
+
+**Scope (as delivered):** invert case, capitalize words, Base64 encode/decode (new `TextTransform`s); indent, outdent, toggle comment, trim trailing spaces, tabs→spaces, leading spaces→tabs, sort ascending/descending/unique (new `LineOperation`s with `LineFormatOptions`); insert date/time; Format menu (native), Edit-menu line commands, toolbar Format list, palette entries for all of these and for the M20 line commands; Tab/Shift+Tab and Ctrl/⌘ /. Also: theme-colored status badges (user request).
+
+**Result (completed 2026-10-20, on `main`):** fmt and clippy clean; `cargo test --workspace` passed (nulis-core 113, nulis-syntax 13); lint and typecheck clean; Vitest 128 passed. IPC 31. Details: `handover/M25_HANDOVER.md`.
+
 ## User requests queued during M21
 
 - **M23 External changes and Reload:** prompt when another program changes or deletes an open file (Reload / Keep mine), plus a manual Reload command (also Revert to Saved). Core already fingerprints sources and flags changed sources during recovery (`FEATURE_PARITY.md`).
@@ -138,7 +144,7 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 
 ## Next steps
 
-0. M25 Format and transforms is next.
+0. M26 Search and navigation is next.
 1. Run the app (`npm run dev`) and try M20 keys/context menu and the M21 window by hand on macOS.
 2. Push to CI to build Windows/Linux, and check the M19 Settings/Help window fix there.
 3. Start M22 per the scope above, then M23 and M24 (user requests).

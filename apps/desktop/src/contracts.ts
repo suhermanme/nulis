@@ -1,5 +1,5 @@
 /** Versioned JSON-compatible values mirrored from nulis-core's public IPC DTOs. */
-export const IPC_PROTOCOL_VERSION = 30 as const;
+export const IPC_PROTOCOL_VERSION = 31 as const;
 
 export interface ThemeRecord {
   schema?: string;
@@ -543,7 +543,13 @@ export type HorizontalDirection = "left" | "right" | "lineStart" | "lineEnd" | "
 /** Whole-line commands of `editor.lineOperation`. */
 export type LineOperation =
   | "selectLines" | "deleteLines" | "duplicateLines" | "moveLinesUp" | "moveLinesDown"
-  | "deleteToLineStart" | "deleteToLineEnd" | "insertLineBelow";
+  | "deleteToLineStart" | "deleteToLineEnd" | "insertLineBelow"
+  | "indent" | "outdent" | "toggleComment" | "trimTrailingSpaces" | "tabsToSpaces" | "spacesToTabs"
+  | "sortAscending" | "sortDescending" | "sortUnique";
+
+/** Selection transforms of `editor.transformSelections`. */
+export type TextTransformName =
+  | "uppercase" | "lowercase" | "trimWhitespace" | "invertCase" | "capitalize" | "base64Encode" | "base64Decode";
 
 export interface LineEditResult {
   document: DocumentSummary;

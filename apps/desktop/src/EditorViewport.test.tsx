@@ -4,7 +4,7 @@ import { afterEach, beforeAll, expect, test, vi } from "vitest";
 import { useState } from "react";
 import type { DocumentSummary } from "./contracts";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { EditorViewport } from "./EditorViewport";
+import { EditorViewport, formatDateTime } from "./EditorViewport";
 import { executeCommand, getDocumentMap, getMarkdownPreviewSource, getViewport, getViewportAt, getViewportLine } from "./ipc";
 
 vi.mock("./ipc", () => ({
@@ -1378,6 +1378,68 @@ test("a Search panel request runs find, replace, and replace all with its own op
     arguments: expect.objectContaining({ query: "o", replacement: "2", options: { mode: "regex", caseSensitive: false, wholeWord: false } }),
   })));
   await waitFor(() => expect(props.onStatus).toHaveBeenCalledWith("Replaced 3 matches"));
+});
+
+test("Tab indents a multi-line selection, Shift Tab outdents, and Ctrl or Cmd slash toggles comments", async () => {
+  respondLikeCore();
+  vi.mocked(getViewport).mockResolvedValueOnce({
+    documentId: "document-1", revision: "0", documentByteLen: "7", encoding: "utf8",
+    lines: [
+      { line: "1", startByte: "0", endByte: "4", text: "one", sourceByteWidths: [1, 1, 1], continuation: false, truncated: false },
+      { line: "2", startByte: "4", endByte: "7", text: "two", sourceByteWidths: [1, 1, 1], continuation: false, truncated: false },
+    ],
+    selections: [{ anchorByte: "1", activeByte: "5" }], bookmarks: [],
+  });
+  render(<EditorViewport document={{ documentId: "document-1", name: "Untitled", byteLen: "7", revision: "0", encoding: "utf8" }}
+    onDocumentChange={() => undefined} onStatus={() => undefined} />);
+  const editor = await screen.findByRole("textbox", { name: "Untitled editor" });
+  const operation = (name: string) => expect.objectContaining({
+    id: "editor.lineOperation", arguments: expect.objectContaining({ operation: name }),
+  });
+  fireEvent.keyDown(editor, { key: "Tab" });
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(operation("indent")));
+  expect(executeCommand).not.toHaveBeenCalledWith(expect.objectContaining({ id: "editor.insertText" }));
+  fireEvent.keyDown(editor, { key: "Tab", shiftKey: true });
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(operation("outdent")));
+  fireEvent.keyDown(editor, { key: "/", ctrlKey: true });
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(operation("toggleComment")));
+});
+
+test("Tab inserts a tab character when nothing spans lines", async () => {
+  respondLikeCore();
+  render(<EditorViewport document={{ documentId: "document-1", name: "Untitled", byteLen: "7", revision: "0", encoding: "utf8" }}
+    onDocumentChange={() => undefined} onStatus={() => undefined} />);
+  const editor = await screen.findByRole("textbox", { name: "Untitled editor" });
+  fireEvent.keyDown(editor, { key: "Tab" });
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
+    id: "editor.insertText", arguments: expect.objectContaining({ text: "\t" }),
+  })));
+});
+
+test("the Format list and menu actions run transforms, line formatting, and date insertion", async () => {
+  respondLikeCore();
+  const props = { document: { documentId: "document-1", name: "Untitled", byteLen: "7", revision: "0", encoding: "utf8" } as const,
+    onDocumentChange: () => undefined, onStatus: vi.fn() };
+  const { rerender } = render(<EditorViewport {...props} />);
+  await screen.findByRole("textbox", { name: "Untitled editor" });
+  fireEvent.change(screen.getByRole("combobox", { name: "Transform selections" }), { target: { value: "capitalize" } });
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
+    id: "editor.transformSelections", arguments: expect.objectContaining({ transform: "capitalize" }),
+  })));
+  fireEvent.change(screen.getByRole("combobox", { name: "Transform selections" }), { target: { value: "sortUnique" } });
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
+    id: "editor.lineOperation", arguments: expect.objectContaining({ operation: "sortUnique" }),
+  })));
+  // An action that existed when the view mounted is not replayed; a new one runs.
+  rerender(<EditorViewport {...props} editorAction={{ id: 1, action: "base64Encode" }} />);
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
+    id: "editor.transformSelections", arguments: expect.objectContaining({ transform: "base64Encode" }),
+  })));
+  rerender(<EditorViewport {...props} editorAction={{ id: 2, action: "insertDateTime" }} />);
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
+    id: "editor.insertText", arguments: expect.objectContaining({ text: expect.stringMatching(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/) }),
+  })));
+  expect(formatDateTime(new Date(2026, 0, 5, 7, 8, 9))).toBe("2026-01-05 07:08:09");
 });
 
 // Kept last: it replaces the shared mocks' implementations.

@@ -105,6 +105,44 @@ const VIEW_MENU_COMMANDS: &[(&str, &str)] = &[
     ("workbench.splitRight", "Split Editor Right"),
     ("workbench.splitDown", "Split Editor Down"),
 ];
+/// Line commands added to the platform Edit menu.
+const EDIT_MENU_COMMANDS: &[(&str, &str)] = &[
+    ("edit.selectLines", "Select Line"),
+    ("edit.duplicateLines", "Duplicate Line"),
+    ("edit.deleteLines", "Delete Line"),
+    ("edit.moveLinesUp", "Move Line Up"),
+    ("edit.moveLinesDown", "Move Line Down"),
+    ("edit.insertLineBelow", "Insert Line Below"),
+];
+const FORMAT_MENU_COMMANDS: &[&[(&str, &str)]] = &[
+    &[
+        ("format.uppercase", "To Upper Case"),
+        ("format.lowercase", "To Lower Case"),
+        ("format.capitalize", "Capitalize Words"),
+        ("format.invertCase", "Invert Case"),
+    ],
+    &[
+        ("format.indent", "Indent Lines"),
+        ("format.outdent", "Outdent Lines"),
+        ("format.toggleComment", "Toggle Line Comment"),
+    ],
+    &[
+        ("format.trimSelection", "Trim Selection"),
+        ("format.trimTrailingSpaces", "Trim Trailing Spaces"),
+        ("format.tabsToSpaces", "Tabs to Spaces"),
+        ("format.spacesToTabs", "Leading Spaces to Tabs"),
+    ],
+    &[
+        ("format.sortAscending", "Sort Lines Ascending"),
+        ("format.sortDescending", "Sort Lines Descending"),
+        ("format.sortUnique", "Sort Lines and Remove Duplicates"),
+    ],
+    &[
+        ("format.base64Encode", "Encode Base64"),
+        ("format.base64Decode", "Decode Base64"),
+        ("format.insertDateTime", "Insert Date and Time"),
+    ],
+];
 const WORKSPACE_MENU_COMMANDS: &[&[(&str, &str)]] = &[
     &[
         ("workspace.rename", "Rename Workspace…"),
@@ -583,6 +621,18 @@ fn add_command_menus(app: &tauri::AppHandle, menu: &Menu<tauri::Wry>) -> tauri::
         view.append(&PredefinedMenuItem::separator(app)?)?;
     }
     append_commands(app, &view, VIEW_MENU_COMMANDS)?;
+    let edit = find_or_add_submenu(app, menu, "Edit")?;
+    if !edit.items()?.is_empty() {
+        edit.append(&PredefinedMenuItem::separator(app)?)?;
+    }
+    append_commands(app, &edit, EDIT_MENU_COMMANDS)?;
+    let format = find_or_add_submenu(app, menu, "Format")?;
+    for (index, section) in FORMAT_MENU_COMMANDS.iter().enumerate() {
+        if index > 0 {
+            format.append(&PredefinedMenuItem::separator(app)?)?;
+        }
+        append_commands(app, &format, section)?;
+    }
     // Tools are named and enabled for the focused document's language.
     let tools = find_or_add_submenu(app, menu, "Tools")?;
     let mut tool_items = Vec::new();
