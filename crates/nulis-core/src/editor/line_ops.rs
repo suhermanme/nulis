@@ -46,6 +46,10 @@ pub enum LineOperation {
     SortDescending,
     /// Sorts ascending and keeps one copy of repeated lines.
     SortUnique,
+    /// Pads delimited fields (CSV and similar) so the columns line up.
+    AlignColumns,
+    /// Removes that padding, leaving plain delimited text.
+    UnalignColumns,
 }
 
 impl LineOperation {
@@ -69,6 +73,8 @@ impl LineOperation {
                 descending: false,
                 unique: true,
             },
+            Self::AlignColumns => FormatKind::AlignColumns,
+            Self::UnalignColumns => FormatKind::UnalignColumns,
             _ => return None,
         })
     }

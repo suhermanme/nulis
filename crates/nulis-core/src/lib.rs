@@ -15,19 +15,20 @@ pub use editor::{
     DocumentMapChange, DocumentMapSample, DocumentMapSnapshot, DocumentSummary, EditorError,
     ExternalChange, ExternalChangeKind, FileSearchScope, FileStamp, FindAllResult, FindDirection,
     FindResult, FoundLine, FoundMatch, HexCaret, HexClipboardPayload, HexCursor, HexEditResult,
-    HexViewportRequest, HexViewportRow, HexViewportSnapshot, HorizontalDirection,
+    HexViewportRequest, HexViewportRow, HexViewportSnapshot, HorizontalDirection, Justify,
     LanguageDescriptor, LineEditResult, LineEnding, LineEndingConversion, LineEndingStyle,
-    LineFormatOptions, LineOperation, MarkdownPreviewSource, RecoveryCandidate,
-    RectangularSelection, ReplaceAllResult, ReplaceFileOutcome, ReplacePreview, ReplacePreviewFile,
-    ReplaceTarget, SearchMode, SearchOptions, Selection, SyntaxBracketPair, SyntaxFold,
-    SyntaxHighlight, SyntaxSnapshot, SyntaxSymbol, TextEncoding, TextTransform, VerticalDirection,
-    ViewportAtRequest, ViewportCursor, ViewportLine, ViewportLineRequest, ViewportRequest,
-    ViewportSnapshot, WorkspaceSearchMatch, WorkspaceSearchResult, LINE_ENDING_SAMPLE_BYTES,
-    MAX_BOOKMARKS, MAX_CLIPBOARD_BYTES, MAX_EDIT_BYTES, MAX_FILE_NAME_BYTES, MAX_FIND_ALL_LINES,
-    MAX_FIND_ALL_MATCHES, MAX_HEX_CLIPBOARD_BYTES, MAX_HEX_EDIT_BYTES, MAX_HEX_VIEWPORT_BYTES,
-    MAX_LINE_ENDING_CHANGES, MAX_LINE_ENDING_CONVERSION_BYTES, MAX_LINE_PREVIEW_BYTES,
-    MAX_MARKDOWN_PREVIEW_BYTES, MAX_MERGE_BYTES, MAX_RECTANGULAR_ROWS, MAX_REPLACE_FILES,
-    MAX_SELECTIONS, MAX_VIEWPORT_BYTES, MAX_WORKSPACE_SEARCH_FILES, MAX_WORKSPACE_SEARCH_RESULTS,
+    LineFormatOptions, LineOperation, MarkdownPreviewSource, NumberPadding, NumberSequence,
+    NumberSum, RecoveryCandidate, RectangularSelection, ReplaceAllResult, ReplaceFileOutcome,
+    ReplacePreview, ReplacePreviewFile, ReplaceTarget, SearchMode, SearchOptions, Selection,
+    SyntaxBracketPair, SyntaxFold, SyntaxHighlight, SyntaxSnapshot, SyntaxSymbol, TextEncoding,
+    TextTransform, VerticalDirection, ViewportAtRequest, ViewportCursor, ViewportLine,
+    ViewportLineRequest, ViewportRequest, ViewportSnapshot, WorkspaceSearchMatch,
+    WorkspaceSearchResult, LINE_ENDING_SAMPLE_BYTES, MAX_BOOKMARKS, MAX_CLIPBOARD_BYTES,
+    MAX_EDIT_BYTES, MAX_FILE_NAME_BYTES, MAX_FIND_ALL_LINES, MAX_FIND_ALL_MATCHES,
+    MAX_HEX_CLIPBOARD_BYTES, MAX_HEX_EDIT_BYTES, MAX_HEX_VIEWPORT_BYTES, MAX_LINE_ENDING_CHANGES,
+    MAX_LINE_ENDING_CONVERSION_BYTES, MAX_LINE_PREVIEW_BYTES, MAX_MARKDOWN_PREVIEW_BYTES,
+    MAX_MERGE_BYTES, MAX_RECTANGULAR_ROWS, MAX_REPLACE_FILES, MAX_SELECTIONS, MAX_VIEWPORT_BYTES,
+    MAX_WORKSPACE_SEARCH_FILES, MAX_WORKSPACE_SEARCH_RESULTS,
 };
 pub use format_tools::ToolKind;
 pub use line_changes::{LineChange, LineChangeStatus};
@@ -77,7 +78,7 @@ use nulis_automation::{
     CURRENT_REVISION_ARGUMENT,
 };
 
-pub const IPC_PROTOCOL_VERSION: u32 = 34;
+pub const IPC_PROTOCOL_VERSION: u32 = 35;
 pub const PRODUCT_NAME: &str = "Nulis";
 pub const APPLICATION_ID: &str = "com.nulis.editor";
 const MAX_SCRIPT_MESSAGES: usize = 100;
@@ -1744,6 +1745,22 @@ struct ConvertLineEndingsArguments {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct NumberSequenceArguments {
+    #[serde(with = "editor::decimal_u64")]
+    expected_revision: u64,
+    sequence: NumberSequence,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct JustifyArguments {
+    #[serde(with = "editor::decimal_u64")]
+    expected_revision: u64,
+    justify: Justify,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct RenameFileArguments {
     name: String,
 }
@@ -1939,6 +1956,8 @@ fn is_recordable_command(id: &str) -> bool {
             | "editor.lineOperation"
             | "editor.deleteBookmarkedLines"
             | "editor.convertLineEndings"
+            | "editor.insertNumberSequence"
+            | "editor.justifyColumns"
             | "editor.replace"
             | "editor.setSelections"
             | "editor.undo"
@@ -1975,6 +1994,23 @@ fn normalize_recorded_arguments(mut arguments: Value) -> Value {
         }
     }
     arguments
+}
+
+/// Quick Open's bounded list of the workspace's files.
+fn register_workspace_file_list(commands: &mut CommandRegistry, workspace: &Arc<WorkspaceService>) {
+    let service = Arc::clone(workspace);
+    commands
+        .register(
+            CommandDescriptor::new("workspace.listFiles", "List Workspace Files", "Workspace")
+                .expect("built-in command ID is valid"),
+            move |_context, _arguments| {
+                let result = service
+                    .list_files()
+                    .map_err(|error| CommandError::Failed(error.to_string()))?;
+                serde_json::to_value(result).map_err(|error| serialization_command_error(&error))
+            },
+        )
+        .expect("built-in command is unique");
 }
 
 fn register_workspace_commands(
@@ -2025,6 +2061,8 @@ fn register_workspace_commands(
             },
         )
         .expect("built-in command is unique");
+
+    register_workspace_file_list(commands, workspace);
 
     commands
         .register(
@@ -2352,6 +2390,26 @@ const WORKBENCH_ACTIONS: &[(&str, &str, &str)] = &[
     ("workbench.splitRight", "Split Editor Right", "View"),
     ("workbench.splitDown", "Split Editor Down", "View"),
     ("workbench.closeFile", "Close File", "File"),
+    ("format.insertNumbers", "Insert Number Sequence…", "Format"),
+    ("format.sumNumbers", "Sum Selected Numbers", "Format"),
+    ("format.justifyLeft", "Left Justify Columns", "Format"),
+    ("format.justifyCenter", "Center Columns", "Format"),
+    ("format.justifyRight", "Right Justify Columns", "Format"),
+    (
+        "format.alignColumns",
+        "Convert to Fixed-Width Columns",
+        "Format",
+    ),
+    (
+        "format.unalignColumns",
+        "Convert to Delimited Columns",
+        "Format",
+    ),
+    ("edit.copyAppend", "Copy and Append", "Edit"),
+    ("edit.cutAppend", "Cut and Append", "Edit"),
+    ("edit.pasteCopy", "Paste and Copy", "Edit"),
+    ("edit.pasteFromHistory", "Paste from History…", "Edit"),
+    ("file.quickOpen", "Quick Open…", "File"),
     ("file.saveAll", "Save All", "File"),
     ("file.closeAll", "Close All Files", "File"),
     ("file.openRecent", "Open Recent…", "File"),
@@ -3273,6 +3331,63 @@ fn register_editing_extensions(commands: &mut CommandRegistry, documents: &Arc<D
     register_external_change_commands(commands, documents);
     register_navigation_commands_m26(commands, documents);
     register_line_ending_commands(commands, documents);
+    register_column_commands(commands, documents);
+}
+
+fn register_column_commands(commands: &mut CommandRegistry, documents: &Arc<DocumentManager>) {
+    let manager = Arc::clone(documents);
+    commands
+        .register(
+            CommandDescriptor::new(
+                "editor.insertNumberSequence",
+                "Insert Number Sequence",
+                "Editor",
+            )
+            .expect("built-in command ID is valid"),
+            move |context, arguments| {
+                let document_id = context_document(&context)?;
+                let arguments: NumberSequenceArguments = parse_arguments(arguments)?;
+                let result = manager
+                    .insert_number_sequence(
+                        &document_id,
+                        arguments.expected_revision,
+                        arguments.sequence,
+                    )
+                    .map_err(|error| editor_command_error(&error))?;
+                serde_json::to_value(result).map_err(|error| serialization_command_error(&error))
+            },
+        )
+        .expect("built-in command is unique");
+
+    let manager = Arc::clone(documents);
+    commands
+        .register(
+            CommandDescriptor::new("editor.sumNumbers", "Sum Numbers", "Editor")
+                .expect("built-in command ID is valid"),
+            move |context, _arguments| {
+                let result = manager
+                    .sum_numbers(&context_document(&context)?)
+                    .map_err(|error| editor_command_error(&error))?;
+                serde_json::to_value(result).map_err(|error| serialization_command_error(&error))
+            },
+        )
+        .expect("built-in command is unique");
+
+    let manager = Arc::clone(documents);
+    commands
+        .register(
+            CommandDescriptor::new("editor.justifyColumns", "Justify Columns", "Editor")
+                .expect("built-in command ID is valid"),
+            move |context, arguments| {
+                let document_id = context_document(&context)?;
+                let arguments: JustifyArguments = parse_arguments(arguments)?;
+                let result = manager
+                    .justify_columns(&document_id, arguments.expected_revision, arguments.justify)
+                    .map_err(|error| editor_command_error(&error))?;
+                serde_json::to_value(result).map_err(|error| serialization_command_error(&error))
+            },
+        )
+        .expect("built-in command is unique");
 }
 
 fn register_line_ending_commands(commands: &mut CommandRegistry, documents: &Arc<DocumentManager>) {

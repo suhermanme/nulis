@@ -1,10 +1,10 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeAll, expect, test, vi } from "vitest";
 import { useState } from "react";
 import type { DocumentSummary } from "./contracts";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { EditorViewport, formatDateTime, lineBreakAt } from "./EditorViewport";
+import { appendedClipboard, EditorViewport, formatDateTime, lineBreakAt } from "./EditorViewport";
 import { executeCommand, getDocumentMap, getMarkdownPreviewSource, getViewport, getViewportAt, getViewportLine } from "./ipc";
 
 vi.mock("./ipc", () => ({
@@ -163,6 +163,66 @@ test("marks whitespace and line endings without changing the text, and hides lin
   const surface = container.querySelector<HTMLElement>(".editor-surface")!;
   expect(surface).toHaveClass("show-whitespace", "no-line-numbers", "column-marker");
   expect(surface.style.getPropertyValue("--marker-column")).toBe("80");
+});
+
+test("appending to the clipboard starts a new line unless the clipboard already ends with one", () => {
+  expect(appendedClipboard("", "b")).toBe("b");
+  expect(appendedClipboard("a", "b")).toBe("a\nb");
+  expect(appendedClipboard("a\r\n", "b")).toBe("a\r\nb");
+});
+
+test("column and clipboard commands: append, swap, number sequence, sum, and paste from history", async () => {
+  const original = vi.mocked(executeCommand).getMockImplementation();
+  vi.mocked(executeCommand).mockImplementation(async (request) => {
+    if (request.id === "editor.selectionText") return { text: "picked", revision: "0", hadInvalidUtf8: false } as never;
+    if (request.id === "editor.sumNumbers") return { sum: "3.50", count: 2 } as never;
+    return original?.(request) as never;
+  });
+  vi.mocked(readText).mockResolvedValue("before");
+  const onStatus = vi.fn();
+  const onClipboardText = vi.fn();
+  const documentSummary = { documentId: "document-1", name: "Untitled", byteLen: "7", revision: "0", encoding: "utf8" } as const;
+  let actionId = 0;
+  const view = (action?: Parameters<typeof EditorViewport>[0]["editorAction"], insertRequest?: { id: number; text: string }) => (
+    <EditorViewport document={documentSummary} onDocumentChange={() => undefined} onStatus={onStatus}
+      onClipboardText={onClipboardText} editorAction={action} insertRequest={insertRequest} />);
+  const { rerender } = render(view());
+  await screen.findByRole("textbox", { name: "Untitled editor" });
+  const run = (name: Parameters<typeof EditorViewport>[0]["editorAction"] extends infer T ? T extends { action: infer A } ? A : never : never) => {
+    actionId += 1;
+    rerender(view({ id: actionId, action: name }));
+  };
+
+  run("copyAppend");
+  await waitFor(() => expect(writeText).toHaveBeenLastCalledWith("before\npicked"));
+  expect(onClipboardText).toHaveBeenLastCalledWith("before\npicked");
+  await waitFor(() => expect(onStatus).toHaveBeenCalledWith("Copied and appended to the clipboard"));
+
+  run("pasteCopy");
+  await waitFor(() => expect(writeText).toHaveBeenLastCalledWith("picked"));
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
+    id: "editor.insertText", arguments: expect.objectContaining({ text: "before" }),
+  })));
+
+  run("insertNumbers");
+  const bar = await screen.findByRole("group", { name: "Insert number sequence" });
+  fireEvent.change(within(bar).getByRole("textbox", { name: "First number" }), { target: { value: "5" } });
+  fireEvent.change(within(bar).getByRole("combobox", { name: "Padding" }), { target: { value: "zeros" } });
+  fireEvent.keyDown(within(bar).getByRole("textbox", { name: "Step" }), { key: "Enter" });
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
+    id: "editor.insertNumberSequence", arguments: expect.objectContaining({ sequence: { start: 5, step: 1, padding: "zeros" } }),
+  })));
+  await waitFor(() => expect(screen.queryByRole("group", { name: "Insert number sequence" })).toBeNull());
+
+  run("sumNumbers");
+  await waitFor(() => expect(onStatus).toHaveBeenCalledWith("Sum: 3.50 (2 numbers)"));
+
+  rerender(view(undefined, { id: 1, text: "from history" }));
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
+    id: "editor.insertText", arguments: expect.objectContaining({ text: "from history" }),
+  })));
+  if (original) vi.mocked(executeCommand).mockImplementation(original);
+  vi.mocked(readText).mockResolvedValue("pasted");
 });
 
 test("shows a compact document map for a short file and exposes its visibility toggle", async () => {

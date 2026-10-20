@@ -4,8 +4,8 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 
 ## Current state
 
-- **Current milestone:** M29 Column and clipboard tools — pending (next to start)
-- **Overall:** 10 of 12 milestones completed (M19–M28)
+- **Current milestone:** M30 Integration and quality — pending (next to start)
+- **Overall:** 11 of 12 milestones completed (M19–M29)
 - **Baseline before M19 (commit `66853e1`):** `cargo test -p nulis-core` 86 passed; desktop Vitest 11 files, 115 tests passed.
 
 | Milestone | Status | Handover |
@@ -20,7 +20,7 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 | M26 Search and navigation | Completed (manual and Windows/Linux checks pending) | `handover/M26_HANDOVER.md` |
 | M27 View features (split from "View and file") | Completed (manual and Windows/Linux checks pending) | `handover/M27_HANDOVER.md` |
 | M28 File conveniences (split from "View and file") | Completed (manual and Windows/Linux checks pending) | `handover/M28_HANDOVER.md` |
-| M29 Column and clipboard tools | Pending | – |
+| M29 Column and clipboard tools | Completed (manual and Windows/Linux checks pending) | `handover/M29_HANDOVER.md` |
 | M30 Integration and quality | Pending | – |
 
 ## M19 — Audit and foundation
@@ -119,6 +119,14 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 
 **Result (completed 2026-10-20, on `main`):** all criteria covered by tests. Verification on macOS: fmt and clippy clean; `cargo test --workspace` passed (nulis-core 108, nulis-desktop 7); lint and typecheck clean; Vitest 124 passed. Details: `handover/M23_HANDOVER.md`.
 
+## M29 — Column and clipboard tools
+
+**Delivered:** Insert Number Sequence (column block, carets, or line starts; start, step, padding), Sum Selected Numbers (exact decimals), Left/Center/Right Justify in a column block, Convert to Fixed-Width / Delimited Columns (new line operations, delimiter detected or chosen), Copy and Append, Cut and Append, Paste and Copy, Paste from History (in-memory, 20 entries), Quick Open (Ctrl/⌘ P; open, folder, and recent files; core `workspace.listFiles`). A shared `Picker` now backs Open Recent, Quick Open, and Paste from History.
+
+**Fix found during M29:** M28 raised the core IPC protocol to 34 but left the desktop constant at 33, so the M28 build would have refused to start. Both are 35 now, and `contracts.test.ts` compares them.
+
+**Result (completed 2026-10-20, on `main`):** fmt and clippy clean; `cargo test --workspace` passed (nulis-core 135, nulis-filesystem 21); lint and typecheck clean; Vitest 14 files, 147 passed. IPC 35. Details: `handover/M29_HANDOVER.md`.
+
 ## M28 — File conveniences
 
 **Delivered:** Save All (untitled files ask for a destination), Close All Files (the existing per-file save prompts), Open Recent (last 20 local files, searchable picker, missing files dropped, Clear Recent Files), Rename File (core `file.renameTo`, same folder, unsaved edits kept), Show in Places (expands the folders above the file and highlights it). File menu entries are always offered after the customizable part.
@@ -163,6 +171,6 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 
 ## Next steps
 
-0. M29 Column and clipboard tools is next: insert number sequence, sum, justify in rectangle; CSV↔fixed width; copy/cut append, paste-and-copy, clipboard history; Quick Open.
+0. M30 Integration and quality is next: palette and native-menu entries for M20–M29 commands, shortcut audit, accessibility, user guide, parity doc, hosted OS matrix.
 1. Run the app (`npm run dev`) and try M20–M27 by hand on macOS (keys, menus, the Find window, line endings, view options).
 2. Push to CI to build Windows/Linux, and check the M19 Settings/Help window fix there.

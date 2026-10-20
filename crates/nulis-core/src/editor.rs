@@ -27,6 +27,8 @@ use std::{
 use thiserror::Error;
 use unicode_segmentation::UnicodeSegmentation;
 
+mod column_tools;
+pub use column_tools::{Justify, NumberPadding, NumberSequence, NumberSum};
 mod external_changes;
 mod find_all;
 pub use external_changes::{ExternalChange, ExternalChangeKind};
@@ -5201,6 +5203,14 @@ pub enum EditorError {
     TooManyLineEndingChanges(usize),
     #[error("Could not rename: {0}")]
     Rename(String),
+    #[error("The lines have no tab, comma, semicolon, or | between columns")]
+    NoColumnDelimiter,
+    #[error("Select a column block first (Alt Shift drag, or Column Editing)")]
+    NeedsColumnSelection,
+    #[error("The numbers are out of range")]
+    NumberOutOfRange,
+    #[error("selection of {selected} bytes exceeds the {maximum}-byte limit for this command")]
+    SelectionTooLarge { selected: u64, maximum: u64 },
     #[error("search operation failed: {0}")]
     Search(String),
     #[error("syntax operation failed: {0}")]

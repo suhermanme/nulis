@@ -24,6 +24,7 @@ const CLOSE_FILE_MENU_ID: &str = "workbench.closeFile";
 const RELOAD_MENU_ID: &str = "file.reload";
 /// File commands always offered after the customizable part of the File menu.
 const FILE_EXTRA_MENU_COMMANDS: &[(&str, &str)] = &[
+    ("file.quickOpen", "Quick Open…"),
     ("file.openRecent", "Open Recent…"),
     ("file.saveAll", "Save All"),
     ("file.rename", "Rename File…"),
@@ -129,6 +130,10 @@ const EDIT_MENU_COMMANDS: &[(&str, &str)] = &[
     ("edit.moveLinesUp", "Move Line Up"),
     ("edit.moveLinesDown", "Move Line Down"),
     ("edit.insertLineBelow", "Insert Line Below"),
+    ("edit.copyAppend", "Copy and Append"),
+    ("edit.cutAppend", "Cut and Append"),
+    ("edit.pasteCopy", "Paste and Copy"),
+    ("edit.pasteFromHistory", "Paste from History…"),
 ];
 const SEARCH_MENU_COMMANDS: &[&[(&str, &str)]] = &[
     &[
@@ -185,6 +190,15 @@ const FORMAT_MENU_COMMANDS: &[&[(&str, &str)]] = &[
         ("format.base64Encode", "Encode Base64"),
         ("format.base64Decode", "Decode Base64"),
         ("format.insertDateTime", "Insert Date and Time"),
+    ],
+    &[
+        ("format.insertNumbers", "Insert Number Sequence…"),
+        ("format.sumNumbers", "Sum Selected Numbers"),
+        ("format.justifyLeft", "Left Justify Columns"),
+        ("format.justifyCenter", "Center Columns"),
+        ("format.justifyRight", "Right Justify Columns"),
+        ("format.alignColumns", "Convert to Fixed-Width Columns"),
+        ("format.unalignColumns", "Convert to Delimited Columns"),
     ],
     &[
         ("format.lineEndingsLf", "Convert Line Endings to LF"),

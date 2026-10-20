@@ -68,20 +68,23 @@ vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: vi.fn(() => ({
 
 vi.mock("./EditorViewport", () => ({
   EditorViewport: ({ document, showLineChanges, searchRequest, onCaret, onToggleReadOnly, onOpenFind, editorAction,
-    wordWrap, showWhitespace, showLineEndings, showLineNumbers, columnMarker, lineHeight }: {
+    wordWrap, showWhitespace, showLineEndings, showLineNumbers, columnMarker, lineHeight, onClipboardText, insertRequest }: {
     document: { name: string; readOnly?: boolean }; showLineChanges?: boolean; searchRequest?: object;
     editorAction?: { action: string }; wordWrap?: boolean; showWhitespace?: boolean; showLineEndings?: boolean;
     showLineNumbers?: boolean; columnMarker?: number; lineHeight?: number;
+    onClipboardText?: (text: string) => void; insertRequest?: { text: string };
     onCaret?: (position: object | null) => void; onToggleReadOnly?: () => void;
     onOpenFind?: (tab: "find" | "replace", seed?: string) => void;
   }) => (
     <div>
       <div data-line-changes={String(showLineChanges)} data-search={JSON.stringify(searchRequest ?? null)}
         data-action={editorAction?.action ?? ""}
-        data-view={JSON.stringify({ wordWrap, showWhitespace, showLineEndings, showLineNumbers, columnMarker, lineHeight })}>
+        data-view={JSON.stringify({ wordWrap, showWhitespace, showLineEndings, showLineNumbers, columnMarker, lineHeight })}
+        data-inserted={insertRequest?.text ?? ""}>
         {document.name} editor</div>
       <button type="button" onClick={() => onCaret?.({ line: "1234", column: 7, carets: 1, selectedBytes: "0", codePoint: 0xe9 })}>Move caret in {document.name}</button>
       <button type="button" onClick={() => onToggleReadOnly?.()}>Editor mode of {document.name}: {document.readOnly ? "read-only" : "edit"}</button>
+      <button type="button" onClick={() => onClipboardText?.(`copied from ${document.name}\nsecond line`)}>Copy in {document.name}</button>
       {onOpenFind ? <>
         <button type="button" onClick={() => onOpenFind("find", "seeded")}>Find in {document.name}</button>
         <button type="button" onClick={() => onOpenFind("replace")}>Replace in {document.name}</button>
@@ -1266,6 +1269,53 @@ test("Save All saves every changed file, Rename renames the active one, and Clos
 
   await chooseMenu("File", "Close All Files");
   await waitFor(() => expect(screen.queryByText(/ editor$/)).toBeNull());
+});
+
+test("Quick Open finds open files, folder files, and recent files", async () => {
+  window.localStorage.setItem("nulis.recentFiles.v1", JSON.stringify(["/elsewhere/notes.md"]));
+  vi.mocked(open).mockResolvedValueOnce("/tmp/project");
+  responses["workspace.open"] = [{ root: "/tmp/project", name: "project" }];
+  responses["workspace.list"] = [{ relativePath: "", entries: [], truncated: false }];
+  responses["workspace.listFiles"] = [{ files: ["README.md", "src/main.rs", "src/notes.rs"], truncated: false }];
+  responses["workspace.openFile"] = [{
+    documentId: "document-7", name: "main.rs", byteLen: "1", revision: "0", encoding: "utf8", sourcePath: "/tmp/project/src/main.rs",
+  }];
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  fireEvent.click(screen.getByRole("button", { name: "Open a folder" }));
+  await screen.findByRole("tree", { name: "project files" });
+
+  fireEvent.keyDown(window, { key: "p", code: "KeyP", ctrlKey: true });
+  const picker = await screen.findByRole("dialog", { name: "Quick Open" });
+  await waitFor(() => expect(within(picker).getAllByRole("option")).toHaveLength(4));
+  const search = within(picker).getByRole("textbox", { name: "Search files" });
+  fireEvent.change(search, { target: { value: "notes" } });
+  // The folder's notes.rs and the recent notes.md both match by name.
+  expect(within(picker).getAllByRole("option").map((option) => option.textContent))
+    .toEqual(["notes.rssrc", "notes.mdRecent · /elsewhere"]);
+  fireEvent.change(search, { target: { value: "main" } });
+  fireEvent.keyDown(search, { key: "Enter" });
+  expect(await screen.findByText("main.rs editor")).toBeInTheDocument();
+  expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({ id: "workspace.openFile", arguments: { path: "src/main.rs" } }));
+  expect(screen.queryByRole("dialog", { name: "Quick Open" })).toBeNull();
+});
+
+test("Paste from History lists this session's copies and pastes the chosen one", async () => {
+  vi.mocked(listCommands).mockResolvedValueOnce([
+    { id: "edit.pasteFromHistory", title: "Paste from History…", category: "Edit" },
+  ]);
+  await openDocuments("First");
+  fireEvent.click(screen.getByRole("button", { name: "Copy in First" }));
+  fireEvent.click(screen.getByRole("button", { name: "Open command palette" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Search commands" }), { target: { value: "paste from history" } });
+  fireEvent.click(await screen.findByRole("option", { name: /Paste from History/ }));
+  const picker = await screen.findByRole("dialog", { name: "Paste from History" });
+  const option = within(picker).getByRole("option");
+  expect(option).toHaveTextContent("copied from First");
+  expect(option).toHaveTextContent("29 characters");
+  fireEvent.click(option);
+  await waitFor(() => expect(screen.getByText("First editor"))
+    .toHaveAttribute("data-inserted", "copied from First\nsecond line"));
 });
 
 test("the tab strip offers scroll arrows only when its tabs overflow", async () => {

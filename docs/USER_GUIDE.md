@@ -62,6 +62,7 @@ When no file is open at startup, Nulis shows a welcome screen with buttons for a
 | New file | **Ctrl/⌘ N**, the **New** toolbar button, the **+** button in the tab strip, or **File ▸ New Text File**. |
 | Open a file | **Ctrl/⌘ O**, the **Open** toolbar button, or **File ▸ Open File…**. You can also drag files from the file manager onto the window, or open them from File View. |
 | Open a file from Finder (macOS) | Right-click the file and choose **Open With ▸ Nulis**, or drop it on the Nulis icon in the Dock. If Nulis is already open, the file opens in the existing window. |
+| Find a file by name | **Ctrl/⌘ P** or **File ▸ Quick Open…** lists the open files, the files of the opened folder, and recent files. Type part of a name; file-name matches come first, then matches anywhere in the path, then the letters in order. Enter opens the file. Folders starting with a dot and `node_modules` are not listed, and at most 20,000 files of a folder are. |
 | Open a recent file | **File ▸ Open Recent…** lists the last 20 files you opened on this computer. Type to narrow the list; Enter or a click opens the file. A file that no longer exists is removed from the list. **Clear Recent Files** empties it. |
 | Open a folder | **Open a folder** on the welcome screen, or the *Open Folder* command in the palette. The folder appears in the **Folder** tab of File View. |
 | Save | **Ctrl/⌘ S**, the **Save** toolbar button, or **File ▸ Save**. |
@@ -161,6 +162,9 @@ Right-click the text for a menu with Undo, Redo, Cut, Copy, Paste, Find, Replace
 | Cancel a drag | Press Escape. |
 | Undo / redo | **Ctrl/⌘ Z** / **Ctrl/⌘ Shift Z**, or the toolbar buttons. |
 | Cut, copy, paste | The usual system shortcuts and the **Edit** menu. |
+| Add to the clipboard | **Edit ▸ Copy and Append** / **Cut and Append** add the selection to the end of what is already on the clipboard, on a new line. |
+| Swap with the clipboard | **Edit ▸ Paste and Copy** puts the selection on the clipboard and the clipboard's text in its place. |
+| Paste an earlier copy | **Edit ▸ Paste from History…** lists the last 20 texts you copied or cut in Nulis during this session (each up to 1 MiB). Type to narrow the list and choose one to paste. The history is kept in memory only and is gone when Nulis closes; **Clear History** empties it sooner. |
 | Insert / overwrite | Press **Insert**, or click the **INS** / **OVR** indicator in the editor toolbar. In overwrite mode, typing replaces the character under the caret. |
 | Change case, format, encode | Choose from the **Format** menu, the **Format** list in the editor toolbar, or the command palette; see *Formatting* below. |
 | Word wrap | **Alt Z**, **View ▸ Word Wrap**, or the **Wrap** button in the editor toolbar. Nulis remembers the choice. |
@@ -239,6 +243,18 @@ With a rectangle selected:
 - **Backspace** and **Delete** remove one column from every line.
 - **Paste** distributes multi-line clipboard text across the rows, one line per row.
 - The rectangle may extend past the end of shorter lines ("virtual space"); typing pads those lines with spaces.
+
+#### Column tools
+
+These are in the **Format** menu and the command palette. Each change is one undo step.
+
+| Tool | What it does |
+| --- | --- |
+| Insert Number Sequence… | Opens a bar above the text: choose the first number, the step (negative counts down), and padding (none, leading zeros, or aligned right), then press Enter. One number goes on each row of a column block, at each caret, or at the start of each line of a selection that spans lines. Selected text is replaced, as typing would. |
+| Sum Selected Numbers | Adds the numbers in the column block or selection and shows the total in the status bar, for example `Sum: 3.50 (2 numbers)`. The arithmetic is exact. A number glued to letters, such as `v2`, is skipped; commas are not read as thousands separators. |
+| Left Justify / Center / Right Justify Columns | Moves the text in each row of a column block to its left edge, center, or right edge. Blank cells are left alone, and a row that ends inside the block gets no trailing spaces. The block stays selected. |
+| Convert to Fixed-Width Columns | Pads delimited text (CSV and similar) so the columns line up. The delimiter is found from the first line that has one: tab, comma, semicolon, or `|`. A delimiter inside double quotes is part of the text. With nothing selected it covers the whole document. |
+| Convert to Delimited Columns | Removes that padding (spaces before each delimiter) again. |
 
 ### Bookmarks, folding, and symbols
 
@@ -502,6 +518,7 @@ These are the defaults. Shortcuts for commands can be changed under **Settings �
 | Ctrl/⌘ Enter | Open a new line below |
 | Ctrl/⌘ / | Toggle line comment |
 | Alt Z | Word wrap on or off |
+| Ctrl/⌘ P | Quick Open |
 | Ctrl/⌘ = / Ctrl/⌘ - / Ctrl/⌘ 0 | Zoom in / out / reset |
 | F3 / Shift F3 | Find next / previous |
 | Ctrl/⌘ Shift \ | Go to matching bracket |

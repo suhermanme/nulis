@@ -26,8 +26,11 @@ import type {
   LineChange,
   FoundLine,
   LineEditResult,
+  Justify,
   LineEnding,
   LineEndingConversion,
+  NumberPadding,
+  NumberSum,
   LineOperation,
   TextTransformName,
   MarkdownPreviewSource,
@@ -101,7 +104,17 @@ const LINE_OPERATION_STATUS: Record<LineOperation, string> = {
   sortAscending: "Sorted lines",
   sortDescending: "Sorted lines in descending order",
   sortUnique: "Sorted lines and removed duplicates",
+  alignColumns: "Lined up the columns",
+  unalignColumns: "Removed the column padding",
 };
+
+type ClipboardMode = "copyAppend" | "cutAppend" | "pasteCopy";
+
+/** `added` after the clipboard's `current` text, on a new line. */
+export function appendedClipboard(current: string, added: string): string {
+  if (!current) return added;
+  return /[\r\n]$/.test(current) ? current + added : `${current}\n${added}`;
+}
 
 const TRANSFORM_STATUS: Record<TextTransformName, string> = {
   uppercase: "Changed to upper case",
@@ -149,7 +162,7 @@ export function lineBreakAt(lines: readonly ViewportLine[], byte: bigint): strin
 
 const EDITOR_ACTION_KINDS: Record<EditorActionName,
   { line: LineOperation } | { transform: TextTransformName } | { insertDateTime: true } | { navigate: NavigationAction }
-  | { lineEnding: LineEnding }> = {
+  | { lineEnding: LineEnding } | { clipboard: ClipboardMode } | { justify: Justify } | { column: "insertNumbers" | "sumNumbers" }> = {
   selectLines: { line: "selectLines" }, duplicateLines: { line: "duplicateLines" }, deleteLines: { line: "deleteLines" },
   moveLinesUp: { line: "moveLinesUp" }, moveLinesDown: { line: "moveLinesDown" }, insertLineBelow: { line: "insertLineBelow" },
   uppercase: { transform: "uppercase" }, lowercase: { transform: "lowercase" }, capitalize: { transform: "capitalize" },
@@ -160,6 +173,10 @@ const EDITOR_ACTION_KINDS: Record<EditorActionName,
   base64Encode: { transform: "base64Encode" }, base64Decode: { transform: "base64Decode" },
   insertDateTime: { insertDateTime: true },
   lineEndingsLf: { lineEnding: "lf" }, lineEndingsCrlf: { lineEnding: "crlf" }, lineEndingsCr: { lineEnding: "cr" },
+  insertNumbers: { column: "insertNumbers" }, sumNumbers: { column: "sumNumbers" },
+  justifyLeft: { justify: "left" }, justifyCenter: { justify: "center" }, justifyRight: { justify: "right" },
+  alignColumns: { line: "alignColumns" }, unalignColumns: { line: "unalignColumns" },
+  copyAppend: { clipboard: "copyAppend" }, cutAppend: { clipboard: "cutAppend" }, pasteCopy: { clipboard: "pasteCopy" },
   findNext: { navigate: "findNext" }, findPrevious: { navigate: "findPrevious" }, goToLine: { navigate: "goToLine" },
   matchBrace: { navigate: "matchBrace" }, nextChange: { navigate: "nextChange" }, previousChange: { navigate: "previousChange" },
   navigateBack: { navigate: "navigateBack" }, navigateForward: { navigate: "navigateForward" },
@@ -429,6 +446,10 @@ interface EditorViewportProps {
   showLineNumbers?: boolean;
   /** Draws a vertical guide after this column. */
   columnMarker?: number;
+  /** Called with the text of every copy and cut, for the clipboard history. */
+  onClipboardText?(text: string): void;
+  /** Text to insert as if pasted (from the clipboard history); a new `id` inserts again. */
+  insertRequest?: { id: number; text: string };
 }
 
 export function EditorViewport({
@@ -462,6 +483,8 @@ export function EditorViewport({
   showLineEndings = false,
   showLineNumbers = true,
   columnMarker,
+  onClipboardText,
+  insertRequest,
 }: EditorViewportProps) {
   const rowHeight = Math.max(12, Math.min(100, lineHeight));
   // Several panes can show views at once, so element IDs are per view.
@@ -827,7 +850,7 @@ export function EditorViewport({
   );
 
   const transferSelection = useCallback(
-    async (cut: boolean) => {
+    async (cut: boolean, append = false) => {
       if (cut && refuseEdit()) return;
       try {
         const payload = await executeCommand<ClipboardPayload>({
@@ -839,7 +862,9 @@ export function EditorViewport({
           onStatus("No text selected");
           return;
         }
-        await writeText(payload.text);
+        const written = append ? appendedClipboard(await readText().catch(() => ""), payload.text) : payload.text;
+        await writeText(written);
+        onClipboardText?.(written);
         if (cut) {
           const updated = await executeCommand<DocumentSummary>({
             id: "editor.deleteSelection",
@@ -850,13 +875,47 @@ export function EditorViewport({
           await refresh();
         }
         const qualifier = payload.hadInvalidUtf8 ? " with replacement characters" : "";
-        onStatus(`${cut ? "Cut" : "Copied"}${qualifier}`);
+        onStatus(`${cut ? "Cut" : "Copied"}${append ? " and appended to the clipboard" : ""}${qualifier}`);
       } catch (error: unknown) {
         onStatus(error instanceof Error ? error.message : "Clipboard operation failed");
       }
     },
-    [document.documentId, onDocumentChange, onStatus, refresh, refuseEdit],
+    [document.documentId, onClipboardText, onDocumentChange, onStatus, refresh, refuseEdit],
   );
+
+  /** Paste & Copy: the selection goes to the clipboard and the clipboard's text replaces it. */
+  const swapWithClipboard = async () => {
+    if (refuseEdit()) return;
+    try {
+      const pasted = await readText();
+      if (!pasted) { onStatus("The clipboard holds no text"); return; }
+      const payload = await executeCommand<ClipboardPayload>({
+        id: "editor.selectionText",
+        context: { windowId: "main", documentId: document.documentId },
+        arguments: null,
+      });
+      if (payload.text.length === 0) { onStatus("Select the text to swap with the clipboard"); return; }
+      await writeText(payload.text);
+      onClipboardText?.(payload.text);
+      if (await queueEdit("editor.insertText", { text: pasted, overwrite: false })) onStatus("Swapped the selection with the clipboard");
+    } catch (error: unknown) {
+      onStatus(error instanceof Error ? error.message : "Clipboard operation failed");
+    }
+  };
+
+  const runClipboard = (mode: ClipboardMode) => {
+    if (mode === "pasteCopy") void swapWithClipboard();
+    else void transferSelection(mode === "cutAppend", true);
+  };
+
+  const handledInsert = useRef(insertRequest?.id);
+  const insertTextRef = useRef(insertText);
+  insertTextRef.current = insertText;
+  useEffect(() => {
+    if (!insertRequest || insertRequest.id === handledInsert.current) return;
+    handledInsert.current = insertRequest.id;
+    void insertTextRef.current(insertRequest.text);
+  }, [insertRequest]);
 
   const runHistory = useCallback(
     async (command: "editor.undo" | "editor.redo") => {
@@ -1233,9 +1292,76 @@ export function EditorViewport({
     }
   };
 
+  const [numberBarOpen, setNumberBarOpen] = useState(false);
+  const [numberStart, setNumberStart] = useState("1");
+  const [numberStep, setNumberStep] = useState("1");
+  const [numberPadding, setNumberPadding] = useState<NumberPadding>("none");
+  /** Runs a revision-checked command that returns the updated document, after earlier edits. */
+  const editRevisioned = async (id: string, details: Record<string, unknown>): Promise<DocumentSummary | null> => {
+    const run = async () => {
+      const revision = editRevisionRef.current;
+      if (revision === null) return null;
+      const updated = await executeCommand<DocumentSummary>({
+        id, context: { windowId: "main", documentId: document.documentId }, arguments: { expectedRevision: revision, ...details },
+      });
+      editRevisionRef.current = updated.revision;
+      onDocumentChange(updated);
+      await refreshRef.current();
+      return updated;
+    };
+    const result = editChainRef.current.then(run, run);
+    editChainRef.current = result.catch(() => undefined);
+    return result;
+  };
+  const insertNumbers = async () => {
+    if (refuseEdit()) return;
+    const start = Number(numberStart.trim());
+    const step = Number(numberStep.trim() || "1");
+    if (!numberStart.trim() || !Number.isSafeInteger(start) || !Number.isSafeInteger(step)) {
+      onStatus("Start and step must be whole numbers");
+      return;
+    }
+    try {
+      if (await editRevisioned("editor.insertNumberSequence", { sequence: { start, step, padding: numberPadding } })) {
+        setNumberBarOpen(false);
+        inputRef.current?.focus({ preventScroll: true });
+        onStatus("Inserted numbers");
+      }
+    } catch (error: unknown) {
+      onStatus(error instanceof Error ? error.message : "Could not insert numbers");
+    }
+  };
+  const sumNumbers = async () => {
+    try {
+      const result = await executeCommand<NumberSum>({
+        id: "editor.sumNumbers", context: { windowId: "main", documentId: document.documentId }, arguments: null,
+      });
+      onStatus(result.count === 0 ? "No numbers in the selection"
+        : `Sum: ${result.sum} (${result.count.toLocaleString()} ${result.count === 1 ? "number" : "numbers"})`);
+    } catch (error: unknown) {
+      onStatus(error instanceof Error ? error.message : "Could not add the numbers");
+    }
+  };
+  const justifyColumns = async (justify: Justify) => {
+    if (refuseEdit()) return;
+    try {
+      if (await editRevisioned("editor.justifyColumns", { justify })) {
+        onStatus(`${justify === "left" ? "Left" : justify === "center" ? "Center" : "Right"} justified`);
+      }
+    } catch (error: unknown) {
+      onStatus(error instanceof Error ? error.message : "Could not justify the columns");
+    }
+  };
+
   const runEditorAction = (action: EditorActionName) => {
     const kind = EDITOR_ACTION_KINDS[action];
     if ("line" in kind) void runLineOperation(kind.line);
+    else if ("clipboard" in kind) runClipboard(kind.clipboard);
+    else if ("justify" in kind) void justifyColumns(kind.justify);
+    else if ("column" in kind) {
+      if (kind.column === "sumNumbers") void sumNumbers();
+      else if (!refuseEdit()) setNumberBarOpen(true);
+    }
     else if ("transform" in kind) void transformSelections(kind.transform);
     else if ("navigate" in kind) void navigate(kind.navigate);
     else if ("lineEnding" in kind) void convertLineEndings(kind.lineEnding);
@@ -2040,6 +2166,23 @@ export function EditorViewport({
       <div className="screen-reader-only" role="status" aria-live="polite" aria-atomic="true">
         {accessibilityStatus}
       </div>
+      {numberBarOpen ? <div className="findbar gotobar" role="group" aria-label="Insert number sequence"
+        onKeyDown={(event) => {
+          if (event.key === "Enter") { event.preventDefault(); void insertNumbers(); }
+          if (event.key === "Escape") { setNumberBarOpen(false); inputRef.current?.focus(); }
+        }}>
+        <label>Start <input autoFocus aria-label="First number" inputMode="numeric" size={6} value={numberStart}
+          onChange={(event) => setNumberStart(event.currentTarget.value)} /></label>
+        <label>Step <input aria-label="Step" inputMode="numeric" size={4} value={numberStep}
+          onChange={(event) => setNumberStep(event.currentTarget.value)} /></label>
+        <select aria-label="Padding" value={numberPadding} onChange={(event) => setNumberPadding(event.currentTarget.value as NumberPadding)}>
+          <option value="none">No padding</option>
+          <option value="zeros">Leading zeros</option>
+          <option value="spaces">Align right</option>
+        </select>
+        <button type="button" onClick={() => void insertNumbers()}>Insert</button>
+        <IconButton icon="close" label="Close insert numbers" shortcut="Escape" onClick={() => setNumberBarOpen(false)} />
+      </div> : null}
       {goToOpen ? <div className="findbar gotobar" role="search" aria-label="Go to line">
         <input autoFocus aria-label="Line number" placeholder="Line or line:column" value={goToLine}
           onChange={(event) => setGoToLine(event.currentTarget.value)}

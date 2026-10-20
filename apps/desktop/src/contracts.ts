@@ -1,5 +1,5 @@
 /** Versioned JSON-compatible values mirrored from nulis-core's public IPC DTOs. */
-export const IPC_PROTOCOL_VERSION = 33 as const;
+export const IPC_PROTOCOL_VERSION = 35 as const;
 
 export interface ThemeRecord {
   schema?: string;
@@ -561,7 +561,21 @@ export type LineOperation =
   | "selectLines" | "deleteLines" | "duplicateLines" | "moveLinesUp" | "moveLinesDown"
   | "deleteToLineStart" | "deleteToLineEnd" | "insertLineBelow"
   | "indent" | "outdent" | "toggleComment" | "trimTrailingSpaces" | "tabsToSpaces" | "spacesToTabs"
-  | "sortAscending" | "sortDescending" | "sortUnique";
+  | "sortAscending" | "sortDescending" | "sortUnique" | "alignColumns" | "unalignColumns";
+
+export type Justify = "left" | "center" | "right";
+export type NumberPadding = "none" | "zeros" | "spaces";
+
+export interface NumberSum {
+  /** Exact decimal text. */
+  sum: string;
+  count: number;
+}
+
+export interface WorkspaceFileList {
+  files: string[];
+  truncated: boolean;
+}
 
 /** Selection transforms of `editor.transformSelections`. */
 export type TextTransformName =

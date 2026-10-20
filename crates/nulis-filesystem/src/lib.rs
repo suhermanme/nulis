@@ -20,8 +20,8 @@ pub use session::{
     MAX_WORKSPACE_NAME_CHARS, SESSION_SCHEMA_VERSION,
 };
 pub use workspace::{
-    WorkspaceDirectory, WorkspaceEntry, WorkspaceEntryKind, WorkspaceError, WorkspaceService,
-    WorkspaceSummary, MAX_WORKSPACE_DIRECTORY_ENTRIES,
+    WorkspaceDirectory, WorkspaceEntry, WorkspaceEntryKind, WorkspaceError, WorkspaceFileList,
+    WorkspaceService, WorkspaceSummary, MAX_WORKSPACE_DIRECTORY_ENTRIES, MAX_WORKSPACE_FILE_LIST,
 };
 
 use std::{io, path::Path};

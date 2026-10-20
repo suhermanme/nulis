@@ -25,9 +25,12 @@ import type {
   WorkbenchSession,
   WorkspaceDirectory,
   WorkspaceEntry,
+  WorkspaceFileList,
   WorkspaceSummary,
 } from "./contracts";
 import { EditorViewport } from "./EditorViewport";
+import { Picker, type PickerItem } from "./Picker";
+import { rankMatches } from "./quickOpen";
 import { HexViewport } from "./HexViewport";
 import { CompareView } from "./CompareView";
 import { FolderCompareView } from "./FolderCompareView";
@@ -196,6 +199,18 @@ function folderName(path: string): string {
   return path.slice(0, Math.max(0, path.length - name.length)).replace(/[\\/]$/, "") || path;
 }
 
+const MAX_CLIPBOARD_HISTORY = 20;
+/** Longer copies are left out of the history to keep its memory small. */
+const MAX_HISTORY_TEXT = 1024 * 1024;
+const MAX_QUICK_OPEN_RESULTS = 50;
+
+/** The first line of copied text, shortened for a list. */
+function clipPreview(text: string): string {
+  const line = text.trim().split(/\r\n|\r|\n/, 1)[0] ?? "";
+  const preview = line.length > 80 ? `${line.slice(0, 80)}…` : line;
+  return preview || "(spaces only)";
+}
+
 function encodingLabel(document: DocumentSummary | undefined): string {
   return document?.encoding === "windows1252" ? "Windows-1252" : "UTF-8";
 }
@@ -266,10 +281,15 @@ export function App() {
   const [recentFiles, setRecentFiles] = useState(loadRecentFiles);
   const [recentOpen, setRecentOpen] = useState(false);
   const [recentQuery, setRecentQuery] = useState("");
-  const [recentIndex, setRecentIndex] = useState(0);
   const [renameTarget, setRenameTarget] = useState<{ documentId: string; name: string } | null>(null);
   const [renameBusy, setRenameBusy] = useState(false);
   const [placesReveal, setPlacesReveal] = useState<{ path: string; id: number } | undefined>(undefined);
+  const [quickOpen, setQuickOpen] = useState<{ files: string[]; truncated: boolean; loading: boolean } | null>(null);
+  const [quickQuery, setQuickQuery] = useState("");
+  const [clipboardHistory, setClipboardHistory] = useState<string[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyQuery, setHistoryQuery] = useState("");
+  const [insertRequest, setInsertRequest] = useState<{ id: number; text: string } | undefined>(undefined);
   const [welcomeOnStartup, setWelcomeOnStartup] = useState(loadWelcomeOnStartup);
   // The welcome screen stays for this session after its tick box turns it off for the next start.
   const [welcomeVisible, setWelcomeVisible] = useState(loadWelcomeOnStartup);
@@ -862,6 +882,11 @@ export function App() {
         nativeMenuActionRef.current("view.toggleWordWrap");
         return;
       }
+      if (primary && !event.altKey && !event.shiftKey && (event.key === "p" || event.key === "P" || event.code === "KeyP")) {
+        event.preventDefault();
+        nativeMenuActionRef.current("file.quickOpen");
+        return;
+      }
       if (primary && !event.altKey) {
         const zoomCommand = event.key === "=" || event.key === "+" || event.code === "Equal" || event.code === "NumpadAdd" ? "view.zoomIn"
           : event.key === "-" || event.code === "Minus" || event.code === "NumpadSubtract" ? "view.zoomOut"
@@ -1050,7 +1075,6 @@ export function App() {
   const openRecent = () => {
     if (recentFiles.length === 0) { setStatus("No recent files yet"); return; }
     setRecentQuery("");
-    setRecentIndex(0);
     setRecentOpen(true);
   };
   const openRecentPath = async (path: string) => {
@@ -1096,6 +1120,33 @@ export function App() {
     } finally {
       setRenameBusy(false);
     }
+  };
+  const rememberClipboard = (text: string) => {
+    if (!text || text.length > MAX_HISTORY_TEXT) return;
+    setClipboardHistory((current) => [text, ...current.filter((item) => item !== text)].slice(0, MAX_CLIPBOARD_HISTORY));
+  };
+  const openClipboardHistory = () => {
+    if (!activeDocument || viewModes[activeDocument.documentId] === "hex") { setStatus("Open a text document first"); return; }
+    if (clipboardHistory.length === 0) { setStatus("Nothing copied in this session yet"); return; }
+    setHistoryQuery("");
+    setHistoryOpen(true);
+  };
+  const pasteFromHistory = (text: string) => {
+    setHistoryOpen(false);
+    setInsertRequest((current) => ({ id: (current?.id ?? 0) + 1, text }));
+  };
+  const openQuickOpen = () => {
+    setQuickQuery("");
+    setQuickOpen({ files: [], truncated: false, loading: Boolean(workspace) });
+    if (!workspace) return;
+    void executeCommand<WorkspaceFileList>({ id: "workspace.listFiles", context: { windowId: "main" }, arguments: {} })
+      .then((listing) => setQuickOpen((current) => current && {
+        files: listing?.files ?? [], truncated: listing?.truncated ?? false, loading: false,
+      }))
+      .catch((error: unknown) => {
+        setQuickOpen((current) => current && { ...current, loading: false });
+        setStatus(errorMessage(error, "Could not list the folder"));
+      });
   };
   const revealInPlaces = () => {
     const path = activeDocument?.remoteUri ? undefined : activeDocument?.sourcePath;
@@ -1583,6 +1634,8 @@ export function App() {
     "file.clearRecent": clearRecent,
     "file.rename": requestRenameFile,
     "file.revealInPlaces": revealInPlaces,
+    "file.quickOpen": openQuickOpen,
+    "edit.pasteFromHistory": openClipboardHistory,
     "workspace.rename": requestRename,
     "workspace.groupRight": () => groupWithNextTab("right"),
     "workspace.groupDown": () => groupWithNextTab("bottom"),
@@ -1925,6 +1978,7 @@ export function App() {
   }
   const localFile = Boolean(activeDocument?.sourcePath) && !activeDocument?.remoteUri;
   const fileExtras: MenuItem[] = ([
+    ["file.quickOpen", "Quick Open…", false],
     ["file.openRecent", "Open Recent…", recentFiles.length === 0],
     ["file.saveAll", "Save All", !documents.some((document) => document.dirty)],
     ["file.rename", "Rename File…", !localFile],
@@ -2004,6 +2058,37 @@ export function App() {
   const activeCount = characterCount && characterCount.documentId === activeDocument?.documentId
     ? characterCount : undefined;
   const activeCharacters = activeCount?.characters;
+  // Quick Open: open files first, then the folder's files, then recent files.
+  const quickCandidates = quickOpen ? (() => {
+    const seen = new Set<string>();
+    const entries: Array<PickerItem & { name: string; path: string; open(): Promise<unknown> | void }> = [];
+    for (const document of documents) {
+      const path = document.sourcePath ?? document.remoteUri ?? document.name;
+      seen.add(path);
+      entries.push({ key: `open:${document.documentId}`, title: document.name, detail: "Open", tooltip: path,
+        name: document.name, path, open: () => showDocument(document.documentId) });
+    }
+    if (workspace) {
+      const separator = workspace.root.includes("\\") ? "\\" : "/";
+      for (const relative of quickOpen.files) {
+        const path = `${workspace.root.replace(/[\\/]$/, "")}${separator}${relative}`;
+        if (seen.has(path)) continue;
+        seen.add(path);
+        const name = baseName(relative);
+        entries.push({ key: `folder:${relative}`, title: name, detail: folderName(relative) === relative ? workspace.name : folderName(relative),
+          tooltip: path, name, path: relative,
+          open: () => openWorkspaceFile({ name, relativePath: relative, kind: "file" }) });
+      }
+    }
+    for (const path of recentFiles) {
+      if (seen.has(path)) continue;
+      seen.add(path);
+      entries.push({ key: `recent:${path}`, title: baseName(path), detail: `Recent · ${folderName(path)}`, tooltip: path,
+        name: baseName(path), path, open: () => openRecentPath(path) });
+    }
+    return entries;
+  })() : [];
+  const quickMatches = rankMatches(quickCandidates, quickQuery, (entry) => entry, MAX_QUICK_OPEN_RESULTS);
   const recentNeedle = recentQuery.trim().toLocaleLowerCase();
   const recentMatches = recentNeedle
     ? recentFiles.filter((path) => path.toLocaleLowerCase().includes(recentNeedle)) : recentFiles;
@@ -2044,6 +2129,8 @@ export function App() {
           onToggleReadOnly={() => void toggleReadOnly(document.documentId)}
           onToggleHexMode={() => toggleViewMode(document.documentId)}
           onCopyPath={() => copyPath(document)}
+          onClipboardText={rememberClipboard}
+          insertRequest={active ? insertRequest : undefined}
           onReload={document.sourcePath && !document.remoteUri ? () => requestReload(document) : undefined}
           onOpenFind={active ? openFindPanel : undefined}
           searchRequest={active ? searchRequest : undefined}
@@ -2237,30 +2324,25 @@ export function App() {
           </div>
         </section>
       </div> : null}
-      {recentOpen ? <div className="palette-backdrop" role="presentation"
-        onMouseDown={(event) => { if (event.target === event.currentTarget) setRecentOpen(false); }}>
-        <section className="command-palette" role="dialog" aria-modal="true" aria-label="Open Recent">
-          <input autoFocus aria-label="Search recent files" placeholder="Type part of a file name or folder" value={recentQuery}
-            onChange={(event) => { setRecentQuery(event.currentTarget.value); setRecentIndex(0); }}
-            onKeyDown={(event) => {
-              if (event.key === "ArrowDown") { event.preventDefault(); setRecentIndex((index) => Math.min(index + 1, recentMatches.length - 1)); }
-              if (event.key === "ArrowUp") { event.preventDefault(); setRecentIndex((index) => Math.max(index - 1, 0)); }
-              if (event.key === "Enter" && recentMatches[recentIndex]) { event.preventDefault(); void openRecentPath(recentMatches[recentIndex]); }
-              if (event.key === "Escape") setRecentOpen(false);
-            }} />
-          <div className="palette-results" role="listbox" aria-label="Recent files">
-            {recentMatches.map((path, index) => <button type="button" role="option" title={path}
-              aria-selected={index === recentIndex} className={index === recentIndex ? "selected" : ""}
-              key={path} onMouseEnter={() => setRecentIndex(index)} onClick={() => void openRecentPath(path)}>
-              <span>{baseName(path)}</span><small>{folderName(path)}</small>
-            </button>)}
-            {recentMatches.length === 0 ? <p>No matching files</p> : null}
-          </div>
-          <div className="palette-footer">
-            <button type="button" onClick={() => runById("file.clearRecent")}>Clear Recent Files</button>
-          </div>
-        </section>
-      </div> : null}
+      {recentOpen ? <Picker label="Open Recent" searchLabel="Search recent files" placeholder="Type part of a file name or folder"
+        query={recentQuery} onQuery={setRecentQuery} emptyText="No matching files"
+        items={recentMatches.map((path) => ({ key: path, title: baseName(path), detail: folderName(path), tooltip: path }))}
+        onChoose={(item) => void openRecentPath(item.key)} onClose={() => setRecentOpen(false)}
+        footer={<button type="button" onClick={() => runById("file.clearRecent")}>Clear Recent Files</button>} /> : null}
+      {quickOpen ? <Picker label="Quick Open" searchLabel="Search files" placeholder="Type part of a file name"
+        query={quickQuery} onQuery={setQuickQuery} items={quickMatches}
+        emptyText={quickOpen.loading ? "Listing the folder…" : "No matching files"}
+        onChoose={(item) => { setQuickOpen(null); void item.open(); }} onClose={() => setQuickOpen(null)}
+        footer={quickOpen.truncated ? <small>Only the first {quickOpen.files.length.toLocaleString()} files of the folder are listed</small> : undefined} /> : null}
+      {historyOpen ? <Picker label="Paste from History" searchLabel="Search clipboard history" placeholder="Type part of the text"
+        query={historyQuery} onQuery={setHistoryQuery} emptyText="Nothing copied in this session yet"
+        items={clipboardHistory
+          .map((text, index) => ({ key: String(index), text, title: clipPreview(text),
+            detail: `${text.length.toLocaleString()} ${text.length === 1 ? "character" : "characters"}` }))
+          .filter((item) => item.text.toLocaleLowerCase().includes(historyQuery.trim().toLocaleLowerCase()))}
+        onChoose={(item) => pasteFromHistory(item.text)} onClose={() => setHistoryOpen(false)}
+        footer={<button type="button" onClick={() => { setClipboardHistory([]); setHistoryOpen(false); setStatus("Clipboard history cleared"); }}>
+          Clear History</button>} /> : null}
       {renameTarget ? <div className="decision-backdrop">
         <form className="decision-dialog" role="dialog" aria-modal="true" aria-labelledby="rename-file-title"
           onSubmit={(event) => {

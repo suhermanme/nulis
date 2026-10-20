@@ -9,6 +9,22 @@ use thiserror::Error;
 
 pub const MAX_WORKSPACE_DIRECTORY_ENTRIES: usize = 1_000;
 const MAX_WORKSPACE_PATH_BYTES: usize = 4_096;
+/// Most files Quick Open lists from one workspace.
+pub const MAX_WORKSPACE_FILE_LIST: usize = 20_000;
+/// Most folders read while listing them.
+const MAX_WORKSPACE_LIST_DIRECTORIES: usize = 5_000;
+const MAX_WORKSPACE_LIST_DEPTH: usize = 32;
+/// Folders Quick Open does not descend into, besides those starting with a dot.
+const SKIPPED_DIRECTORIES: &[&str] = &["node_modules"];
+
+/// Regular files below the workspace root, relative and sorted.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceFileList {
+    pub files: Vec<String>,
+    /// More files or folders existed than were listed.
+    pub truncated: bool,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -166,6 +182,63 @@ impl WorkspaceService {
         })
     }
 
+    /// Lists regular files below the workspace root, breadth first, for
+    /// Quick Open. Symlinks, folders starting with a dot, and `node_modules`
+    /// are skipped; unreadable folders are skipped silently.
+    ///
+    /// # Errors
+    /// Returns an error when no workspace is open or the root cannot be read.
+    pub fn list_files(&self) -> Result<WorkspaceFileList, WorkspaceError> {
+        let root = self
+            .root
+            .lock()
+            .map_err(|_| WorkspaceError::StateUnavailable)?
+            .clone()
+            .ok_or(WorkspaceError::NoWorkspace)?;
+        fs::read_dir(&root).map_err(WorkspaceError::io)?;
+        let mut files = Vec::new();
+        let mut truncated = false;
+        let mut queue = std::collections::VecDeque::from([(root.clone(), 0_usize)]);
+        let mut visited = 0_usize;
+        'walk: while let Some((directory, depth)) = queue.pop_front() {
+            visited += 1;
+            if visited > MAX_WORKSPACE_LIST_DIRECTORIES {
+                truncated = true;
+                break;
+            }
+            let Ok(entries) = fs::read_dir(&directory) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let Ok(kind) = entry.file_type() else {
+                    continue;
+                };
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if kind.is_dir() {
+                    if name.starts_with('.') || SKIPPED_DIRECTORIES.contains(&name.as_ref()) {
+                        continue;
+                    }
+                    if depth + 1 >= MAX_WORKSPACE_LIST_DEPTH {
+                        truncated = true;
+                    } else {
+                        queue.push_back((entry.path(), depth + 1));
+                    }
+                } else if kind.is_file() {
+                    if files.len() == MAX_WORKSPACE_FILE_LIST {
+                        truncated = true;
+                        break 'walk;
+                    }
+                    if let Ok(relative) = entry.path().strip_prefix(&root) {
+                        files.push(relative.to_string_lossy().into_owned());
+                    }
+                }
+            }
+        }
+        files.sort_by_key(|path| path.to_lowercase());
+        Ok(WorkspaceFileList { files, truncated })
+    }
+
     /// Resolves a regular file below the current workspace without following
     /// a final symlink.
     ///
@@ -295,6 +368,39 @@ mod tests {
         assert_eq!(listing.entries[0].name, "folder");
         assert_eq!(listing.entries[1].name, "a.txt");
         assert!(service.list("../outside", 10).is_err());
+    }
+
+    #[test]
+    fn file_list_walks_folders_and_skips_dot_folders_and_node_modules() {
+        let root = tempfile::tempdir().expect("workspace");
+        for folder in ["src/deep", ".git", "node_modules/pkg"] {
+            fs::create_dir_all(root.path().join(folder)).expect("folder");
+        }
+        for file in [
+            "README.md",
+            ".env",
+            "src/main.rs",
+            "src/deep/Util.rs",
+            ".git/HEAD",
+            "node_modules/pkg/index.js",
+        ] {
+            fs::write(root.path().join(file), "x").expect("file");
+        }
+        let service = WorkspaceService::default();
+        assert!(service.list_files().is_err());
+        service.open(root.path()).expect("open workspace");
+        let listing = service.list_files().expect("files");
+        let separator = std::path::MAIN_SEPARATOR;
+        assert_eq!(
+            listing.files,
+            vec![
+                ".env".to_owned(),
+                "README.md".to_owned(),
+                format!("src{separator}deep{separator}Util.rs"),
+                format!("src{separator}main.rs"),
+            ]
+        );
+        assert!(!listing.truncated);
     }
 
     #[test]

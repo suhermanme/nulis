@@ -17,6 +17,9 @@ pub struct LineFormatOptions {
     pub indent_with_spaces: bool,
     /// Sort without regard to letter case.
     pub ignore_case: bool,
+    /// Column separator for aligning columns; `None` picks tab, comma,
+    /// semicolon, or `|` from the first line that has one.
+    pub delimiter: Option<char>,
 }
 
 impl Default for LineFormatOptions {
@@ -25,6 +28,7 @@ impl Default for LineFormatOptions {
             tab_width: 4,
             indent_with_spaces: false,
             ignore_case: false,
+            delimiter: None,
         }
     }
 }
@@ -37,7 +41,14 @@ pub(super) enum FormatKind {
     TrimTrailingSpaces,
     TabsToSpaces,
     SpacesToTabs,
-    Sort { descending: bool, unique: bool },
+    Sort {
+        descending: bool,
+        unique: bool,
+    },
+    /// Pads delimited fields so the delimiters line up (fixed width).
+    AlignColumns,
+    /// Removes the padding [`Self::AlignColumns`] added (delimited again).
+    UnalignColumns,
 }
 
 impl FormatKind {
@@ -393,8 +404,112 @@ fn reformat(
                 options.ignore_case,
             );
         }
+        FormatKind::AlignColumns | FormatKind::UnalignColumns => {
+            // Fields move within lines: select the block afterwards.
+            reordered = true;
+            let delimiter = column_delimiter(lines, options.delimiter)?;
+            if kind == FormatKind::AlignColumns {
+                align_columns(lines, delimiter, tab_width);
+            } else {
+                unalign_columns(lines, delimiter);
+            }
+        }
     }
     Ok((changes, reordered))
+}
+
+const COLUMN_DELIMITERS: [u8; 4] = *b"\t,;|";
+
+/// Fields of a delimited line; a delimiter inside double quotes is text.
+fn split_fields(content: &[u8], delimiter: u8) -> Vec<&[u8]> {
+    let mut fields = Vec::new();
+    let (mut start, mut quoted) = (0, false);
+    for (index, &byte) in content.iter().enumerate() {
+        if byte == b'"' {
+            quoted = !quoted;
+        } else if byte == delimiter && !quoted {
+            fields.push(&content[start..index]);
+            start = index + 1;
+        }
+    }
+    fields.push(&content[start..]);
+    fields
+}
+
+fn column_delimiter(lines: &[Line], chosen: Option<char>) -> Result<u8, EditorError> {
+    if let Some(delimiter) = chosen {
+        return u8::try_from(delimiter)
+            .ok()
+            .filter(|byte| byte.is_ascii() && !matches!(byte, b'"' | b'\r' | b'\n'))
+            .ok_or(EditorError::NoColumnDelimiter);
+    }
+    lines
+        .iter()
+        .find_map(|line| {
+            COLUMN_DELIMITERS
+                .iter()
+                .map(|&delimiter| (split_fields(&line.content, delimiter).len(), delimiter))
+                .filter(|(fields, _)| *fields > 1)
+                .max_by_key(|(fields, _)| *fields)
+                .map(|(_, delimiter)| delimiter)
+        })
+        .ok_or(EditorError::NoColumnDelimiter)
+}
+
+fn trim_spaces_end(field: &[u8]) -> &[u8] {
+    let kept = field.len() - field.iter().rev().take_while(|byte| **byte == b' ').count();
+    &field[..kept]
+}
+
+fn align_columns(lines: &mut [Line], delimiter: u8, tab_width: usize) {
+    let mut widths: Vec<usize> = Vec::new();
+    // Lines without the delimiter are left alone and do not widen column 1.
+    for fields in lines
+        .iter()
+        .map(|line| split_fields(&line.content, delimiter))
+        .filter(|fields| fields.len() > 1)
+    {
+        for (index, field) in fields.iter().enumerate() {
+            let width = columns(trim_spaces_end(field), 0, tab_width);
+            if index == widths.len() {
+                widths.push(width);
+            } else {
+                widths[index] = widths[index].max(width);
+            }
+        }
+    }
+    for line in lines.iter_mut() {
+        let fields = split_fields(&line.content, delimiter);
+        if fields.len() < 2 {
+            continue;
+        }
+        let last = fields.len() - 1;
+        let mut aligned = Vec::with_capacity(line.content.len() + widths.iter().sum::<usize>());
+        for (index, field) in fields.iter().enumerate() {
+            let field = trim_spaces_end(field);
+            aligned.extend_from_slice(field);
+            if index < last {
+                let padding = widths[index].saturating_sub(columns(field, 0, tab_width));
+                aligned.resize(aligned.len() + padding, b' ');
+                aligned.push(delimiter);
+            }
+        }
+        line.content = aligned;
+    }
+}
+
+fn unalign_columns(lines: &mut [Line], delimiter: u8) {
+    for line in lines.iter_mut() {
+        let fields = split_fields(&line.content, delimiter);
+        if fields.len() < 2 {
+            continue;
+        }
+        let trimmed = fields
+            .iter()
+            .map(|field| trim_spaces_end(field))
+            .collect::<Vec<_>>();
+        line.content = trimmed.join(&delimiter);
+    }
 }
 
 /// (start, content length) of each line within its block.
@@ -665,6 +780,47 @@ mod tests {
         assert!(
             transform(TextTransform::Base64Decode).is_err(),
             "not Base64"
+        );
+    }
+
+    #[test]
+    fn aligns_delimited_columns_and_removes_the_padding_again() {
+        let source = "name,age,city\nAlexandra,7,\"Paris, FR\"\nBo,42,Oslo\nno columns here\n";
+        let (manager, id) = open(source);
+        // Nothing selected: the whole document, delimiter detected.
+        let options = LineFormatOptions::default();
+        apply(&manager, &id, LineOperation::AlignColumns, options);
+        assert_eq!(
+            text(&manager, &id),
+            "name     ,age,city\nAlexandra,7  ,\"Paris, FR\"\nBo       ,42 ,Oslo\nno columns here\n"
+        );
+        // Aligning again changes nothing.
+        apply(&manager, &id, LineOperation::AlignColumns, options);
+        assert!(text(&manager, &id).starts_with("name     ,age,city\n"));
+        apply(&manager, &id, LineOperation::UnalignColumns, options);
+        assert_eq!(text(&manager, &id), source);
+    }
+
+    #[test]
+    fn a_chosen_delimiter_is_used_and_missing_columns_are_refused() {
+        let (manager, id) = open("a;bb|c\nccc;d|e\n");
+        let options = LineFormatOptions {
+            delimiter: Some('|'),
+            ..LineFormatOptions::default()
+        };
+        apply(&manager, &id, LineOperation::AlignColumns, options);
+        assert_eq!(text(&manager, &id), "a;bb |c\nccc;d|e\n");
+
+        let (manager, id) = open("plain\ntext\n");
+        let revision = manager.summary(&id).unwrap().revision;
+        assert_eq!(
+            manager.line_operation_with(
+                &id,
+                revision,
+                LineOperation::AlignColumns,
+                LineFormatOptions::default()
+            ),
+            Err(super::super::super::EditorError::NoColumnDelimiter)
         );
     }
 }
