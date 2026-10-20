@@ -67,15 +67,19 @@ vi.mock("@tauri-apps/api/window", () => ({ getCurrentWindow: vi.fn(() => ({
 })) }));
 
 vi.mock("./EditorViewport", () => ({
-  EditorViewport: ({ document, showLineChanges, searchRequest, onCaret, onToggleReadOnly, onOpenFind, editorAction }: {
+  EditorViewport: ({ document, showLineChanges, searchRequest, onCaret, onToggleReadOnly, onOpenFind, editorAction,
+    wordWrap, showWhitespace, showLineEndings, showLineNumbers, columnMarker, lineHeight }: {
     document: { name: string; readOnly?: boolean }; showLineChanges?: boolean; searchRequest?: object;
-    editorAction?: { action: string };
+    editorAction?: { action: string }; wordWrap?: boolean; showWhitespace?: boolean; showLineEndings?: boolean;
+    showLineNumbers?: boolean; columnMarker?: number; lineHeight?: number;
     onCaret?: (position: object | null) => void; onToggleReadOnly?: () => void;
     onOpenFind?: (tab: "find" | "replace", seed?: string) => void;
   }) => (
     <div>
       <div data-line-changes={String(showLineChanges)} data-search={JSON.stringify(searchRequest ?? null)}
-        data-action={editorAction?.action ?? ""}>{document.name} editor</div>
+        data-action={editorAction?.action ?? ""}
+        data-view={JSON.stringify({ wordWrap, showWhitespace, showLineEndings, showLineNumbers, columnMarker, lineHeight })}>
+        {document.name} editor</div>
       <button type="button" onClick={() => onCaret?.({ line: "1234", column: 7, carets: 1, selectedBytes: "0", codePoint: 0xe9 })}>Move caret in {document.name}</button>
       <button type="button" onClick={() => onToggleReadOnly?.()}>Editor mode of {document.name}: {document.readOnly ? "read-only" : "edit"}</button>
       {onOpenFind ? <>
@@ -1148,6 +1152,56 @@ test("the status bar shows the caret position, the size in bytes and characters,
   fireEvent.click(screen.getByRole("button", { name: "Editor mode of First: read-only" }));
   expect(await within(footer).findByRole("button", { name: "Edit mode: switch to Read-Only mode" })).toBeInTheDocument();
   expect(screen.getByRole("status")).toHaveTextContent("First can be edited");
+});
+
+test("the status bar names the line endings and converts them from a menu", async () => {
+  const first = { documentId: "document-1", name: "First", byteLen: "12", revision: "0", encoding: "utf8", readOnly: false };
+  responses["file.new"] = [first];
+  responses["editor.characterCount"] = [{ revision: "0", characters: "12", words: "2", lines: "3", lineEnding: "mixed" }];
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  fireEvent.click(screen.getByRole("button", { name: "New text file" }));
+  await screen.findByText("First editor");
+  const footer = document.querySelector<HTMLElement>(".statusbar")!;
+  const button = await within(footer).findByRole("button", { name: "Line endings: Mixed. Convert line endings" });
+  expect(button).toHaveAttribute("title", expect.stringContaining("mixes line endings"));
+
+  fireEvent.click(button);
+  const menu = screen.getByRole("menu", { name: "Line endings" });
+  fireEvent.click(within(menu).getByRole("menuitem", { name: /CRLF \(Windows\)/ }));
+  await waitFor(() => expect(screen.getByText("First editor")).toHaveAttribute("data-action", "lineEndingsCrlf"));
+});
+
+test("View options apply to every editor, are remembered, and zoom has keys and a status badge", async () => {
+  await openDocuments("First");
+  const view = () => JSON.parse(screen.getByText("First editor").getAttribute("data-view") ?? "{}") as Record<string, unknown>;
+  expect(view()).toMatchObject({ wordWrap: false, showWhitespace: false, showLineEndings: false, showLineNumbers: true });
+  expect(view().columnMarker).toBeUndefined();
+  const baseLineHeight = view().lineHeight as number;
+
+  fireEvent.keyDown(window, { key: "Ω", code: "KeyZ", altKey: true });
+  await waitFor(() => expect(view().wordWrap).toBe(true));
+  expect(screen.getByRole("status")).toHaveTextContent("Word wrap on");
+  await chooseMenu("View", "Show Whitespace");
+  await chooseMenu("View", "Show Line Endings");
+  await chooseMenu("View", /Line Numbers$/);
+  await chooseMenu("View", "Column Marker at 80");
+  expect(view()).toMatchObject({ showWhitespace: true, showLineEndings: true, showLineNumbers: false, columnMarker: 80 });
+  expect(JSON.parse(window.localStorage.getItem("nulis.viewOptions.v1") ?? "{}")).toMatchObject({
+    wordWrap: true, showWhitespace: true, lineNumbers: false, columnMarker: true,
+  });
+
+  const footer = document.querySelector<HTMLElement>(".statusbar")!;
+  expect(within(footer).queryByRole("button", { name: /Zoom/ })).toBeNull();
+  fireEvent.keyDown(window, { key: "=", code: "Equal", ctrlKey: true });
+  fireEvent.keyDown(window, { key: "=", code: "Equal", ctrlKey: true });
+  const badge = await within(footer).findByRole("button", { name: "Zoom 125%. Reset zoom" });
+  expect(view().lineHeight).toBeCloseTo(baseLineHeight * 1.25);
+  fireEvent.keyDown(window, { key: "-", code: "Minus", ctrlKey: true });
+  expect(await within(footer).findByRole("button", { name: "Zoom 110%. Reset zoom" })).toBeInTheDocument();
+  fireEvent.click(within(footer).getByRole("button", { name: "Zoom 110%. Reset zoom" }));
+  await waitFor(() => expect(badge).not.toBeInTheDocument());
+  expect(within(footer).queryByRole("button", { name: /Zoom/ })).toBeNull();
 });
 
 test("the tab strip offers scroll arrows only when its tabs overflow", async () => {

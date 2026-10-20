@@ -30,8 +30,13 @@ use unicode_segmentation::UnicodeSegmentation;
 mod external_changes;
 mod find_all;
 pub use external_changes::{ExternalChange, ExternalChangeKind};
+mod line_endings;
 mod line_ops;
 mod navigation;
+pub use line_endings::{
+    LineEnding, LineEndingConversion, LineEndingStyle, LINE_ENDING_SAMPLE_BYTES,
+    MAX_LINE_ENDING_CHANGES, MAX_LINE_ENDING_CONVERSION_BYTES,
+};
 pub use navigation::ChangeDirection;
 mod replace_in_files;
 pub use find_all::{
@@ -157,6 +162,9 @@ pub struct CharacterCount {
     /// Lines (line endings plus one), counted in the same pass.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub lines: Option<String>,
+    /// The line endings in use; above [`MAX_CHARACTER_COUNT_BYTES`] it is
+    /// read from the first [`LINE_ENDING_SAMPLE_BYTES`] only.
+    pub line_ending: LineEndingStyle,
 }
 
 /// The outcome of checking a document with a built-in tool.
@@ -278,6 +286,9 @@ pub struct ViewportLine {
     /// Editing-session line change marker; absent for an untouched line.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub change: Option<LineChange>,
+    /// The line's ending; absent for the last line and a truncated segment.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ending: Option<LineEnding>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -940,11 +951,13 @@ impl DocumentManager {
                 characters: None,
                 words: None,
                 lines: None,
+                line_ending: line_endings::sample_style(table)?,
             });
         }
         let utf8 = session.encoding == TextEncoding::Utf8;
-        let (mut characters, mut words, mut endings) = (0_u64, 0_u64, 0_u64);
-        let (mut in_word, mut after_cr) = (false, false);
+        let (mut characters, mut words) = (0_u64, 0_u64);
+        let mut in_word = false;
+        let mut endings = line_endings::LineEndingScanner::default();
         let mut offset = 0_u64;
         while offset < length {
             let chunk = table.read_vec(offset, CHARACTER_COUNT_CHUNK.min(length - offset))?;
@@ -958,22 +971,17 @@ impl DocumentManager {
                     words += 1;
                 }
                 in_word = !space;
-                if byte == b'\n' || after_cr {
-                    endings += 1;
-                }
-                after_cr = byte == b'\r';
+                endings.push(byte);
             }
             offset += chunk.len() as u64;
-        }
-        if after_cr {
-            endings += 1;
         }
         let characters = Some(characters.to_string());
         Ok(CharacterCount {
             revision: table.revision(),
             characters,
             words: Some(words.to_string()),
-            lines: Some((endings + 1).to_string()),
+            lines: Some((endings.endings() + 1).to_string()),
+            line_ending: endings.style(),
         })
     }
 
@@ -5049,6 +5057,7 @@ fn viewport_lines(
             continuation: bytes.is_empty() && starts_with_continuation,
             truncated: false,
             change: None,
+            ending: None,
         });
     }
 
@@ -5077,6 +5086,12 @@ fn push_viewport_line(
     let absolute_end = source_start
         + u64::try_from(text_end + ending_len).expect("bounded viewport fits into u64");
     let (text, source_byte_widths) = decode_text(encoding, &bytes[segment_start..text_end]);
+    let ending = match ending_len {
+        0 => None,
+        2 => Some(LineEnding::Crlf),
+        _ if bytes[text_end] == b'\r' => Some(LineEnding::Cr),
+        _ => Some(LineEnding::Lf),
+    };
     output.push(ViewportLine {
         line,
         start_byte: absolute_start,
@@ -5086,6 +5101,7 @@ fn push_viewport_line(
         continuation,
         truncated,
         change: None,
+        ending,
     });
 }
 
@@ -5175,6 +5191,12 @@ pub enum EditorError {
     Document(String),
     #[error("This document is read-only. Switch to Edit mode to change it.")]
     ReadOnly,
+    #[error(
+        "Converting line endings is limited to {maximum} bytes; this document has {size} bytes"
+    )]
+    LineEndingConversionTooLarge { size: u64, maximum: u64 },
+    #[error("Converting line endings is limited to {0} changed lines")]
+    TooManyLineEndingChanges(usize),
     #[error("search operation failed: {0}")]
     Search(String),
     #[error("syntax operation failed: {0}")]

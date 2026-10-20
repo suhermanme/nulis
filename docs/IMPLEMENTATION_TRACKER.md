@@ -1,11 +1,11 @@
-# Implementation tracker (M19–M29)
+# Implementation tracker (M19–M30)
 
 Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in step with the repository; never mark work complete without the verification listed.
 
 ## Current state
 
-- **Current milestone:** M27 — paused before implementation (usage limit); see `handover/M27_HANDOVER.md`
-- **Overall:** 8 of 12 milestones completed (M19–M26)
+- **Current milestone:** M28 File conveniences — pending (next to start)
+- **Overall:** 9 of 12 milestones completed (M19–M27)
 - **Baseline before M19 (commit `66853e1`):** `cargo test -p nulis-core` 86 passed; desktop Vitest 11 files, 115 tests passed.
 
 | Milestone | Status | Handover |
@@ -18,7 +18,7 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 | M24 New application icon (user request) | Completed | `handover/M24_HANDOVER.md` |
 | M25 Format and transforms | Completed (manual and Windows/Linux checks pending) | `handover/M25_HANDOVER.md` |
 | M26 Search and navigation | Completed (manual and Windows/Linux checks pending) | `handover/M26_HANDOVER.md` |
-| M27 View features (split from "View and file") | Paused, not started | `handover/M27_HANDOVER.md` |
+| M27 View features (split from "View and file") | Completed (manual and Windows/Linux checks pending) | `handover/M27_HANDOVER.md` |
 | M28 File conveniences (split from "View and file") | Pending | – |
 | M29 Column and clipboard tools | Pending | – |
 | M30 Integration and quality | Pending | – |
@@ -119,6 +119,12 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 
 **Result (completed 2026-10-20, on `main`):** all criteria covered by tests. Verification on macOS: fmt and clippy clean; `cargo test --workspace` passed (nulis-core 108, nulis-desktop 7); lint and typecheck clean; Vitest 124 passed. Details: `handover/M23_HANDOVER.md`.
 
+## M27 — View features
+
+**Delivered:** line-ending detection (status bar **LF / CRLF / CR / Mixed**, from the character-count pass, or the first 1 MiB above 64 MiB); conversion to LF, CRLF, or CR as one undo step from the status bar or the Format menu; Enter inserts the caret line's ending; word wrap remembered and in the View menu (Alt Z); editor zoom 50–300% (Ctrl/⌘ = - 0) with a status badge; show whitespace; show line endings; line-number toggle; column marker at 80; Always on Top. View options are saved per computer (`nulis.viewOptions.v1`). Also fixed an unhandled error in an M26 desktop test (a mock returned a document summary as selections).
+
+**Result (completed 2026-10-20, on `main`):** fmt and clippy clean; `cargo test --workspace` passed (nulis-core 124); lint and typecheck clean; Vitest 12 files, 138 passed, no unhandled errors. IPC 33. Details: `handover/M27_HANDOVER.md`.
+
 ## M26 — Search and navigation
 
 **Delivered:** F3/Shift+F3 find next/previous (opens Find when there is no search), Go to Matching Bracket (Ctrl/⌘ Shift \), Go to line:column, Go Back/Forward (Ctrl/⌘ [ / ]) over jumps, Next/Previous Change (Alt F5 / Alt Shift F5), List Bookmarks (results window), Delete Bookmarked Lines, word and line counts, code point at the caret, native Search menu, and palette entries. Not done from the plan: incremental search, character names.
@@ -151,7 +157,6 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 
 ## Next steps
 
-0. M27 View and file is next (the status bar's line-ending label is still a fixed "LF").
-1. Run the app (`npm run dev`) and try M20 keys/context menu and the M21 window by hand on macOS.
+0. M28 File conveniences is next: Save All, Close All, Open Recent (in-app picker), Rename File, show the file in Places.
+1. Run the app (`npm run dev`) and try M20–M27 by hand on macOS (keys, menus, the Find window, line endings, view options).
 2. Push to CI to build Windows/Linux, and check the M19 Settings/Help window fix there.
-3. Start M22 per the scope above, then M23 and M24 (user requests).

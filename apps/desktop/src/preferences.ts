@@ -94,6 +94,66 @@ export function saveLineChangeDefault(enabled: boolean): void {
   }
 }
 
+const VIEW_OPTIONS_KEY = "nulis.viewOptions.v1";
+
+/** Editor display choices from the View menu, remembered on this computer. */
+export interface ViewOptions {
+  wordWrap: boolean;
+  /** Font zoom in percent, one of {@link ZOOM_LEVELS}. */
+  zoom: number;
+  showWhitespace: boolean;
+  showLineEndings: boolean;
+  lineNumbers: boolean;
+  columnMarker: boolean;
+  /** Column the marker is drawn after. */
+  markerColumn: number;
+}
+
+export const ZOOM_LEVELS = [50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250, 300] as const;
+
+export const DEFAULT_VIEW_OPTIONS: ViewOptions = {
+  wordWrap: false, zoom: 100, showWhitespace: false, showLineEndings: false,
+  lineNumbers: true, columnMarker: false, markerColumn: 80,
+};
+
+export function normalizeViewOptions(value: unknown): ViewOptions {
+  const candidate = typeof value === "object" && value !== null ? value as Partial<Record<keyof ViewOptions, unknown>> : {};
+  const flag = (key: keyof ViewOptions) => typeof candidate[key] === "boolean"
+    ? candidate[key] as boolean : DEFAULT_VIEW_OPTIONS[key] as boolean;
+  const zoom = ZOOM_LEVELS.find((level) => level === candidate.zoom) ?? DEFAULT_VIEW_OPTIONS.zoom;
+  const column = Number.isInteger(candidate.markerColumn) ? Number(candidate.markerColumn) : DEFAULT_VIEW_OPTIONS.markerColumn;
+  return {
+    wordWrap: flag("wordWrap"), zoom, showWhitespace: flag("showWhitespace"), showLineEndings: flag("showLineEndings"),
+    lineNumbers: flag("lineNumbers"), columnMarker: flag("columnMarker"),
+    markerColumn: Math.max(1, Math.min(500, column)),
+  };
+}
+
+export function loadViewOptions(): ViewOptions {
+  try {
+    const stored = window.localStorage.getItem(VIEW_OPTIONS_KEY);
+    return stored ? normalizeViewOptions(JSON.parse(stored)) : DEFAULT_VIEW_OPTIONS;
+  } catch {
+    return DEFAULT_VIEW_OPTIONS;
+  }
+}
+
+export function saveViewOptions(options: ViewOptions): void {
+  try {
+    window.localStorage.setItem(VIEW_OPTIONS_KEY, JSON.stringify(normalizeViewOptions(options)));
+  } catch {
+    // The choice still applies for this session.
+  }
+}
+
+/** The next zoom level in a direction, or 100% for `0`. */
+export function stepZoom(zoom: number, direction: -1 | 0 | 1): number {
+  if (direction === 0) return 100;
+  const index = ZOOM_LEVELS.findIndex((level) => level === zoom);
+  const current = index < 0 ? ZOOM_LEVELS.indexOf(100) : index;
+  return ZOOM_LEVELS[Math.max(0, Math.min(ZOOM_LEVELS.length - 1, current + direction))];
+}
+
 const WELCOME_KEY = "nulis.welcomeOnStartup.v1";
 
 /** Whether the welcome screen is shown when the application starts without open documents. */

@@ -1,3 +1,7 @@
+import type { LineEnding } from "./contracts";
+
+export const LINE_ENDING_LABELS: Record<LineEnding, string> = { lf: "LF", crlf: "CRLF", cr: "CR" };
+
 /** Editing and formatting commands carried out by the focused editor. */
 export const EDITOR_ACTIONS = {
   "edit.selectLines": "selectLines",
@@ -23,6 +27,9 @@ export const EDITOR_ACTIONS = {
   "format.base64Encode": "base64Encode",
   "format.base64Decode": "base64Decode",
   "format.insertDateTime": "insertDateTime",
+  "format.lineEndingsLf": "lineEndingsLf",
+  "format.lineEndingsCrlf": "lineEndingsCrlf",
+  "format.lineEndingsCr": "lineEndingsCr",
   "search.findNext": "findNext",
   "search.findPrevious": "findPrevious",
   "search.goToLine": "goToLine",
@@ -59,6 +66,8 @@ export const WORKBENCH_ACTIONS = [
   "workbench.openHelp",
   "workbench.nextTab", "workbench.previousTab", "workbench.moveTabLeft", "workbench.moveTabRight",
   "view.toggleLineChangeIndicators",
+  "view.toggleWordWrap", "view.toggleWhitespace", "view.toggleLineEndings", "view.toggleLineNumbers",
+  "view.toggleColumnMarker", "view.zoomIn", "view.zoomOut", "view.zoomReset", "view.toggleAlwaysOnTop",
   "workspace.rename", "workspace.groupRight", "workspace.groupDown", "workspace.ungroup",
   "workspace.popOutPane", "workspace.closePane", "workspace.focusNextPane", "workspace.focusPreviousPane",
   "workspace.growPane", "workspace.shrinkPane",

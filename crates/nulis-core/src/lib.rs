@@ -16,16 +16,18 @@ pub use editor::{
     ExternalChange, ExternalChangeKind, FileSearchScope, FileStamp, FindAllResult, FindDirection,
     FindResult, FoundLine, FoundMatch, HexCaret, HexClipboardPayload, HexCursor, HexEditResult,
     HexViewportRequest, HexViewportRow, HexViewportSnapshot, HorizontalDirection,
-    LanguageDescriptor, LineEditResult, LineFormatOptions, LineOperation, MarkdownPreviewSource,
-    RecoveryCandidate, RectangularSelection, ReplaceAllResult, ReplaceFileOutcome, ReplacePreview,
-    ReplacePreviewFile, ReplaceTarget, SearchMode, SearchOptions, Selection, SyntaxBracketPair,
-    SyntaxFold, SyntaxHighlight, SyntaxSnapshot, SyntaxSymbol, TextEncoding, TextTransform,
-    VerticalDirection, ViewportAtRequest, ViewportCursor, ViewportLine, ViewportLineRequest,
-    ViewportRequest, ViewportSnapshot, WorkspaceSearchMatch, WorkspaceSearchResult, MAX_BOOKMARKS,
-    MAX_CLIPBOARD_BYTES, MAX_EDIT_BYTES, MAX_FIND_ALL_LINES, MAX_FIND_ALL_MATCHES,
-    MAX_HEX_CLIPBOARD_BYTES, MAX_HEX_EDIT_BYTES, MAX_HEX_VIEWPORT_BYTES, MAX_LINE_PREVIEW_BYTES,
-    MAX_MARKDOWN_PREVIEW_BYTES, MAX_MERGE_BYTES, MAX_RECTANGULAR_ROWS, MAX_REPLACE_FILES,
-    MAX_SELECTIONS, MAX_VIEWPORT_BYTES, MAX_WORKSPACE_SEARCH_FILES, MAX_WORKSPACE_SEARCH_RESULTS,
+    LanguageDescriptor, LineEditResult, LineEnding, LineEndingConversion, LineEndingStyle,
+    LineFormatOptions, LineOperation, MarkdownPreviewSource, RecoveryCandidate,
+    RectangularSelection, ReplaceAllResult, ReplaceFileOutcome, ReplacePreview, ReplacePreviewFile,
+    ReplaceTarget, SearchMode, SearchOptions, Selection, SyntaxBracketPair, SyntaxFold,
+    SyntaxHighlight, SyntaxSnapshot, SyntaxSymbol, TextEncoding, TextTransform, VerticalDirection,
+    ViewportAtRequest, ViewportCursor, ViewportLine, ViewportLineRequest, ViewportRequest,
+    ViewportSnapshot, WorkspaceSearchMatch, WorkspaceSearchResult, LINE_ENDING_SAMPLE_BYTES,
+    MAX_BOOKMARKS, MAX_CLIPBOARD_BYTES, MAX_EDIT_BYTES, MAX_FIND_ALL_LINES, MAX_FIND_ALL_MATCHES,
+    MAX_HEX_CLIPBOARD_BYTES, MAX_HEX_EDIT_BYTES, MAX_HEX_VIEWPORT_BYTES, MAX_LINE_ENDING_CHANGES,
+    MAX_LINE_ENDING_CONVERSION_BYTES, MAX_LINE_PREVIEW_BYTES, MAX_MARKDOWN_PREVIEW_BYTES,
+    MAX_MERGE_BYTES, MAX_RECTANGULAR_ROWS, MAX_REPLACE_FILES, MAX_SELECTIONS, MAX_VIEWPORT_BYTES,
+    MAX_WORKSPACE_SEARCH_FILES, MAX_WORKSPACE_SEARCH_RESULTS,
 };
 pub use format_tools::ToolKind;
 pub use line_changes::{LineChange, LineChangeStatus};
@@ -75,7 +77,7 @@ use nulis_automation::{
     CURRENT_REVISION_ARGUMENT,
 };
 
-pub const IPC_PROTOCOL_VERSION: u32 = 32;
+pub const IPC_PROTOCOL_VERSION: u32 = 33;
 pub const PRODUCT_NAME: &str = "Nulis";
 pub const APPLICATION_ID: &str = "com.nulis.editor";
 const MAX_SCRIPT_MESSAGES: usize = 100;
@@ -1732,6 +1734,14 @@ struct ChangeNearArguments {
     direction: ChangeDirection,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ConvertLineEndingsArguments {
+    #[serde(with = "editor::decimal_u64")]
+    expected_revision: u64,
+    target: LineEnding,
+}
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ReloadArguments {
@@ -1922,6 +1932,7 @@ fn is_recordable_command(id: &str) -> bool {
             | "editor.selectAll"
             | "editor.lineOperation"
             | "editor.deleteBookmarkedLines"
+            | "editor.convertLineEndings"
             | "editor.replace"
             | "editor.setSelections"
             | "editor.undo"
@@ -2347,6 +2358,15 @@ const WORKBENCH_ACTIONS: &[(&str, &str, &str)] = &[
         "Show/Hide Line Change Indicators",
         "View",
     ),
+    ("view.toggleWordWrap", "Toggle Word Wrap", "View"),
+    ("view.toggleWhitespace", "Show/Hide Whitespace", "View"),
+    ("view.toggleLineEndings", "Show/Hide Line Endings", "View"),
+    ("view.toggleLineNumbers", "Show/Hide Line Numbers", "View"),
+    ("view.toggleColumnMarker", "Show/Hide Column Marker", "View"),
+    ("view.zoomIn", "Zoom In", "View"),
+    ("view.zoomOut", "Zoom Out", "View"),
+    ("view.zoomReset", "Reset Zoom", "View"),
+    ("view.toggleAlwaysOnTop", "Toggle Always on Top", "View"),
     ("workspace.rename", "Rename Workspace", "Workspace"),
     (
         "workspace.groupRight",
@@ -2401,6 +2421,21 @@ const WORKBENCH_ACTIONS: &[(&str, &str, &str)] = &[
     ("format.base64Encode", "Encode Base64", "Format"),
     ("format.base64Decode", "Decode Base64", "Format"),
     ("format.insertDateTime", "Insert Date and Time", "Format"),
+    (
+        "format.lineEndingsLf",
+        "Convert Line Endings to LF",
+        "Format",
+    ),
+    (
+        "format.lineEndingsCrlf",
+        "Convert Line Endings to CRLF",
+        "Format",
+    ),
+    (
+        "format.lineEndingsCr",
+        "Convert Line Endings to CR",
+        "Format",
+    ),
     ("search.openFind", "Find…", "Search"),
     ("search.openReplace", "Replace…", "Search"),
     ("search.openFindInFiles", "Find in Files…", "Search"),
@@ -3218,13 +3253,40 @@ fn register_transform_and_bookmark_commands(
         .expect("built-in command is unique");
 }
 
-/// Line, search, file-change, and navigation commands added in M20–M26.
+/// Line, search, file-change, navigation, and line-ending commands added in M20–M27.
 fn register_editing_extensions(commands: &mut CommandRegistry, documents: &Arc<DocumentManager>) {
     register_line_commands(commands, documents);
     register_find_all_commands(commands, documents);
     register_replace_in_files_commands(commands, documents);
     register_external_change_commands(commands, documents);
     register_navigation_commands_m26(commands, documents);
+    register_line_ending_commands(commands, documents);
+}
+
+fn register_line_ending_commands(commands: &mut CommandRegistry, documents: &Arc<DocumentManager>) {
+    let manager = Arc::clone(documents);
+    commands
+        .register(
+            CommandDescriptor::new(
+                "editor.convertLineEndings",
+                "Convert Line Endings",
+                "Editor",
+            )
+            .expect("built-in command ID is valid"),
+            move |context, arguments| {
+                let document_id = context_document(&context)?;
+                let arguments: ConvertLineEndingsArguments = parse_arguments(arguments)?;
+                let result = manager
+                    .convert_line_endings(
+                        &document_id,
+                        arguments.expected_revision,
+                        arguments.target,
+                    )
+                    .map_err(|error| editor_command_error(&error))?;
+                serde_json::to_value(result).map_err(|error| serialization_command_error(&error))
+            },
+        )
+        .expect("built-in command is unique");
 }
 
 fn register_line_commands(commands: &mut CommandRegistry, documents: &Arc<DocumentManager>) {

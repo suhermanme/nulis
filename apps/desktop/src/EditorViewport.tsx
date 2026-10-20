@@ -1,11 +1,13 @@
 import {
   type ClipboardEvent,
+  type CSSProperties,
   type CompositionEvent,
   type FormEvent,
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
   type UIEvent,
+  Fragment,
   useCallback,
   useEffect,
   useId,
@@ -24,6 +26,8 @@ import type {
   LineChange,
   FoundLine,
   LineEditResult,
+  LineEnding,
+  LineEndingConversion,
   LineOperation,
   TextTransformName,
   MarkdownPreviewSource,
@@ -35,11 +39,12 @@ import type {
   SyntaxToken,
   TextEncoding,
   ViewportCursor,
+  ViewportLine,
   ViewportSnapshot,
 } from "./contracts";
 import { Icon, IconButton } from "./icons";
 import { ContextMenu, type MenuItem } from "./Toolbar";
-import type { EditorActionName } from "./commands";
+import { LINE_ENDING_LABELS, type EditorActionName } from "./commands";
 import type { ResultList } from "./FindReplacePanel";
 import {
   executeCommand, getDocumentMap, getMarkdownPreviewSource, getViewport, getViewportAt, getViewportLine,
@@ -125,8 +130,26 @@ type NavigationAction =
 /** Caret positions remembered for Go Back / Go Forward. */
 const MAX_NAVIGATION_HISTORY = 100;
 
+const LINE_BREAKS: Record<LineEnding, string> = { lf: "\n", crlf: "\r\n", cr: "\r" };
+
+/**
+ * The line break Enter inserts at `byte`: the ending of the caret's line, else
+ * of the nearest loaded line above or below it, else LF.
+ */
+export function lineBreakAt(lines: readonly ViewportLine[], byte: bigint): string {
+  let index = -1;
+  lines.forEach((line, candidate) => { if (BigInt(line.startByte) <= byte) index = candidate; });
+  for (let above = index; above >= 0; above -= 1) {
+    const ending = lines[above]?.ending;
+    if (ending) return LINE_BREAKS[ending];
+  }
+  const below = lines.slice(index + 1).find((line) => line.ending)?.ending;
+  return below ? LINE_BREAKS[below] : "\n";
+}
+
 const EDITOR_ACTION_KINDS: Record<EditorActionName,
-  { line: LineOperation } | { transform: TextTransformName } | { insertDateTime: true } | { navigate: NavigationAction }> = {
+  { line: LineOperation } | { transform: TextTransformName } | { insertDateTime: true } | { navigate: NavigationAction }
+  | { lineEnding: LineEnding }> = {
   selectLines: { line: "selectLines" }, duplicateLines: { line: "duplicateLines" }, deleteLines: { line: "deleteLines" },
   moveLinesUp: { line: "moveLinesUp" }, moveLinesDown: { line: "moveLinesDown" }, insertLineBelow: { line: "insertLineBelow" },
   uppercase: { transform: "uppercase" }, lowercase: { transform: "lowercase" }, capitalize: { transform: "capitalize" },
@@ -136,6 +159,7 @@ const EDITOR_ACTION_KINDS: Record<EditorActionName,
   sortAscending: { line: "sortAscending" }, sortDescending: { line: "sortDescending" }, sortUnique: { line: "sortUnique" },
   base64Encode: { transform: "base64Encode" }, base64Decode: { transform: "base64Decode" },
   insertDateTime: { insertDateTime: true },
+  lineEndingsLf: { lineEnding: "lf" }, lineEndingsCrlf: { lineEnding: "crlf" }, lineEndingsCr: { lineEnding: "cr" },
   findNext: { navigate: "findNext" }, findPrevious: { navigate: "findPrevious" }, goToLine: { navigate: "goToLine" },
   matchBrace: { navigate: "matchBrace" }, nextChange: { navigate: "nextChange" }, previousChange: { navigate: "previousChange" },
   navigateBack: { navigate: "navigateBack" }, navigateForward: { navigate: "navigateForward" },
@@ -253,6 +277,17 @@ function viewportContainsByte(snapshot: ViewportSnapshot, byteOffset: bigint): b
   });
 }
 
+/**
+ * Wraps each space and tab so CSS can draw a mark over it; the characters
+ * themselves stay, so widths and caret positions do not change.
+ */
+function markWhitespace(segment: string, offset: number): ReactNode {
+  if (!/[ \t]/.test(segment)) return segment;
+  return segment.split(/([ \t])/).filter(Boolean).map((part, index) => part === " " || part === "\t"
+    ? <span className={part === " " ? "ws-space" : "ws-tab"} key={`ws-${offset}-${index}`}>{part}</span>
+    : part);
+}
+
 function renderLineText(
   text: string,
   selectionRanges: Array<{ start: number; end: number }>,
@@ -261,6 +296,7 @@ function renderLineText(
   bracketRanges: Array<{ start: number; end: number }>,
   dropIndex?: number,
   highlightRanges: Array<{ start: number; end: number }> = [],
+  showWhitespace = false,
 ): ReactNode[] {
   const boundaries = [...new Set([
     0,
@@ -295,9 +331,10 @@ function renderLineText(
       bracket ? "bracket-match" : "",
       highlighted && !selected ? "find-highlight" : "",
     ].filter(Boolean).join(" ");
+    const content = showWhitespace ? markWhitespace(segment, start) : segment;
     output.push(className
-      ? <span className={className} key={`text-${start}`}>{segment}</span>
-      : segment);
+      ? <span className={className} key={`text-${start}`}>{content}</span>
+      : showWhitespace ? <Fragment key={`text-${start}`}>{content}</Fragment> : segment);
   }
   if (output.length === 0) output.push(" ");
   return output;
@@ -382,6 +419,16 @@ interface EditorViewportProps {
   editorAction?: { id: number; action: EditorActionName };
   /** Shows a list of lines (the bookmarks) in the results window. */
   onShowResults?(list: ResultList): void;
+  /** Wraps long lines; the view keeps its own setting when this is absent. */
+  wordWrap?: boolean;
+  onToggleWordWrap?(): void;
+  /** Marks spaces and tabs. */
+  showWhitespace?: boolean;
+  /** Marks each line's ending (LF, CRLF, or CR). */
+  showLineEndings?: boolean;
+  showLineNumbers?: boolean;
+  /** Draws a vertical guide after this column. */
+  columnMarker?: number;
 }
 
 export function EditorViewport({
@@ -409,6 +456,12 @@ export function EditorViewport({
   onReload,
   editorAction,
   onShowResults,
+  wordWrap: wordWrapSetting,
+  onToggleWordWrap,
+  showWhitespace = false,
+  showLineEndings = false,
+  showLineNumbers = true,
+  columnMarker,
 }: EditorViewportProps) {
   const rowHeight = Math.max(12, Math.min(100, lineHeight));
   // Several panes can show views at once, so element IDs are per view.
@@ -420,7 +473,9 @@ export function EditorViewport({
   const [viewportHeight, setViewportHeight] = useState(500);
   const [compositionText, setCompositionText] = useState("");
   const [overwrite, setOverwrite] = useState(false);
-  const [wordWrap, setWordWrap] = useState(false);
+  const [localWordWrap, setLocalWordWrap] = useState(false);
+  const wordWrap = wordWrapSetting ?? localWordWrap;
+  const toggleWordWrap = onToggleWordWrap ?? (() => setLocalWordWrap((enabled) => !enabled));
   const [showDocumentMap, setShowDocumentMap] = useState(true);
   const [documentMap, setDocumentMap] = useState<DocumentMapSnapshot | null>(null);
   const [markdownMode, setMarkdownMode] = useState<"edit" | "view">("edit");
@@ -1045,6 +1100,34 @@ export function EditorViewport({
     }
   }, [insertText, onStatus, refuseEdit]);
 
+  const convertLineEndings = async (target: LineEnding) => {
+    if (refuseEdit()) return;
+    const run = async () => {
+      const revision = editRevisionRef.current;
+      if (revision === null) return null;
+      const result = await executeCommand<LineEndingConversion>({
+        id: "editor.convertLineEndings",
+        context: { windowId: "main", documentId: document.documentId },
+        arguments: { expectedRevision: revision, target },
+      });
+      editRevisionRef.current = result.document.revision;
+      onDocumentChange(result.document);
+      await refreshRef.current();
+      return result.converted;
+    };
+    const result = editChainRef.current.then(run, run);
+    editChainRef.current = result.catch(() => undefined);
+    const label = LINE_ENDING_LABELS[target];
+    try {
+      const converted = await result;
+      if (converted === null) return;
+      onStatus(converted === 0 ? `Line endings are already ${label}`
+        : `Converted ${converted.toLocaleString()} line ${converted === 1 ? "ending" : "endings"} to ${label}`);
+    } catch (error: unknown) {
+      onStatus(error instanceof Error ? error.message : "Could not convert line endings");
+    }
+  };
+
   const deleteBookmarkedLines = async () => {
     if (refuseEdit()) return;
     const run = async () => {
@@ -1155,6 +1238,7 @@ export function EditorViewport({
     if ("line" in kind) void runLineOperation(kind.line);
     else if ("transform" in kind) void transformSelections(kind.transform);
     else if ("navigate" in kind) void navigate(kind.navigate);
+    else if ("lineEnding" in kind) void convertLineEndings(kind.lineEnding);
     else void insertText(formatDateTime(new Date()));
   };
   const runEditorActionRef = useRef(runEditorAction);
@@ -1687,7 +1771,7 @@ export function EditorViewport({
       });
     } else if (event.key === "Enter") {
       event.preventDefault();
-      void insertText("\n");
+      void insertText(lineBreakAt(snapshot?.lines ?? [], BigInt(caretByteRef.current)));
     } else if (event.key === "Tab") {
       event.preventDefault();
       void insertText("\t");
@@ -2058,7 +2142,7 @@ export function EditorViewport({
             </option>
           ))}
         </select>
-        <IconButton icon="wrap" label="Wrap" tooltip="Word wrap" pressed={wordWrap} onClick={() => setWordWrap((enabled) => !enabled)} />
+        <IconButton icon="wrap" label="Wrap" tooltip="Word wrap" pressed={wordWrap} onClick={toggleWordWrap} />
         <IconButton icon="column" label="Column editing" tooltip="Column editing: drag selects a rectangle (or hold Alt Shift)"
           pressed={columnMode} onClick={() => setColumnMode((enabled) => !enabled)} />
         <IconButton icon="fold" label="Fold" tooltip="Fold region at caret" disabled={!caretFold}
@@ -2103,7 +2187,9 @@ export function EditorViewport({
       : <>
       <div
         ref={surfaceRef}
-        className={`editor-surface${wordWrap ? " word-wrap" : ""}`}
+        className={`editor-surface${wordWrap ? " word-wrap" : ""}${showWhitespace ? " show-whitespace" : ""}${
+          showLineNumbers ? "" : " no-line-numbers"}${columnMarker ? " column-marker" : ""}`}
+        style={columnMarker ? { "--marker-column": String(columnMarker) } as CSSProperties : undefined}
         onScroll={onScroll}
         onContextMenu={(event) => {
           event.preventDefault();
@@ -2451,7 +2537,7 @@ export function EditorViewport({
                           : [...current, fold.startByte]);
                       }}
                     >{foldCollapsed ? "▸" : "▾"}</button> : null}
-                    {line.continuation ? "·" : line.line}
+                    <span className="line-number-text">{line.continuation ? "·" : line.line}</span>
                     {showLineChanges && lineChangesAvailable && line.change
                       ? <i className={`line-change ${line.change}`} data-line-change={line.change}
                           title={LINE_CHANGE_LABELS[line.change]} />
@@ -2474,9 +2560,12 @@ export function EditorViewport({
                           )
                         : undefined,
                       highlightMatches ? findHighlights(line.text, findQuery, regexSearch, caseSensitive, wholeWord) : [],
+                      showWhitespace,
                     )}
                     {foldCollapsed ? <span className="fold-placeholder"> … </span> : null}
                     {selectsLineEnding ? <span className="selection line-ending"> </span> : null}
+                    {showLineEndings && line.ending
+                      ? <span className="line-ending-mark" data-ending={LINE_ENDING_LABELS[line.ending]} /> : null}
                   </code>
                 </div>
               );

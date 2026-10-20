@@ -1,5 +1,5 @@
 /** Versioned JSON-compatible values mirrored from nulis-core's public IPC DTOs. */
-export const IPC_PROTOCOL_VERSION = 32 as const;
+export const IPC_PROTOCOL_VERSION = 33 as const;
 
 export interface ThemeRecord {
   schema?: string;
@@ -175,6 +175,18 @@ export interface CharacterCount {
   characters?: string;
   words?: string;
   lines?: string;
+  /** Read from the first 1 MiB only when the document is too large to count. */
+  lineEnding?: LineEndingStyle;
+}
+
+export type LineEnding = "lf" | "crlf" | "cr";
+export type LineEndingStyle = LineEnding | "mixed" | "none";
+
+export interface LineEndingConversion {
+  document: DocumentSummary;
+  /** Number of line endings changed. */
+  converted: number;
+  selections: Selection[];
 }
 
 /** Where the caret of the focused editor is, for the status bar. */
@@ -642,6 +654,8 @@ export interface ViewportLine {
   continuation: boolean;
   truncated: boolean;
   change?: LineChange;
+  /** Absent on the last line and on a truncated segment. */
+  ending?: LineEnding;
 }
 
 /** Editing-session marker for one logical line; not a diff against a baseline. */

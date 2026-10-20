@@ -43,7 +43,9 @@ The bar along the bottom of the window describes the focused document.
 | **EDIT** / **READ ONLY** | The document's mode. Green **EDIT** means it can be changed; amber **READ ONLY** with a lock means it cannot. Click it to switch. |
 | **Ln**, **Col** | The line and column of the caret, updated as it moves. With several carets it adds how many; with a selection it adds how many bytes are selected. It is not shown in the hexadecimal view. |
 | Size | The document's size in bytes and its number of characters, for example `1,234 bytes · 1,200 characters`. The two differ when the text has characters that take more than one byte. |
+| Zoom | The editor zoom, such as `125%`, shown only when it is not 100%. Click it to reset. |
 | Version, encoding | The Nulis version and the document's text encoding. |
+| Line endings | **LF**, **CRLF**, **CR**, or **Mixed**. Click it to convert the document's line endings (see [Line endings](#line-endings)). |
 
 The character count follows your edits a moment behind. It counts characters in the document's encoding: in UTF-8 an accented letter or an emoji is one character even though it takes several bytes, and a line break is one character (two for a Windows line ending). Characters are counted for documents up to 64 MiB; a larger document shows its size in bytes only.
 
@@ -156,7 +158,7 @@ Right-click the text for a menu with Undo, Redo, Cut, Copy, Paste, Find, Replace
 | Cut, copy, paste | The usual system shortcuts and the **Edit** menu. |
 | Insert / overwrite | Press **Insert**, or click the **INS** / **OVR** indicator in the editor toolbar. In overwrite mode, typing replaces the character under the caret. |
 | Change case, format, encode | Choose from the **Format** menu, the **Format** list in the editor toolbar, or the command palette; see *Formatting* below. |
-| Word wrap | The **Wrap** button in the editor toolbar. |
+| Word wrap | **Alt Z**, **View ▸ Word Wrap**, or the **Wrap** button in the editor toolbar. Nulis remembers the choice. |
 
 ### Formatting
 
@@ -262,6 +264,20 @@ The markers follow undo and redo: undoing a change removes its marker. Hover a m
 
 Turn the indicators on or off for one document with the button in the editor toolbar, or for all documents with **View ▸ Line Change Indicators** or **Settings ▸ Editor ▸ Gutter**.
 
+### View options
+
+The **View** menu changes how every editor shows text. Nulis remembers these choices on this computer.
+
+| Option | What it does |
+| --- | --- |
+| Word Wrap (**Alt Z**) | Wraps long lines at the window edge instead of scrolling sideways. |
+| Show Whitespace | Draws `·` over spaces and `→` over tabs. The text itself does not change. |
+| Show Line Endings | Labels the end of each line with **LF**, **CRLF**, or **CR**. |
+| Line Numbers | Shows or hides line numbers. Bookmarks, folding arrows, and change markers stay in a narrow gutter. |
+| Column Marker at 80 | Draws a thin vertical line after column 80. |
+| Zoom In / Zoom Out / Reset Zoom (**Ctrl/⌘ =**, **Ctrl/⌘ -**, **Ctrl/⌘ 0**) | Makes the editor text larger or smaller, from 50% to 300%. The font size in Settings stays the same. |
+| Always on Top | Keeps the Nulis window above other windows until you turn it off. It is not remembered after Nulis closes. |
+
 ## Search
 
 ### The Find and Replace window
@@ -332,6 +348,14 @@ Supported languages: AppleScript, Bash and other shells, Batch, C, C++, C#, CSS,
 #### Text encoding
 
 The encoding list in the editor toolbar switches between **UTF-8** and **Windows-1252**. Changing it re-reads the same bytes in the other encoding; it does not rewrite the file. Bytes that are not valid in the chosen encoding are preserved exactly when you save, as long as you do not edit them.
+
+### Line endings
+
+The status bar shows which line endings the document uses: **LF** (macOS, Linux), **CRLF** (Windows), **CR** (classic Mac), or **Mixed** when it has more than one kind. A document without any line break shows **LF**. For a document larger than 64 MiB, the label comes from its first 1 MiB.
+
+**Enter** inserts the same line ending as the line the caret is on, so a Windows file stays CRLF.
+
+To convert, click the label in the status bar, or use **Format ▸ Convert Line Endings to LF / CRLF / CR**. Every line ending in the document changes in one undo step; bookmarks stay on their lines. Conversion works on documents up to 64 MiB with at most 1,000,000 line endings to change, and not in Read-Only mode. Save the file to keep the change.
 
 ### Markdown preview
 
@@ -472,6 +496,8 @@ These are the defaults. Shortcuts for commands can be changed under **Settings �
 | Alt ↑ / Alt ↓ | Move line up / down |
 | Ctrl/⌘ Enter | Open a new line below |
 | Ctrl/⌘ / | Toggle line comment |
+| Alt Z | Word wrap on or off |
+| Ctrl/⌘ = / Ctrl/⌘ - / Ctrl/⌘ 0 | Zoom in / out / reset |
 | F3 / Shift F3 | Find next / previous |
 | Ctrl/⌘ Shift \ | Go to matching bracket |
 | Ctrl/⌘ [ / Ctrl/⌘ ] | Go back / forward |

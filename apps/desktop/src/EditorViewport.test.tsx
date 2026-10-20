@@ -4,7 +4,7 @@ import { afterEach, beforeAll, expect, test, vi } from "vitest";
 import { useState } from "react";
 import type { DocumentSummary } from "./contracts";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { EditorViewport, formatDateTime } from "./EditorViewport";
+import { EditorViewport, formatDateTime, lineBreakAt } from "./EditorViewport";
 import { executeCommand, getDocumentMap, getMarkdownPreviewSource, getViewport, getViewportAt, getViewportLine } from "./ipc";
 
 vi.mock("./ipc", () => ({
@@ -92,6 +92,77 @@ test("renders line numbers from a bounded native viewport and dispatches typing"
       }),
     }));
   });
+});
+
+test("Enter inserts the line ending of the caret's line, else of the nearest line, else LF", () => {
+  const line = (start: number, end: number, ending?: "lf" | "crlf" | "cr") => ({
+    line: String(start), startByte: String(start), endByte: String(end), text: "", sourceByteWidths: [],
+    continuation: false, truncated: false, ending,
+  });
+  const lines = [line(0, 2, "crlf"), line(2, 3, "cr"), line(3, 3)];
+  expect(lineBreakAt(lines, 0n)).toBe("\r\n");
+  expect(lineBreakAt(lines, 2n)).toBe("\r");
+  // The last line has no ending: use the one above it.
+  expect(lineBreakAt(lines, 3n)).toBe("\r");
+  expect(lineBreakAt([line(0, 0)], 0n)).toBe("\n");
+  expect(lineBreakAt([], 0n)).toBe("\n");
+});
+
+test("Enter in a CRLF document inserts CRLF, and conversion reports what changed", async () => {
+  vi.mocked(getViewport).mockResolvedValueOnce({
+    documentId: "document-1", revision: "0", documentByteLen: "8", encoding: "utf8",
+    lines: [
+      { line: "1", startByte: "0", endByte: "5", text: "one", sourceByteWidths: [1, 1, 1], continuation: false, truncated: false, ending: "crlf" },
+      { line: "2", startByte: "5", endByte: "8", text: "two", sourceByteWidths: [1, 1, 1], continuation: false, truncated: false },
+    ],
+    selections: [{ anchorByte: "8", activeByte: "8" }],
+    bookmarks: [],
+  });
+  const onStatus = vi.fn();
+  const { rerender } = render(<EditorViewport document={{ documentId: "document-1", name: "Untitled", byteLen: "8", revision: "0", encoding: "utf8" }}
+    onDocumentChange={() => undefined} onStatus={onStatus} />);
+  const editor = await screen.findByRole("textbox", { name: "Untitled editor" });
+  await screen.findByText("two");
+  fireEvent.keyDown(editor, { key: "Enter" });
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
+    id: "editor.insertText", arguments: expect.objectContaining({ text: "\r\n" }),
+  })));
+
+  vi.mocked(executeCommand).mockResolvedValueOnce({
+    document: { documentId: "document-1", name: "Untitled", byteLen: "7", revision: "2", encoding: "utf8" },
+    converted: 1, selections: [{ anchorByte: "7", activeByte: "7" }],
+  });
+  rerender(<EditorViewport document={{ documentId: "document-1", name: "Untitled", byteLen: "8", revision: "0", encoding: "utf8" }}
+    onDocumentChange={() => undefined} onStatus={onStatus} editorAction={{ id: 1, action: "lineEndingsLf" }} />);
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
+    id: "editor.convertLineEndings", arguments: expect.objectContaining({ target: "lf" }),
+  })));
+  await waitFor(() => expect(onStatus).toHaveBeenCalledWith("Converted 1 line ending to LF"));
+});
+
+test("marks whitespace and line endings without changing the text, and hides line numbers", async () => {
+  vi.mocked(getViewport).mockResolvedValueOnce({
+    documentId: "document-1", revision: "0", documentByteLen: "11", encoding: "utf8",
+    lines: [
+      { line: "1", startByte: "0", endByte: "7", text: "a b\tc", sourceByteWidths: [1, 1, 1, 1, 1], continuation: false, truncated: false, ending: "crlf" },
+      { line: "2", startByte: "7", endByte: "11", text: "done", sourceByteWidths: [1, 1, 1, 1], continuation: false, truncated: false },
+    ],
+    selections: [{ anchorByte: "0", activeByte: "0" }],
+    bookmarks: [],
+  });
+  const { container } = render(<EditorViewport document={{ documentId: "document-1", name: "Untitled", byteLen: "11", revision: "0", encoding: "utf8" }}
+    onDocumentChange={() => undefined} onStatus={() => undefined}
+    showWhitespace showLineEndings showLineNumbers={false} columnMarker={80} />);
+  await screen.findByText("done");
+  const first = container.querySelector<HTMLElement>(".editor-line code")!;
+  expect(first.textContent).toBe("a b\tc");
+  expect(first.querySelectorAll(".ws-space")).toHaveLength(1);
+  expect(first.querySelectorAll(".ws-tab")).toHaveLength(1);
+  const endings = [...container.querySelectorAll<HTMLElement>(".line-ending-mark")].map((mark) => mark.dataset.ending);
+  expect(endings).toEqual(["CRLF"]);
+  const surface = container.querySelector<HTMLElement>(".editor-surface")!;
+  expect(surface).toHaveClass("show-whitespace", "no-line-numbers", "column-marker");
+  expect(surface.style.getPropertyValue("--marker-column")).toBe("80");
 });
 
 test("shows a compact document map for a short file and exposes its visibility toggle", async () => {
@@ -224,8 +295,14 @@ test("focuses the input when any blank part of the editor surface is clicked", a
 
   const surface = container.querySelector<HTMLElement>(".editor-surface");
   expect(surface).not.toBeNull();
+  const original = vi.mocked(executeCommand).getMockImplementation();
+  // Pressing below the text moves the caret to the end of the document.
+  vi.mocked(executeCommand).mockImplementation(async (request) => (request.id === "editor.moveHorizontal"
+    ? [{ anchorByte: "7", activeByte: "7" }] : original?.(request)) as never);
   fireEvent.pointerDown(surface!, { button: 0, pointerId: 3 });
   expect(editor).toHaveFocus();
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({ id: "editor.moveHorizontal" })));
+  if (original) vi.mocked(executeCommand).mockImplementation(original);
 
   fireEvent.keyDown(editor, { key: "x" });
   await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({

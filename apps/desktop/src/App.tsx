@@ -47,7 +47,7 @@ import {
   FIND_EVENTS, FindReplacePanel, ResultsWindow, type FindContext, type FindMessage, type FindTab, type MatchTarget, type ResultList,
 } from "./FindReplacePanel";
 import { Icon, IconButton, iconForCommand, type IconName } from "./icons";
-import { EDITOR_ACTIONS, FIND_WINDOW_COMMANDS, PALETTE_COMMANDS, shortcutLabel, type EditorActionName } from "./commands";
+import { EDITOR_ACTIONS, FIND_WINDOW_COMMANDS, LINE_ENDING_LABELS, PALETTE_COMMANDS, shortcutLabel, type EditorActionName } from "./commands";
 import {
   closeWindowAfterSave, configureNativeMenu, executeCommand, getApplicationInfo, listCommands, openFindWindow, openHelpWindow, openResultsWindow, openSettingsWindow, takeLaunchPaths,
   setToolsMenu,
@@ -86,12 +86,16 @@ import {
   BUILT_IN_THEMES,
   loadEditorPreferences,
   loadLineChangeDefault,
+  loadViewOptions,
   loadWelcomeOnStartup,
   normalizeEditorPreferences,
   preferenceCssVariables,
   saveEditorPreferences,
   saveLineChangeDefault,
+  saveViewOptions,
   saveWelcomeOnStartup,
+  stepZoom,
+  type ViewOptions,
 } from "./preferences";
 
 const NAV_ITEMS = ["Files", "Symbols", "Remote"] as const;
@@ -111,7 +115,8 @@ const TOOLBAR_CAPTIONS: Record<string, string> = {
   "workbench.commandPalette": "Commands", "workbench.toggleSidebar": "Sidebar", "workbench.toggleSplit": "Split",
   "workbench.splitRight": "Split Right", "workbench.splitDown": "Split Down", "workbench.toggleEditorMode": "Hex",
   "workbench.closeTab": "Close Tab", "workbench.closeFile": "Close", "workbench.openSettings": "Settings", "app.about": "About", "workbench.openHelp": "Help", "editor.toggleReadOnly": "Read Only",
-  "view.toggleLineChangeIndicators": "Changes", "tools.validate": "Validate", "tools.beautify": "Beautify",
+  "view.toggleLineChangeIndicators": "Changes", "view.toggleWordWrap": "Wrap", "view.toggleWhitespace": "Whitespace",
+  "view.zoomIn": "Zoom In", "view.zoomOut": "Zoom Out", "view.toggleAlwaysOnTop": "On Top", "tools.validate": "Validate", "tools.beautify": "Beautify",
   "tools.minify": "Minify", "workspace.rename": "Rename", "workspace.ungroup": "Ungroup",
 };
 const NAV_ICONS: Record<typeof NAV_ITEMS[number], IconName> = {
@@ -240,6 +245,9 @@ export function App() {
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [renameRequest, setRenameRequest] = useState<{ tabId: string | null; signal: number }>({ tabId: null, signal: 0 });
   const [lineChangeDefault, setLineChangeDefault] = useState(loadLineChangeDefault);
+  const [viewOptions, setViewOptions] = useState(loadViewOptions);
+  const viewOptionsRef = useRef(viewOptions);
+  const [alwaysOnTop, setAlwaysOnTop] = useState(false);
   const [welcomeOnStartup, setWelcomeOnStartup] = useState(loadWelcomeOnStartup);
   // The welcome screen stays for this session after its tick box turns it off for the next start.
   const [welcomeVisible, setWelcomeVisible] = useState(loadWelcomeOnStartup);
@@ -816,6 +824,23 @@ export function App() {
         nativeMenuActionRef.current("workbench.openSettings");
         return;
       }
+      // Fixed View keys: Alt Z wraps, Primary = / - / 0 zoom. Codes keep them layout-independent.
+      const primary = (event.metaKey || event.ctrlKey) && !(event.metaKey && event.ctrlKey);
+      if (event.altKey && !event.metaKey && !event.ctrlKey && !event.shiftKey && event.code === "KeyZ") {
+        event.preventDefault();
+        nativeMenuActionRef.current("view.toggleWordWrap");
+        return;
+      }
+      if (primary && !event.altKey) {
+        const zoomCommand = event.key === "=" || event.key === "+" || event.code === "Equal" || event.code === "NumpadAdd" ? "view.zoomIn"
+          : event.key === "-" || event.code === "Minus" || event.code === "NumpadSubtract" ? "view.zoomOut"
+            : (event.key === "0" || event.code === "Digit0" || event.code === "Numpad0") && !event.shiftKey ? "view.zoomReset" : null;
+        if (zoomCommand) {
+          event.preventDefault();
+          nativeMenuActionRef.current(zoomCommand);
+          return;
+        }
+      }
       if (event.key === "F1" && !event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
         // The desktop shell owns this accelerator through its native Help menu item.
         if (desktopShell) return;
@@ -1253,6 +1278,32 @@ export function App() {
     if (!tab || !isWorkspace(tab)) { setStatus("Group tabs into a workspace before renaming it"); return; }
     setRenameRequest((request) => ({ tabId: tab.id, signal: request.signal + 1 }));
   };
+  /** Applies a change computed from the latest options, so quick repeats add up. */
+  const changeViewOptions = (change: (current: ViewOptions) => Partial<ViewOptions>, message: (next: ViewOptions) => string) => {
+    let next = viewOptionsRef.current;
+    next = { ...next, ...change(next) };
+    viewOptionsRef.current = next;
+    saveViewOptions(next);
+    setViewOptions(next);
+    setStatus(message(next));
+  };
+  const toggleView = (key: "wordWrap" | "showWhitespace" | "showLineEndings" | "lineNumbers" | "columnMarker", name: string) => {
+    changeViewOptions((current) => ({ [key]: !current[key] }), (next) => `${name} ${next[key] ? "on" : "off"}`);
+  };
+  const zoom = (direction: -1 | 0 | 1) => {
+    changeViewOptions((current) => ({ zoom: stepZoom(current.zoom, direction) }), (next) => `Zoom ${next.zoom}%`);
+  };
+  const toggleAlwaysOnTop = async () => {
+    if (!desktopShell) { setStatus("Always on Top is available in the desktop app"); return; }
+    const next = !alwaysOnTop;
+    try {
+      await getCurrentWindow().setAlwaysOnTop(next);
+      setAlwaysOnTop(next);
+      setStatus(next ? "Window stays on top" : "Window no longer stays on top");
+    } catch (error: unknown) {
+      setStatus(errorMessage(error, "Could not change Always on Top"));
+    }
+  };
   const toggleLineChangeDefault = () => {
     const next = !lineChangeDefault;
     saveLineChangeDefault(next);
@@ -1408,6 +1459,15 @@ export function App() {
     "workbench.moveTabLeft": () => shiftTab(-1),
     "workbench.moveTabRight": () => shiftTab(1),
     "view.toggleLineChangeIndicators": toggleLineChangeDefault,
+    "view.toggleWordWrap": () => toggleView("wordWrap", "Word wrap"),
+    "view.toggleWhitespace": () => toggleView("showWhitespace", "Show whitespace"),
+    "view.toggleLineEndings": () => toggleView("showLineEndings", "Show line endings"),
+    "view.toggleLineNumbers": () => toggleView("lineNumbers", "Line numbers"),
+    "view.toggleColumnMarker": () => toggleView("columnMarker", `Column marker at ${viewOptions.markerColumn}`),
+    "view.zoomIn": () => zoom(1),
+    "view.zoomOut": () => zoom(-1),
+    "view.zoomReset": () => zoom(0),
+    "view.toggleAlwaysOnTop": toggleAlwaysOnTop,
     "workspace.rename": requestRename,
     "workspace.groupRight": () => groupWithNextTab("right"),
     "workspace.groupDown": () => groupWithNextTab("bottom"),
@@ -1531,9 +1591,11 @@ export function App() {
     </>;
   };
 
+  // Zoom scales only the editor text; Settings keeps the base size.
+  const zoomedFontSize = Math.round(preferences.fontSize * viewOptions.zoom) / 100;
   const layoutStyle = {
     "--sidebar-width": `${sidebarWidth}px`,
-    ...preferenceCssVariables(preferences, themes),
+    ...preferenceCssVariables({ ...preferences, fontSize: zoomedFontSize }, themes),
   } as CSSProperties;
 
   const forgetPrompts = (documentId: string) => {
@@ -1755,6 +1817,18 @@ export function App() {
   const viewMenu: MenuItem[] = [
     { label: "Line Change Indicators", checked: lineChangeDefault, shortcut: shortcutFor("view.toggleLineChangeIndicators"),
       onSelect: () => runById("view.toggleLineChangeIndicators") },
+    { label: "Word Wrap", checked: viewOptions.wordWrap, shortcut: shortcutLabel("Alt+Z"), onSelect: () => runById("view.toggleWordWrap") },
+    { label: "Show Whitespace", checked: viewOptions.showWhitespace, onSelect: () => runById("view.toggleWhitespace") },
+    { label: "Show Line Endings", checked: viewOptions.showLineEndings, onSelect: () => runById("view.toggleLineEndings") },
+    { label: "Line Numbers", checked: viewOptions.lineNumbers, onSelect: () => runById("view.toggleLineNumbers") },
+    { label: `Column Marker at ${viewOptions.markerColumn}`, checked: viewOptions.columnMarker,
+      onSelect: () => runById("view.toggleColumnMarker") },
+    { kind: "separator" },
+    { label: "Zoom In", shortcut: shortcutLabel("Primary+="), onSelect: () => runById("view.zoomIn") },
+    { label: "Zoom Out", shortcut: shortcutLabel("Primary+-"), onSelect: () => runById("view.zoomOut") },
+    { label: "Reset Zoom", shortcut: shortcutLabel("Primary+0"), disabled: viewOptions.zoom === 100, onSelect: () => runById("view.zoomReset") },
+    { label: "Always on Top", checked: alwaysOnTop, disabled: !desktopShell, onSelect: () => runById("view.toggleAlwaysOnTop") },
+    { kind: "separator" },
     { label: "Primary Side Bar", checked: sidebarVisible, onSelect: () => setSidebarVisible((visible) => !visible) },
     { label: "Read-Only Mode", checked: activeDocument?.readOnly === true, disabled: !activeDocument,
       shortcut: shortcutFor("editor.toggleReadOnly"), onSelect: () => runById("editor.toggleReadOnly") },
@@ -1805,6 +1879,22 @@ export function App() {
   const activeCount = characterCount && characterCount.documentId === activeDocument?.documentId
     ? characterCount : undefined;
   const activeCharacters = activeCount?.characters;
+  const lineEndingStyle = activeCount?.lineEnding;
+  const lineEndingLabel = lineEndingStyle === "mixed" ? "Mixed"
+    : lineEndingStyle && lineEndingStyle !== "none" ? LINE_ENDING_LABELS[lineEndingStyle] : "LF";
+  const openLineEndingMenu = (button: HTMLElement) => {
+    const { left, top } = button.getBoundingClientRect();
+    const blocked = !activeDocument || activeDocument.readOnly === true || hexMode;
+    const entry = (target: "lf" | "crlf" | "cr", label: string) => ({
+      label, checked: lineEndingStyle === target, disabled: blocked,
+      onSelect: () => runById(`format.lineEndings${target === "lf" ? "Lf" : target === "crlf" ? "Crlf" : "Cr"}`),
+    });
+    setContextMenu({ x: left, y: top, label: "Line endings", items: [
+      entry("lf", "Convert to LF (Unix and macOS)"),
+      entry("crlf", "Convert to CRLF (Windows)"),
+      entry("cr", "Convert to CR (classic Mac)"),
+    ] });
+  };
 
   const renderView = (document: DocumentSummary, pane: PaneNode, active: boolean, ordinal: number, total: number) => {
     const viewId = total > 1 ? `pane ${ordinal}` : "primary";
@@ -1813,7 +1903,11 @@ export function App() {
           onStatus={setStatus} viewId={pane.id} />
       : <EditorViewport key={`${pane.id}-${macroRefreshVersion}-${documentEpochs[document.documentId] ?? 0}`} document={document} onDocumentChange={upsertDocument}
           onStatus={setStatus} viewId={viewId} autoFocus={active}
-          lineHeight={preferences.fontSize * preferences.lineHeight} languages={languages}
+          lineHeight={zoomedFontSize * preferences.lineHeight} languages={languages}
+          wordWrap={viewOptions.wordWrap} onToggleWordWrap={() => runById("view.toggleWordWrap")}
+          showWhitespace={viewOptions.showWhitespace} showLineEndings={viewOptions.showLineEndings}
+          showLineNumbers={viewOptions.lineNumbers}
+          columnMarker={viewOptions.columnMarker ? viewOptions.markerColumn : undefined}
           showLineChanges={lineChangeOverrides[document.documentId] ?? lineChangeDefault}
           onToggleLineChanges={() => setLineChangeOverrides((current) => ({
             ...current, [document.documentId]: !(current[document.documentId] ?? lineChangeDefault),
@@ -1981,7 +2075,15 @@ export function App() {
           : "Size in bytes, and the characters, words, and lines in the document"}>
           {sizeLabel(activeDocument.byteLen, activeCount)}</span> : null}
         <span>{info ? `${info.productName} ${info.version}` : "Core pending"}</span>
-        <span>{encodingLabel(activeDocument)}</span><span>LF</span>
+        {viewOptions.zoom !== 100 ? <button type="button" className="status-button" title="Editor zoom — click to reset to 100%"
+          aria-label={`Zoom ${viewOptions.zoom}%. Reset zoom`} onClick={() => runById("view.zoomReset")}>{viewOptions.zoom}%</button> : null}
+        <span>{encodingLabel(activeDocument)}</span>
+        {activeDocument ? <button type="button" className="status-button" aria-haspopup="menu"
+          aria-label={`Line endings: ${lineEndingLabel}. Convert line endings`}
+          title={lineEndingStyle === "mixed" ? "This document mixes line endings — click to convert them to one kind"
+            : lineEndingStyle === "none" ? "No line endings yet; Enter inserts LF — click to convert"
+              : `Line endings: ${lineEndingLabel} — click to convert`}
+          onClick={(event) => openLineEndingMenu(event.currentTarget)}>{lineEndingLabel}</button> : <span>LF</span>}
       </footer>
 
       {paletteOpen ? <div className="palette-backdrop" role="presentation"

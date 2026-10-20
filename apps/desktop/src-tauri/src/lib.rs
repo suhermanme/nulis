@@ -100,6 +100,15 @@ const VIEW_MENU_COMMANDS: &[(&str, &str)] = &[
         "view.toggleLineChangeIndicators",
         "Show/Hide Line Change Indicators",
     ),
+    ("view.toggleWordWrap", "Toggle Word Wrap"),
+    ("view.toggleWhitespace", "Show/Hide Whitespace"),
+    ("view.toggleLineEndings", "Show/Hide Line Endings"),
+    ("view.toggleLineNumbers", "Show/Hide Line Numbers"),
+    ("view.toggleColumnMarker", "Show/Hide Column Marker"),
+    ("view.zoomIn", "Zoom In"),
+    ("view.zoomOut", "Zoom Out"),
+    ("view.zoomReset", "Reset Zoom"),
+    ("view.toggleAlwaysOnTop", "Toggle Always on Top"),
     ("workbench.toggleSidebar", "Toggle Primary Side Bar"),
     ("editor.toggleReadOnly", "Toggle Read-Only Mode"),
     ("workbench.splitRight", "Split Editor Right"),
@@ -169,6 +178,11 @@ const FORMAT_MENU_COMMANDS: &[&[(&str, &str)]] = &[
         ("format.base64Encode", "Encode Base64"),
         ("format.base64Decode", "Decode Base64"),
         ("format.insertDateTime", "Insert Date and Time"),
+    ],
+    &[
+        ("format.lineEndingsLf", "Convert Line Endings to LF"),
+        ("format.lineEndingsCrlf", "Convert Line Endings to CRLF"),
+        ("format.lineEndingsCr", "Convert Line Endings to CR"),
     ],
 ];
 const WORKSPACE_MENU_COMMANDS: &[&[(&str, &str)]] = &[
