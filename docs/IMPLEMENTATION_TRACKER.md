@@ -4,8 +4,8 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 
 ## Current state
 
-- **Current milestone:** M27 — pending (next to start)
-- **Overall:** 8 of 11 milestones completed (M19–M26)
+- **Current milestone:** M27 — paused before implementation (usage limit); see `handover/M27_HANDOVER.md`
+- **Overall:** 8 of 12 milestones completed (M19–M26)
 - **Baseline before M19 (commit `66853e1`):** `cargo test -p nulis-core` 86 passed; desktop Vitest 11 files, 115 tests passed.
 
 | Milestone | Status | Handover |
@@ -18,9 +18,10 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 | M24 New application icon (user request) | Completed | `handover/M24_HANDOVER.md` |
 | M25 Format and transforms | Completed (manual and Windows/Linux checks pending) | `handover/M25_HANDOVER.md` |
 | M26 Search and navigation | Completed (manual and Windows/Linux checks pending) | `handover/M26_HANDOVER.md` |
-| M27 View and file | Pending | – |
-| M28 Column and clipboard tools | Pending | – |
-| M29 Integration and quality | Pending | – |
+| M27 View features (split from "View and file") | Paused, not started | `handover/M27_HANDOVER.md` |
+| M28 File conveniences (split from "View and file") | Pending | – |
+| M29 Column and clipboard tools | Pending | – |
+| M30 Integration and quality | Pending | – |
 
 ## M19 — Audit and foundation
 
