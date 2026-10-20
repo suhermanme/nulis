@@ -119,6 +119,14 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 
 **Result (completed 2026-10-20, on `main`):** all criteria covered by tests. Verification on macOS: fmt and clippy clean; `cargo test --workspace` passed (nulis-core 108, nulis-desktop 7); lint and typecheck clean; Vitest 124 passed. Details: `handover/M23_HANDOVER.md`.
 
+## Fix after M29 — secondary windows on Windows (user report, video)
+
+**Problem:** on Windows, Settings and Find and Replace first appeared as an empty white or black window for one to two seconds, and showed the application menu bar, which also came back after saving settings. Causes: the menu was installed with `app.set_menu`, which on Windows and Linux draws it inside every window and reattaches it on every rebuild (M19 removed it only once, at creation); and windows were shown before their web view had drawn. Find, results, and Help were also rebuilt from scratch on every open.
+
+**Fix (`apps/desktop/src-tauri/src/lib.rs`, `windowTheme.ts`, `SettingsWindow.tsx`):** on Windows and Linux the menu is attached to the editor window only (`attach_menu`); macOS keeps its global menu bar. Secondary windows are built hidden and shown when their page reports its first themed paint (`window_ready`, `useShowWhenReady`), or after 1.5 s at the latest. Find, results, and Help hide instead of closing, so reopening is instant and Find keeps its text; Settings still closes to discard unapplied changes.
+
+**Verification:** clippy, workspace tests, lint, typecheck, Vitest 148 passed on macOS; Windows checked only by CI build and install (no GUI access to the test VM).
+
 ## Fix after M29 — document map on long files (user report, Windows 0.1.1 video)
 
 **Problem:** above 64 KiB the core sampled 1,024 slices of 128 bytes at even byte offsets. Rows started mid-line, glued neighboring lines together, and were placed by byte position, so the map did not look like the file and clicks landed unevenly (13% of the map opened line 670 of about 5,000, 38% only line 1,552). Not Windows-specific: the same code runs on every platform.

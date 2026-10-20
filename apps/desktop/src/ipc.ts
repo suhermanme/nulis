@@ -119,6 +119,11 @@ export function setToolsMenu(kind: ToolKind | null): Promise<void> {
 }
 
 /** Opens the separate Find and Replace window, or brings it forward. */
+/** Tells the shell this secondary window has drawn its themed page, so it may be shown. */
+export function windowReady(): Promise<void> {
+  return invoke<void>("window_ready");
+}
+
 export function openFindWindow(): Promise<void> {
   return invoke<void>("open_find_window");
 }

@@ -681,8 +681,21 @@ fn install_native_menu(app: &tauri::AppHandle, entries: &[NativeMenuEntry]) -> t
     menu.insert(&file_menu, 0)?;
 
     add_command_menus(app, &menu)?;
+    attach_menu(app, menu)
+}
 
+/// macOS has one menu bar for the whole application. Elsewhere an
+/// application menu is drawn inside every window, including Settings and
+/// Find, and comes back each time it is rebuilt; so it belongs to the editor
+/// window alone. Menu clicks reach the global handler either way.
+#[cfg(desktop)]
+fn attach_menu(app: &tauri::AppHandle, menu: Menu<tauri::Wry>) -> tauri::Result<()> {
+    #[cfg(target_os = "macos")]
     app.set_menu(menu)?;
+    #[cfg(not(target_os = "macos"))]
+    if let Some(main) = app.get_webview_window(MAIN_WINDOW_LABEL) {
+        main.set_menu(menu)?;
+    }
     Ok(())
 }
 
@@ -889,8 +902,10 @@ fn show_settings_window(app: &tauri::AppHandle) -> tauri::Result<()> {
         f64::from(SETTINGS_MIN_SIZE.1),
     )
     .resizable(true)
+    .visible(false)
     .build()?;
     detach_application_menu(&window)?;
+    show_when_ready(&window);
     let monitors = window
         .available_monitors()?
         .iter()
@@ -1020,13 +1035,17 @@ fn show_help_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     .inner_size(980.0, 700.0)
     .min_inner_size(f64::from(HELP_MIN_SIZE.0), f64::from(HELP_MIN_SIZE.1))
     .resizable(true)
+    .visible(false)
     .build()?;
-    detach_application_menu(&window)
+    detach_application_menu(&window)?;
+    show_when_ready(&window);
+    Ok(())
 }
 
-/// On Windows and Linux the application menu is drawn inside every window.
-/// Settings and Help are auxiliary windows whose page has its own controls,
-/// so they show no menu bar. macOS has one global menu bar and needs nothing.
+/// On Windows and Linux an application-wide menu would be drawn inside every
+/// window. The menu is attached to the editor window only (see
+/// `install_native_menu`); this also clears one a platform may add by default.
+/// macOS has one global menu bar and needs nothing.
 #[cfg_attr(target_os = "macos", allow(clippy::unnecessary_wraps))]
 fn detach_application_menu(window: &tauri::WebviewWindow) -> tauri::Result<()> {
     #[cfg(not(target_os = "macos"))]
@@ -1058,8 +1077,49 @@ fn show_aux_window(
     .inner_size(size.0, size.1)
     .min_inner_size(f64::from(min_size.0), f64::from(min_size.1))
     .resizable(true)
+    .visible(false)
     .build()?;
-    detach_application_menu(&window)
+    detach_application_menu(&window)?;
+    show_when_ready(&window);
+    Ok(())
+}
+
+/// Longest a new window stays hidden waiting for its page to say it is ready.
+const WINDOW_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1500);
+const SECONDARY_WINDOW_LABELS: &[&str] = &[
+    SETTINGS_WINDOW_LABEL,
+    HELP_WINDOW_LABEL,
+    FIND_WINDOW_LABEL,
+    RESULTS_WINDOW_LABEL,
+];
+
+/// A new window is created hidden, so it never shows as an empty white or
+/// black rectangle while its web view starts. Its page calls `window_ready`
+/// once it has drawn; if that never comes, the window appears anyway.
+fn show_when_ready(window: &tauri::WebviewWindow) {
+    let window = window.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(WINDOW_READY_TIMEOUT);
+        reveal(&window);
+    });
+}
+
+fn reveal(window: &tauri::WebviewWindow) {
+    if !window.is_visible().unwrap_or(true) {
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+/// Called by a secondary window's page after its first themed paint.
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri extracts WebviewWindow by value.
+fn window_ready(window: tauri::WebviewWindow) -> Result<(), String> {
+    if !SECONDARY_WINDOW_LABELS.contains(&window.label()) {
+        return Err("only a secondary window reports that it is ready".into());
+    }
+    reveal(&window);
+    Ok(())
 }
 
 // Async so the window is built off the main thread (see open_settings_window).
@@ -1094,7 +1154,7 @@ async fn open_results_window(app: tauri::AppHandle) -> Result<(), String> {
 #[allow(clippy::needless_pass_by_value)] // Tauri extracts WebviewWindow by value.
 fn close_find_window(window: tauri::WebviewWindow) -> Result<(), String> {
     require_find_window(&window)?;
-    window.destroy().map_err(|error| error.to_string())
+    window.hide().map_err(|error| error.to_string())
 }
 
 /// Relays a message from the Find or results window to the editor window,
@@ -1174,7 +1234,7 @@ async fn open_help_window(app: tauri::AppHandle) -> Result<(), String> {
 #[allow(clippy::needless_pass_by_value)] // Tauri extracts AppHandle by value.
 fn close_help_window(app: tauri::AppHandle) -> Result<(), String> {
     match app.get_webview_window(HELP_WINDOW_LABEL) {
-        Some(window) => window.destroy().map_err(|error| error.to_string()),
+        Some(window) => window.hide().map_err(|error| error.to_string()),
         None => Ok(()),
     }
 }
@@ -1285,6 +1345,16 @@ fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
     match (window.label(), event) {
         (SETTINGS_WINDOW_LABEL, tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_)) => {
             remember_settings_frame(window);
+        }
+        // Find, results, and Help are hidden rather than closed, so opening
+        // them again is instant (a new web view takes a moment, most of all
+        // on Windows) and Find keeps its text. They close with the editor.
+        (
+            FIND_WINDOW_LABEL | RESULTS_WINDOW_LABEL | HELP_WINDOW_LABEL,
+            tauri::WindowEvent::CloseRequested { api, .. },
+        ) => {
+            api.prevent_close();
+            let _ = window.hide();
         }
         (SETTINGS_WINDOW_LABEL, tauri::WindowEvent::Destroyed) => {
             let app = window.app_handle();
@@ -1403,6 +1473,7 @@ pub fn run() {
             open_find_window,
             open_results_window,
             close_find_window,
+            window_ready,
             find_message,
             take_launch_paths,
             settings_preview,

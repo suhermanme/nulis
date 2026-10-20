@@ -14,6 +14,7 @@ import { CUSTOMIZABLE_COMMANDS } from "./commands";
 import { Icon, IconButton, type IconName } from "./icons";
 import { executeCommand, getApplicationInfo, listCommands } from "./ipc";
 import { LAYOUT_LIMITS } from "./layout";
+import { useShowWhenReady } from "./windowTheme";
 import {
   BUILT_IN_THEMES,
   FONT_FAMILIES,
@@ -289,6 +290,9 @@ export function SettingsWindow({
     setSection(next.id);
     event.currentTarget.querySelector<HTMLElement>(`[data-section="${next.id}"]`)?.focus();
   };
+
+  // The separate window is shown once its settings (or why they failed) are on screen.
+  useShowWhenReady(mode === "window" && (Boolean(saved && draft) || notice !== null));
 
   if (!saved || !draft) {
     return <div className={`settings-window ${mode}`} role={mode === "inline" ? "dialog" : undefined} aria-label="Settings">
