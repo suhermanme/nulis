@@ -85,7 +85,7 @@ Each release also has a `SHA256SUMS.txt` to check the downloads: `sha256sum -c S
 
 **Workspaces of split panes, in any of 99 themes.** Drag a tab into the editor to view files side by side; here, Nulis · Paper Current with Rust, JSON, and Markdown.
 
-![Three files in one workspace with the Paper Light theme](docs/images/screenshots/light-theme.png)
+![Three files in one workspace with the Nulis · Paper Current theme](docs/images/screenshots/light-theme.png)
 
 **See what changed.** A red bar marks lines you have not saved yet; a green bar marks lines saved during this session. The tab shows a dot while the file has unsaved changes.
 
@@ -129,18 +129,18 @@ Each release also has a `SHA256SUMS.txt` to check the downloads: `sha256sum -c S
 
 ### Finding things
 
-- **Find and replace** in the current file, with match case, regular expressions, multi-line matches, and Replace All as one undo step.
+- **Find and replace** in the current file, with match case, whole words, regular expressions that can never hang (even on huge files), capture groups in the replacement (`$1`, `${name}`), search within columns, multi-line matches, and Replace All as one undo step.
 - **Find in files** across a folder, with fixed limits on files and results.
 - **Go to line**, a **symbols list** per document, bracket matching, and a document map.
 
 ### Languages
 
-- **Syntax highlighting, folding, and symbols** for 37 languages: AppleScript, Bash, Batch, C, C++, C#, CSS, Dockerfile, Go, HTML, INI, Java, JavaScript, JSON, Kotlin, Lua, Makefile, Markdown, MySQL / MariaDB, Objective-C / Objective-C++, Oracle PL/SQL, Perl, PHP, PowerShell, Python, Ruby, Rust, SQL, Swift, TOML, TypeScript, VBScript / ASP, Visual Basic, XML, XSL, YAML, and Zig.
+- **Syntax highlighting, folding, and symbols** for 38 languages: AppleScript, Bash, Batch, C, C++, C#, CSS, Dockerfile, Go, HTML, INI, Java, JavaScript, JSON, Kotlin, Lua, Makefile, Markdown, MySQL / MariaDB, Objective-C / Objective-C++, Oracle PL/SQL, Perl, PHP, PowerShell, Property List, Python, Ruby, Rust, SQL, Swift, TOML, TypeScript, VBScript / ASP, Visual Basic, XML, XSL, YAML, and Zig. A sample of each is in [`Samples/`](Samples).
 - **Detection** from the file name and extension, and from the content (`#!` line, XML declaration, `<?php`, HTML doctype) when the name says nothing. A **View As** control overrides it.
 
 ### Tools
 
-- **JSON and XML tools**: validate (the caret moves to the first problem), beautify, and JSON minify. They are offered only while a JSON or XML document is focused.
+- **JSON, XML, YAML, and plist tools**: validate (the caret moves to the first problem, and repeated keys are caught), beautify, and JSON minify. YAML Beautify asks before it would drop comments. The tools are offered only while such a document is focused.
 - **Hexadecimal editor** with synchronized hex and text columns, for files of any size.
 - **Compare and merge** two documents (text by line, binary by byte) and **compare folders**.
 - **Markdown preview** with GitHub-style syntax and local images.
@@ -158,7 +158,7 @@ Each release also has a `SHA256SUMS.txt` to check the downloads: `sha256sum -c S
 ### Customization and extension
 
 - **Settings window** with sections for the editor, appearance, languages, keybindings, menus and toolbar, workspaces, and extensions.
-- **99 built-in color themes**, plus user-installed themes.
+- **99 built-in color themes**, with Nulis's own Ember Night and Paper Current first, plus user-installed themes. In every theme the selection, secondary text, and toolbar icons are kept clearly visible.
 - **Configurable** shortcuts, File menu, and main toolbar.
 - **Macros** (record and replay) and **scripts** that run only after explicit approval of the commands they use.
 - **Plugins** written in JavaScript, each running in an isolated worker process and approved by content digest.
@@ -251,10 +251,10 @@ A document is a **piece table**: an immutable, randomly accessible original file
 
 | Crate | Responsibility |
 | --- | --- |
-| `nulis-core` | Command registry, document sessions, editing operations, line change tracking, JSON and XML tools, and orchestration of every other crate. |
+| `nulis-core` | Command registry, document sessions, editing operations, line change tracking, JSON, XML, YAML, and plist tools, and orchestration of every other crate. |
 | `nulis-document` | Piece table, 64-bit positions, snapshots, and undo history. |
 | `nulis-large-file` | Random-access byte sources and append stores. |
-| `nulis-search` | Streaming find and replace, regular expressions, and find in files. |
+| `nulis-search` | Streaming find and replace, linear-time regular expressions with capture-group replacement, column search, and find in files. |
 | `nulis-syntax` | Language detection, Tree-sitter parsers for JSON and Python, a table-driven lexer for the other languages, folding, and symbols. |
 | `nulis-hex` | Hexadecimal viewports and byte editing. |
 | `nulis-diff` | Text, binary, and folder comparison. |
@@ -263,7 +263,7 @@ A document is a **piece table**: an immutable, randomly accessible original file
 | `nulis-terminal` | Pseudoterminal sessions. |
 | `nulis-platform` | Operating-system specifics. |
 | `nulis-settings` | Layered settings and customization storage. |
-| `nulis-theme` | Theme tokens, built-in themes, and user theme validation. |
+| `nulis-theme` | Theme tokens, built-in themes, user theme validation, and contrast floors applied to every theme. |
 | `nulis-automation` | Macros and the restricted script evaluator. |
 | `nulis-plugin-host` | Plugin packages, approval, and isolated workers. |
 | `nulis-desktop` (`apps/desktop/src-tauri`) | The Tauri adapter: windows, native menus, and IPC. |

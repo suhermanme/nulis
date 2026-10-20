@@ -1,0 +1,105 @@
+/* Nulis sample: CSS */
+:root {
+  --accent: #e88974;
+  --gap: 12px;
+}
+
+/* Component 0: alpha */
+.card-alpha {
+  display: grid;
+  gap: calc(var(--gap) * 1);
+  padding: 4px 1.5rem;
+  color: #000000;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+.card-alpha:hover > .title::after { content: "→ alpha"; }
+
+/* Component 1: beta */
+.card-beta {
+  display: grid;
+  gap: calc(var(--gap) * 2);
+  padding: 5px 1.5rem;
+  color: #12d687;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+}
+.card-beta:hover > .title::after { content: "→ beta"; }
+
+/* Component 2: gamma */
+.card-gamma {
+  display: grid;
+  gap: calc(var(--gap) * 3);
+  padding: 6px 1.5rem;
+  color: #25ad0e;
+  border: 1px solid rgba(0, 0, 0, 0.3);
+}
+.card-gamma:hover > .title::after { content: "→ gamma"; }
+
+/* Component 3: delta */
+.card-delta {
+  display: grid;
+  gap: calc(var(--gap) * 4);
+  padding: 7px 1.5rem;
+  color: #388395;
+  border: 1px solid rgba(0, 0, 0, 0.4);
+}
+.card-delta:hover > .title::after { content: "→ delta"; }
+
+/* Component 4: epsilon */
+.card-epsilon {
+  display: grid;
+  gap: calc(var(--gap) * 1);
+  padding: 8px 1.5rem;
+  color: #4b5a1c;
+  border: 1px solid rgba(0, 0, 0, 0.5);
+}
+.card-epsilon:hover > .title::after { content: "→ epsilon"; }
+
+/* Component 5: zeta */
+.card-zeta {
+  display: grid;
+  gap: calc(var(--gap) * 2);
+  padding: 9px 1.5rem;
+  color: #5e30a3;
+  border: 1px solid rgba(0, 0, 0, 0.6);
+}
+.card-zeta:hover > .title::after { content: "→ zeta"; }
+
+/* Component 6: eta */
+.card-eta {
+  display: grid;
+  gap: calc(var(--gap) * 3);
+  padding: 10px 1.5rem;
+  color: #71072a;
+  border: 1px solid rgba(0, 0, 0, 0.7);
+}
+.card-eta:hover > .title::after { content: "→ eta"; }
+
+/* Component 7: theta */
+.card-theta {
+  display: grid;
+  gap: calc(var(--gap) * 4);
+  padding: 11px 1.5rem;
+  color: #83ddb1;
+  border: 1px solid rgba(0, 0, 0, 0.8);
+}
+.card-theta:hover > .title::after { content: "→ theta"; }
+
+/* Component 8: iota */
+.card-iota {
+  display: grid;
+  gap: calc(var(--gap) * 1);
+  padding: 12px 1.5rem;
+  color: #96b438;
+  border: 1px solid rgba(0, 0, 0, 0.9);
+}
+.card-iota:hover > .title::after { content: "→ iota"; }
+
+/* Component 9: kappa */
+.card-kappa {
+  display: grid;
+  gap: calc(var(--gap) * 2);
+  padding: 13px 1.5rem;
+  color: #a98abf;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+.card-kappa:hover > .title::after { content: "→ kappa"; }

@@ -243,10 +243,18 @@ struct WindowFrame {
 struct SettingsFrame(Mutex<Option<WindowFrame>>);
 
 /// Tools menu entries: command ID, title prefix, and whether XML has it.
+/// Tools menu items: ID, title, and whether every tool set has it (Minify is JSON only).
 const TOOLS_MENU_COMMANDS: &[(&str, &str, bool)] = &[
     ("tools.validate", "Validate", true),
     ("tools.beautify", "Beautify", true),
     ("tools.minify", "Minify", false),
+];
+/// Tool sets the editor may name, with the label shown after each item.
+const TOOL_SETS: &[(&str, &str)] = &[
+    ("json", " JSON"),
+    ("xml", " XML"),
+    ("yaml", " YAML"),
+    ("plist", " plist"),
 ];
 
 /// The Tools menu items and the tool set of the focused document, if any.
@@ -258,14 +266,13 @@ struct ToolsMenu(Mutex<(Vec<tauri::menu::MenuItem<tauri::Wry>>, Option<String>)>
 /// `xml`, or neither.
 #[cfg(desktop)]
 fn apply_tools_menu(items: &[tauri::menu::MenuItem<tauri::Wry>], kind: Option<&str>) {
-    let label = match kind {
-        Some("json") => " JSON",
-        Some("xml") => " XML",
-        _ => "",
-    };
-    for (item, (_, title, for_xml)) in items.iter().zip(TOOLS_MENU_COMMANDS) {
-        let available = kind == Some("json") || (kind == Some("xml") && *for_xml);
-        let suffix = if available || *for_xml {
+    let label = TOOL_SETS
+        .iter()
+        .find(|(id, _)| Some(*id) == kind)
+        .map_or("", |(_, label)| *label);
+    for (item, (_, title, for_every_set)) in items.iter().zip(TOOLS_MENU_COMMANDS) {
+        let available = kind == Some("json") || (kind.is_some() && *for_every_set);
+        let suffix = if available || *for_every_set {
             label
         } else {
             " JSON"
@@ -1388,7 +1395,10 @@ fn set_tools_menu(
     if window.label() != MAIN_WINDOW_LABEL {
         return Err("only the editor window sets the Tools menu".into());
     }
-    if !matches!(kind.as_deref(), None | Some("json" | "xml")) {
+    if kind
+        .as_deref()
+        .is_some_and(|kind| !TOOL_SETS.iter().any(|(id, _)| *id == kind))
+    {
         return Err("unknown tool set".into());
     }
     #[cfg(desktop)]

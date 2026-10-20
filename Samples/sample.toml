@@ -1,0 +1,111 @@
+# Nulis sample: TOML
+title = "Nulis sample"
+version = "0.2.1"
+
+[owner]
+name = "Nulis"
+updated = 2026-10-20T09:14:02Z
+
+# Table 0
+[services.alpha]
+enabled = true
+port = 8000
+ratio = 0.0
+hosts = ["alpha-a.local", "alpha-b.local"]
+limits = { cpu = 1, memory = "128MiB" }
+
+# Table 1
+[services.beta]
+enabled = false
+port = 8001
+ratio = 0.25
+hosts = ["beta-a.local", "beta-b.local"]
+limits = { cpu = 2, memory = "256MiB" }
+
+# Table 2
+[services.gamma]
+enabled = true
+port = 8002
+ratio = 0.5
+hosts = ["gamma-a.local", "gamma-b.local"]
+limits = { cpu = 3, memory = "384MiB" }
+
+# Table 3
+[services.delta]
+enabled = false
+port = 8003
+ratio = 0.75
+hosts = ["delta-a.local", "delta-b.local"]
+limits = { cpu = 4, memory = "512MiB" }
+
+# Table 4
+[services.epsilon]
+enabled = true
+port = 8004
+ratio = 1.0
+hosts = ["epsilon-a.local", "epsilon-b.local"]
+limits = { cpu = 5, memory = "640MiB" }
+
+# Table 5
+[services.zeta]
+enabled = false
+port = 8005
+ratio = 1.25
+hosts = ["zeta-a.local", "zeta-b.local"]
+limits = { cpu = 6, memory = "768MiB" }
+
+# Table 6
+[services.eta]
+enabled = true
+port = 8006
+ratio = 1.5
+hosts = ["eta-a.local", "eta-b.local"]
+limits = { cpu = 7, memory = "896MiB" }
+
+# Table 7
+[services.theta]
+enabled = false
+port = 8007
+ratio = 1.75
+hosts = ["theta-a.local", "theta-b.local"]
+limits = { cpu = 8, memory = "1024MiB" }
+
+# Table 8
+[services.iota]
+enabled = true
+port = 8008
+ratio = 2.0
+hosts = ["iota-a.local", "iota-b.local"]
+limits = { cpu = 9, memory = "1152MiB" }
+
+# Table 9
+[services.kappa]
+enabled = false
+port = 8009
+ratio = 2.25
+hosts = ["kappa-a.local", "kappa-b.local"]
+limits = { cpu = 10, memory = "1280MiB" }
+
+# Table 10
+[services.lambda_]
+enabled = true
+port = 8010
+ratio = 2.5
+hosts = ["lambda_-a.local", "lambda_-b.local"]
+limits = { cpu = 11, memory = "1408MiB" }
+
+# Table 11
+[services.mu]
+enabled = false
+port = 8011
+ratio = 2.75
+hosts = ["mu-a.local", "mu-b.local"]
+limits = { cpu = 12, memory = "1536MiB" }
+
+# Table 12
+[services.nu]
+enabled = true
+port = 8012
+ratio = 3.0
+hosts = ["nu-a.local", "nu-b.local"]
+limits = { cpu = 13, memory = "1664MiB" }

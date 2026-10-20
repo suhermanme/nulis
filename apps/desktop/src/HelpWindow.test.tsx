@@ -37,3 +37,18 @@ test("Help opens at a topic, such as the regex section the Find window links to"
   expect(screen.getByRole("tab", { name: "Search" })).toHaveAttribute("aria-selected", "true");
   expect(scrolled).toEqual(["Regular expressions"]);
 });
+
+test("Help search finds the features added in M31–M34", () => {
+  render(<HelpWindow mode="inline" onClose={() => undefined} />);
+  const search = screen.getByRole("searchbox", { name: "Search help" });
+  const sections = (text: string) => {
+    fireEvent.change(search, { target: { value: text } });
+    return within(screen.getByRole("tablist")).queryAllByRole("tab").map((tab) => tab.textContent);
+  };
+  expect(sections("Search in column")).toContain("Search");
+  expect(sections("lookbehind")).toContain("Search");
+  expect(sections("Validate YAML")).toContain("Tools");
+  expect(sections("<integer>")).toContain("Tools");
+  expect(sections("Property List")).toContain("Languages and Encodings");
+  expect(sections("Paper Current")).toContain("Settings and Themes");
+});

@@ -1107,6 +1107,7 @@ mod tests {
             ("Module1.vb", "vb"),
             ("pom.xml", "xml"),
             ("icon.svg", "xml"),
+            ("Info.plist", "plist"),
             ("report.xsl", "xsl"),
             ("build.zig", "zig"),
             ("main.go", "go"),

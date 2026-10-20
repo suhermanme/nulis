@@ -1,0 +1,107 @@
+# Nulis sample: YAML
+---
+name: nulis-sample
+version: 0.2.1
+defaults: &defaults
+  retries: 3
+  timeout: 30
+services:
+
+  # Service 0
+  alpha:
+    <<: *defaults
+    image: "registry.example.com/alpha:1.0"
+    replicas: 1
+    enabled: true
+    ports: [8000, 9000]
+    env:
+      LOG_LEVEL: info
+      RATIO: 0.0
+
+  # Service 1
+  beta:
+    <<: *defaults
+    image: "registry.example.com/beta:1.1"
+    replicas: 2
+    enabled: false
+    ports: [8001, 9001]
+    env:
+      LOG_LEVEL: info
+      RATIO: 0.5
+
+  # Service 2
+  gamma:
+    <<: *defaults
+    image: "registry.example.com/gamma:1.2"
+    replicas: 3
+    enabled: true
+    ports: [8002, 9002]
+    env:
+      LOG_LEVEL: info
+      RATIO: 1.0
+
+  # Service 3
+  delta:
+    <<: *defaults
+    image: "registry.example.com/delta:1.3"
+    replicas: 4
+    enabled: false
+    ports: [8003, 9003]
+    env:
+      LOG_LEVEL: info
+      RATIO: 1.5
+
+  # Service 4
+  epsilon:
+    <<: *defaults
+    image: "registry.example.com/epsilon:1.4"
+    replicas: 5
+    enabled: true
+    ports: [8004, 9004]
+    env:
+      LOG_LEVEL: info
+      RATIO: 2.0
+
+  # Service 5
+  zeta:
+    <<: *defaults
+    image: "registry.example.com/zeta:1.5"
+    replicas: 1
+    enabled: false
+    ports: [8005, 9005]
+    env:
+      LOG_LEVEL: info
+      RATIO: 2.5
+
+  # Service 6
+  eta:
+    <<: *defaults
+    image: "registry.example.com/eta:1.6"
+    replicas: 2
+    enabled: true
+    ports: [8006, 9006]
+    env:
+      LOG_LEVEL: info
+      RATIO: 3.0
+
+  # Service 7
+  theta:
+    <<: *defaults
+    image: "registry.example.com/theta:1.7"
+    replicas: 3
+    enabled: false
+    ports: [8007, 9007]
+    env:
+      LOG_LEVEL: info
+      RATIO: 3.5
+
+  # Service 8
+  iota:
+    <<: *defaults
+    image: "registry.example.com/iota:1.8"
+    replicas: 4
+    enabled: true
+    ports: [8008, 9008]
+    env:
+      LOG_LEVEL: info
+      RATIO: 4.0

@@ -1,4 +1,5 @@
-//! Built-in JSON and XML tools: validate, beautify, and minify.
+//! Built-in JSON and XML tools: validate, beautify, and minify. YAML and
+//! property lists have their own modules (`yaml_tools`, `plist_tools`).
 //!
 //! Both work on text only and never reorder, rename, or re-encode content:
 //! JSON keeps its key order and number spelling, and XML keeps every tag,
@@ -32,6 +33,8 @@ fn fail<T>(message: impl Into<String>, offset: usize) -> Result<T, ToolError> {
 pub enum ToolKind {
     Json,
     Xml,
+    Yaml,
+    Plist,
 }
 
 impl ToolKind {
@@ -40,6 +43,8 @@ impl ToolKind {
         match language_id {
             "json" => Some(Self::Json),
             "xml" | "xsl" => Some(Self::Xml),
+            "yaml" => Some(Self::Yaml),
+            "plist" => Some(Self::Plist),
             _ => None,
         }
     }
@@ -49,6 +54,8 @@ impl ToolKind {
         match self {
             Self::Json => "JSON",
             Self::Xml => "XML",
+            Self::Yaml => "YAML",
+            Self::Plist => "plist",
         }
     }
 }
@@ -178,7 +185,7 @@ pub(crate) fn format_json(text: &str, minify: bool) -> Result<String, ToolError>
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum XmlKind {
+pub(crate) enum XmlKind {
     /// `<?target …?>`, including the XML declaration.
     Instruction,
     Comment,
@@ -191,14 +198,14 @@ enum XmlKind {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct XmlToken<'a> {
-    kind: XmlKind,
-    start: usize,
-    end: usize,
+pub(crate) struct XmlToken<'a> {
+    pub(crate) kind: XmlKind,
+    pub(crate) start: usize,
+    pub(crate) end: usize,
     /// Element name for tags.
-    name: &'a str,
+    pub(crate) name: &'a str,
     /// `xml:space="preserve"` was set on this start tag.
-    preserve: bool,
+    pub(crate) preserve: bool,
 }
 
 fn is_name_start(byte: u8) -> bool {
@@ -383,7 +390,7 @@ fn read_tag(text: &str, start: usize) -> Result<XmlToken<'_>, ToolError> {
 /// element, matching and properly nested tags, quoted and unique attributes,
 /// and complete references. DTDs and namespaces are not validated.
 #[allow(clippy::too_many_lines)] // One pass over the document, one arm per construct.
-fn tokenize_xml(text: &str) -> Result<Vec<XmlToken<'_>>, ToolError> {
+pub(crate) fn tokenize_xml(text: &str) -> Result<Vec<XmlToken<'_>>, ToolError> {
     let bytes = text.as_bytes();
     let first = skip_bom(text);
     let token = |kind, start, end| XmlToken {
@@ -720,6 +727,8 @@ mod tests {
         assert_eq!(ToolKind::for_language("json"), Some(ToolKind::Json));
         assert_eq!(ToolKind::for_language("xml"), Some(ToolKind::Xml));
         assert_eq!(ToolKind::for_language("xsl"), Some(ToolKind::Xml));
+        assert_eq!(ToolKind::for_language("yaml"), Some(ToolKind::Yaml));
+        assert_eq!(ToolKind::for_language("plist"), Some(ToolKind::Plist));
         assert_eq!(ToolKind::for_language("html"), None);
         assert_eq!(ToolKind::for_language("plaintext"), None);
     }

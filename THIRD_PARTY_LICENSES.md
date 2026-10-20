@@ -18,6 +18,7 @@ Initial direct dependencies:
 | serde / serde_json | IPC and settings serialization | Apache-2.0 / MIT |
 | tempfile | secure temporary files and atomic save persistence | Apache-2.0 / MIT |
 | thiserror | typed Rust errors | Apache-2.0 / MIT |
+| yaml-rust2 (with arraydeque, hashlink) | YAML Validate and Beautify | Apache-2.0 / MIT |
 | Tree-sitter / tree-sitter-language | bounded incremental parsing and language ABI | MIT |
 | tree-sitter-json | built-in JSON grammar | MIT |
 | tree-sitter-python | built-in Python grammar | MIT |

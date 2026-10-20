@@ -112,7 +112,7 @@ Nulis is built to open files larger than memory, tens of gigabytes included.
 - Edits are stored separately from the original file and merged when you save, so typing in the middle of a huge file is as fast as in a small one.
 - Find and Replace All read the file in small pieces.
 
-A few features that need the whole document at once — the JSON and XML tools, for example — have size limits and tell you when a file is too large for them.
+A few features that need the whole document at once — the JSON, XML, YAML, and plist tools, for example — have size limits and tell you when a file is too large for them.
 
 ## Tabs and Workspaces
 
@@ -220,7 +220,7 @@ Switch modes with any of these:
 
 Read-Only mode is hard to miss: the status bar badge and the toolbar button turn amber and read **READ ONLY**, the tab and the pane header show a lock, the editor toolbar gains an amber line, and the caret becomes a steady block instead of a blinking bar.
 
-In Read-Only mode, typing, Backspace, paste, cut, drag-and-drop, Transform, Replace, the JSON and XML tools, hexadecimal edits, macros, and Undo and Redo all leave the document untouched, and the status bar says that the document is read-only. The protection is enforced by the editor core, not only by the window, so no command, macro, or script can change a read-only document.
+In Read-Only mode, typing, Backspace, paste, cut, drag-and-drop, Transform, Replace, the JSON, XML, YAML, and plist tools, hexadecimal edits, macros, and Undo and Redo all leave the document untouched, and the status bar says that the document is read-only. The protection is enforced by the editor core, not only by the window, so no command, macro, or script can change a read-only document.
 
 The mode belongs to the document, not to one view: every tab and pane showing it switches together. It lasts until you switch it back or close the document; a document always opens in Edit mode. Read-Only mode does not change the file's permissions on disk.
 
@@ -389,9 +389,9 @@ Press **Ctrl/⌘ G**, type a line number, or a line and column such as `120:8`, 
 
 Nulis picks a language from the file name and extension. For names that say nothing, it looks at the first bytes of the file: a `#!` line, an XML declaration, `<?php`, or an HTML doctype.
 
-To override the choice, use the **View As** list in the editor toolbar. This also switches which tools are offered: choosing JSON or XML turns on the JSON or XML tools for a file with any extension.
+To override the choice, use the **View As** list in the editor toolbar. This also switches which tools are offered: choosing JSON, XML, YAML, or Property List turns on that language's tools for a file with any extension.
 
-Supported languages: AppleScript, Bash and other shells, Batch, C, C++, C#, CSS, Dockerfile, Go, HTML, INI, Java, JavaScript, JSON, Kotlin, Lua, Makefile, Markdown, MySQL / MariaDB, Objective-C / Objective-C++, Oracle PL/SQL, Perl, PHP, PowerShell, Python, Ruby, Rust, SQL, Swift, TOML, TypeScript, VBScript / ASP, Visual Basic, XML, XSL, YAML, and Zig. Anything else is shown as plain text.
+Supported languages: AppleScript, Bash and other shells, Batch, C, C++, C#, CSS, Dockerfile, Go, HTML, INI, Java, JavaScript, JSON, Kotlin, Lua, Makefile, Markdown, MySQL / MariaDB, Objective-C / Objective-C++, Oracle PL/SQL, Perl, PHP, PowerShell, Property List (`.plist`), Python, Ruby, Rust, SQL, Swift, TOML, TypeScript, VBScript / ASP, Visual Basic, XML, XSL, YAML, and Zig. Anything else is shown as plain text.
 
 #### Text encoding
 
@@ -411,9 +411,9 @@ A Markdown document has an **Edit / View** switch at the left of the editor tool
 
 ## Tools
 
-### JSON and XML tools
+### JSON, XML, YAML, and plist tools
 
-When the focused document is JSON or XML (XSL counts as XML), three tools appear in the main toolbar, in the **Tools** menu, and in the command palette. For any other document the buttons are hidden and the menu items are greyed out.
+When the focused document is JSON, XML (XSL counts as XML), YAML, or a property list (`.plist`), its tools appear in the main toolbar, in the **Tools** menu, and in the command palette. For any other document the buttons are hidden and the menu items are greyed out.
 
 | Tool | What it does |
 | --- | --- |
@@ -421,11 +421,16 @@ When the focused document is JSON or XML (XSL counts as XML), three tools appear
 | **Beautify** | Re-indents the document with two spaces. It is one undo step. An invalid document is not changed; you are shown where the problem is instead. |
 | **Minify** (JSON only) | Removes all whitespace that has no meaning. |
 
+The buttons and menu items name the kind of document, for example **Validate YAML** or **Beautify plist**.
+
 Details worth knowing:
 
 - JSON keeps the order of keys and the exact spelling of numbers. Nothing is reordered or rewritten.
 - XML beautify only changes whitespace between elements. An element that contains text, or is marked `xml:space="preserve"`, is left exactly as written.
 - XML validation checks that the document is **well-formed**: one root element, matching tags, quoted and unique attributes, and complete `&…;` references. It does not validate against a DTD or schema, and it does not check namespaces.
+- **YAML** validation checks every document in the file (separated by `---`) and also reports a key that appears twice in the same mapping, which YAML does not allow but many programs accept silently.
+- **YAML Beautify** re-writes the file from its values with two-space indentation; values and key order are kept. Because it starts from the values, it cannot keep comments, and it writes anchors and aliases (`&name`, `*name`) out in full; quoting and the spelling of numbers (such as `0x1F`) may also change. When the file has comments or anchors, Nulis says so and asks first; one Undo restores the file. A file with tags such as `!Ref` (common in CloudFormation templates) is not beautified at all, because the tags would be lost.
+- **plist** validation checks that the file is well-formed XML and a correct property list: one value inside `<plist>`, a `<key>` before every value in a `<dict>` and no key twice, only property-list elements, and values that read as their type: whole numbers in `<integer>` (up to 64 bits, `0x` hex allowed), numbers in `<real>`, dates such as `2026-10-20T09:14:02Z` in `<date>`, Base64 in `<data>`, and empty `<true/>` and `<false/>`. plist Beautify is the XML one. Binary property lists (`bplist00`) are not text and are not checked.
 - The tools work on documents up to 8 MiB.
 
 ### Hexadecimal editor
@@ -575,7 +580,7 @@ Nulis keeps every operation bounded so that it stays responsive. The limits you 
 | Open tabs | 128 |
 | Panes in one workspace | 16, nested at most 6 levels deep |
 | Workspace name | 80 characters |
-| JSON and XML tools | Documents up to 8 MiB |
+| JSON, XML, YAML, and plist tools | Documents up to 8 MiB |
 | One regular-expression match | 1 MiB |
 | Carets or selections | 1,024 |
 | Bookmarks per document | 1,024 |

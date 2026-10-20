@@ -1,0 +1,102 @@
+{
+  "name": "nulis-sample",
+  "version": "0.2.1",
+  "items": [
+    {
+      "id": 0,
+      "name": "alpha",
+      "active": false,
+      "score": 0.0,
+      "tags": ["sample", "item-0"],
+      "owner": null
+    },
+    {
+      "id": 1,
+      "name": "beta",
+      "active": true,
+      "score": 1.25,
+      "tags": ["sample", "item-1"],
+      "owner": null
+    },
+    {
+      "id": 2,
+      "name": "gamma",
+      "active": false,
+      "score": 2.5,
+      "tags": ["sample", "item-2"],
+      "owner": null
+    },
+    {
+      "id": 3,
+      "name": "delta",
+      "active": true,
+      "score": 3.75,
+      "tags": ["sample", "item-3"],
+      "owner": null
+    },
+    {
+      "id": 4,
+      "name": "epsilon",
+      "active": false,
+      "score": 5.0,
+      "tags": ["sample", "item-4"],
+      "owner": null
+    },
+    {
+      "id": 5,
+      "name": "zeta",
+      "active": true,
+      "score": 6.25,
+      "tags": ["sample", "item-5"],
+      "owner": null
+    },
+    {
+      "id": 6,
+      "name": "eta",
+      "active": false,
+      "score": 7.5,
+      "tags": ["sample", "item-6"],
+      "owner": null
+    },
+    {
+      "id": 7,
+      "name": "theta",
+      "active": true,
+      "score": 8.75,
+      "tags": ["sample", "item-7"],
+      "owner": null
+    },
+    {
+      "id": 8,
+      "name": "iota",
+      "active": false,
+      "score": 10.0,
+      "tags": ["sample", "item-8"],
+      "owner": null
+    },
+    {
+      "id": 9,
+      "name": "kappa",
+      "active": true,
+      "score": 11.25,
+      "tags": ["sample", "item-9"],
+      "owner": null
+    },
+    {
+      "id": 10,
+      "name": "lambda_",
+      "active": false,
+      "score": 12.5,
+      "tags": ["sample", "item-10"],
+      "owner": null
+    },
+    {
+      "id": 11,
+      "name": "mu",
+      "active": true,
+      "score": 13.75,
+      "tags": ["sample", "item-11"],
+      "owner": null
+    }
+  ]
+}

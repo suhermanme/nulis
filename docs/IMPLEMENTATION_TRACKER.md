@@ -4,8 +4,8 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 
 ## Current state
 
-- **Current milestone:** M34 YAML and plist Validate (next). M31–M33 are done on `main`, not released yet.
-- **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 3 of 5 milestones completed (M31–M33)
+- **Current milestone:** M35 CSV/TSV, YAML and plist highlighting (next). M31–M34 are done on `main`, not released yet.
+- **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 4 of 5 milestones completed (M31–M34)
 - **Baseline before M19 (commit `66853e1`):** `cargo test -p nulis-core` 86 passed; desktop Vitest 11 files, 115 tests passed.
 
 | Milestone | Status | Handover |
@@ -25,7 +25,7 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 | M31 Find window fits its content | Completed (checked on macOS; Windows/Linux pending) | `handover/M31_M32_HANDOVER.md` |
 | M32 Regular expressions and column search | Completed (checked on macOS; Windows/Linux pending) | `handover/M31_M32_HANDOVER.md` |
 | M33 Theme contrast | Completed (verified by the user on macOS; Windows/Linux pending) | this tracker, M33 section |
-| M34 YAML and plist Validate | Not started | – |
+| M34 YAML and plist Validate | Completed (awaiting the user's check on macOS; Windows/Linux pending) | this tracker, M34 section |
 | M35 CSV/TSV, YAML and plist highlighting | Not started | – |
 
 ## M19 — Audit and foundation
@@ -147,6 +147,12 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 **Delivered:** contrast floors applied to every theme when it loads (`crates/nulis-theme/src/contrast.rs`, `Theme::ensure_readable`): selection 1.6:1 against the editor background (an accent blend that keeps the theme's hue), text on it 4.5:1 or all the theme's text allows, apart from the current line where possible; secondary text 4.5:1; icons 3:1; disabled icons 1.8:1. New optional tokens `ui.icon` and `ui.iconDisabled`; toolbar and activity-bar icons use them, and disabled icons use a color instead of 40% opacity. The NvChad importer starts secondary text from `light_grey`; the catalog was regenerated. Theme files on disk are never changed. User request during M33: Nulis's own themes renamed **Nulis · Ember Night** and **Nulis · Paper Current** so they sort first by name. `THEME_SPEC.md` documents the tokens and floors.
 
 **Result (completed 2026-10-20):** fmt and clippy clean; `cargo test --workspace` passed (nulis-theme 10, including every bundled theme against the floors and a faint installed theme corrected at load); lint and typecheck clean; Vitest 170 passed. Release build verified by the user on macOS: selection and icons readable in NvChad themes. Obsidian Ember and Onedark meet the selection floor but cannot fully meet the text-on-selection and current-line targets with their own colors.
+
+## M34 — YAML and plist Validate and Beautify
+
+**Delivered:** `yaml_tools.rs`: YAML Validate over every document in the stream with line and column, plus repeated keys in one mapping; YAML Beautify (user decision: Validate plus Beautify) re-writes from values with two-space indentation, keeps key order and line endings, asks first when the file has comments or anchors (`acceptLoss` on `tools.beautify`; the core refuses without it), and refuses files with tags. `plist_tools.rs`: plist Validate on the XML tokens — root `<plist>` with one value, key/value pairs in `<dict>` with no repeated key, only plist elements, integer (64-bit, hex), real, ISO date, Base64 data, empty true/false; plist Beautify is the XML formatter. plist is its own language (`.plist`, XML highlighting). Document summaries carry `tool`, so the desktop no longer repeats the language-to-tool mapping; the native Tools menu names YAML and plist. Dependency: `yaml-rust2` 0.13 (MIT/Apache-2.0). IPC protocol 37.
+
+**Result (completed 2026-10-20):** fmt and clippy clean; `cargo test --workspace` passed (nulis-core 150); lint and typecheck clean; Vitest 171 passed.
 
 ## Icon redesign (user request, 2026-10-20)
 

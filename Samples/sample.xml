@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Nulis sample: XML -->
+<catalog xmlns="urn:nulis:sample" version="1.0">
+
+  <!-- Book 0 -->
+  <book id="bk000" available="yes">
+    <title>The Alpha Chronicle</title>
+    <author>Author 0</author>
+    <price currency="EUR">9.95</price>
+    <description><![CDATA[Contains <markup> & special characters.]]></description>
+    <tags><tag>sample</tag><tag>alpha</tag></tags>
+  </book>
+
+  <!-- Book 1 -->
+  <book id="bk001" available="no">
+    <title>The Beta Chronicle</title>
+    <author>Author 1</author>
+    <price currency="EUR">11.95</price>
+    <description><![CDATA[Contains <markup> & special characters.]]></description>
+    <tags><tag>sample</tag><tag>beta</tag></tags>
+  </book>
+
+  <!-- Book 2 -->
+  <book id="bk002" available="yes">
+    <title>The Gamma Chronicle</title>
+    <author>Author 2</author>
+    <price currency="EUR">13.95</price>
+    <description><![CDATA[Contains <markup> & special characters.]]></description>
+    <tags><tag>sample</tag><tag>gamma</tag></tags>
+  </book>
+
+  <!-- Book 3 -->
+  <book id="bk003" available="no">
+    <title>The Delta Chronicle</title>
+    <author>Author 3</author>
+    <price currency="EUR">15.95</price>
+    <description><![CDATA[Contains <markup> & special characters.]]></description>
+    <tags><tag>sample</tag><tag>delta</tag></tags>
+  </book>
+
+  <!-- Book 4 -->
+  <book id="bk004" available="yes">
+    <title>The Epsilon Chronicle</title>
+    <author>Author 4</author>
+    <price currency="EUR">17.95</price>
+    <description><![CDATA[Contains <markup> & special characters.]]></description>
+    <tags><tag>sample</tag><tag>epsilon</tag></tags>
+  </book>
+
+  <!-- Book 5 -->
+  <book id="bk005" available="no">
+    <title>The Zeta Chronicle</title>
+    <author>Author 5</author>
+    <price currency="EUR">19.95</price>
+    <description><![CDATA[Contains <markup> & special characters.]]></description>
+    <tags><tag>sample</tag><tag>zeta</tag></tags>
+  </book>
+
+  <!-- Book 6 -->
+  <book id="bk006" available="yes">
+    <title>The Eta Chronicle</title>
+    <author>Author 6</author>
+    <price currency="EUR">21.95</price>
+    <description><![CDATA[Contains <markup> & special characters.]]></description>
+    <tags><tag>sample</tag><tag>eta</tag></tags>
+  </book>
+
+  <!-- Book 7 -->
+  <book id="bk007" available="no">
+    <title>The Theta Chronicle</title>
+    <author>Author 7</author>
+    <price currency="EUR">23.95</price>
+    <description><![CDATA[Contains <markup> & special characters.]]></description>
+    <tags><tag>sample</tag><tag>theta</tag></tags>
+  </book>
+
+  <!-- Book 8 -->
+  <book id="bk008" available="yes">
+    <title>The Iota Chronicle</title>
+    <author>Author 8</author>
+    <price currency="EUR">25.95</price>
+    <description><![CDATA[Contains <markup> & special characters.]]></description>
+    <tags><tag>sample</tag><tag>iota</tag></tags>
+  </book>
+
+  <!-- Book 9 -->
+  <book id="bk009" available="no">
+    <title>The Kappa Chronicle</title>
+    <author>Author 9</author>
+    <price currency="EUR">27.95</price>
+    <description><![CDATA[Contains <markup> & special characters.]]></description>
+    <tags><tag>sample</tag><tag>kappa</tag></tags>
+  </book>
+
+  <!-- Book 10 -->
+  <book id="bk010" available="yes">
+    <title>The Lambda Chronicle</title>
+    <author>Author 10</author>
+    <price currency="EUR">29.95</price>
+    <description><![CDATA[Contains <markup> & special characters.]]></description>
+    <tags><tag>sample</tag><tag>lambda_</tag></tags>
+  </book>
+
+  <!-- Book 11 -->
+  <book id="bk011" available="no">
+    <title>The Mu Chronicle</title>
+    <author>Author 11</author>
+    <price currency="EUR">31.95</price>
+    <description><![CDATA[Contains <markup> & special characters.]]></description>
+    <tags><tag>sample</tag><tag>mu</tag></tags>
+  </book>
+</catalog>

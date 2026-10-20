@@ -87,7 +87,7 @@ export const WORKBENCH_ACTIONS = [
   ...(Object.keys(FIND_WINDOW_COMMANDS) as Array<keyof typeof FIND_WINDOW_COMMANDS>),
 ] as const;
 
-/** JSON and XML tools; offered only while such a document is focused. */
+/** JSON, XML, YAML, and plist tools; offered only while such a document is focused. */
 export const TOOL_COMMANDS = ["tools.validate", "tools.beautify", "tools.minify"] as const;
 
 const FILE_COMMANDS = [

@@ -1900,8 +1900,8 @@ test("closing all other tabs stops at an unsaved file until it is resolved", asy
 test("JSON and XML tools appear only for those documents and validate, beautify, and minify", async () => {
   responses["file.new"] = [
     { documentId: "document-1", name: "notes.txt", byteLen: "2", revision: "0", encoding: "utf8", languageId: "plaintext" },
-    { documentId: "document-2", name: "data.json", byteLen: "9", revision: "3", encoding: "utf8", languageId: "json" },
-    { documentId: "document-3", name: "feed.xml", byteLen: "9", revision: "0", encoding: "utf8", languageId: "xml" },
+    { documentId: "document-2", name: "data.json", byteLen: "9", revision: "3", encoding: "utf8", languageId: "json", tool: "json" },
+    { documentId: "document-3", name: "feed.xml", byteLen: "9", revision: "0", encoding: "utf8", languageId: "xml", tool: "xml" },
   ];
   vi.mocked(isTauri).mockReturnValue(false);
   render(<App />);
@@ -1934,8 +1934,8 @@ test("JSON and XML tools appear only for those documents and validate, beautify,
 
   // Beautify runs against the observed revision and reports the change.
   responses["tools.beautify"] = [
-    { documentId: "document-2", name: "data.json", byteLen: "30", revision: "4", encoding: "utf8", languageId: "json", dirty: true },
-    { documentId: "document-2", name: "data.json", byteLen: "30", revision: "4", encoding: "utf8", languageId: "json", dirty: true },
+    { documentId: "document-2", name: "data.json", byteLen: "30", revision: "4", encoding: "utf8", languageId: "json", tool: "json", dirty: true },
+    { documentId: "document-2", name: "data.json", byteLen: "30", revision: "4", encoding: "utf8", languageId: "json", tool: "json", dirty: true },
   ];
   fireEvent.click(tool("Beautify JSON")!);
   await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Beautified JSON"));
@@ -1963,13 +1963,67 @@ test("JSON and XML tools appear only for those documents and validate, beautify,
   expect(tool("Validate XML") ?? tool("Validate JSON")).toBeNull();
 });
 
+test("YAML Beautify asks before losing comments, and plist has Validate and Beautify", async () => {
+  responses["file.new"] = [
+    { documentId: "document-1", name: "ci.yml", byteLen: "40", revision: "2", encoding: "utf8", languageId: "yaml", tool: "yaml" },
+    { documentId: "document-2", name: "Info.plist", byteLen: "60", revision: "0", encoding: "utf8", languageId: "plist", tool: "plist" },
+  ];
+  vi.mocked(isTauri).mockReturnValue(false);
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  const toolbar = screen.getByRole("toolbar", { name: "Custom toolbar" });
+  const tool = (name: string) => within(toolbar).queryByRole("button", { name });
+
+  fireEvent.click(screen.getByRole("button", { name: "New text file" }));
+  await screen.findByText("ci.yml editor");
+  expect(tool("Validate YAML")).not.toBeNull();
+  expect(tool("Minify JSON")).toBeNull();
+
+  // Beautify checks first; with comments it asks, and Cancel changes nothing.
+  const note = "Beautify removes comments; values and key order are kept, but quoting and number spelling may change.";
+  responses["tools.validate"] = [{ tool: "yaml", valid: true, message: "Valid YAML", beautifyNote: note }];
+  fireEvent.click(tool("Beautify YAML")!);
+  const dialog = await screen.findByRole("dialog", { name: "Beautify ci.yml?" });
+  expect(dialog).toHaveTextContent("removes comments");
+  fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+  expect(screen.queryByRole("dialog", { name: "Beautify ci.yml?" })).not.toBeInTheDocument();
+  expect(executeCommand).not.toHaveBeenCalledWith(expect.objectContaining({ id: "tools.beautify" }));
+
+  // Agreeing runs Beautify with the loss accepted.
+  responses["tools.validate"] = [{ tool: "yaml", valid: true, message: "Valid YAML", beautifyNote: note }];
+  responses["tools.beautify"] = [
+    { documentId: "document-1", name: "ci.yml", byteLen: "30", revision: "3", encoding: "utf8", languageId: "yaml", tool: "yaml", dirty: true },
+  ];
+  fireEvent.click(tool("Beautify YAML")!);
+  fireEvent.click(within(await screen.findByRole("dialog", { name: "Beautify ci.yml?" })).getByRole("button", { name: "Beautify" }));
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
+    id: "tools.beautify", context: { windowId: "main", documentId: "document-1" },
+    arguments: { expectedRevision: "2", acceptLoss: true },
+  }));
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Beautified YAML"));
+
+  // Tags make Beautify unavailable, with the reason.
+  responses["tools.validate"] = [{
+    tool: "yaml", valid: true, message: "Valid YAML", beautifyUnavailable: true,
+    beautifyNote: "Beautify cannot keep YAML tags such as !Ref, so it is not available for this document.",
+  }];
+  fireEvent.click(tool("Beautify YAML")!);
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("cannot keep YAML tags"));
+
+  fireEvent.click(screen.getByRole("button", { name: "New tab" }));
+  await screen.findByText("Info.plist editor");
+  expect(tool("Validate plist")).not.toBeNull();
+  expect(tool("Beautify plist")).not.toBeNull();
+  expect(tool("Minify JSON")).toBeNull();
+});
+
 test("an invalid document is not reformatted, and the native Tools menu follows the focused document", async () => {
   vi.mocked(isTauri).mockReturnValue(true);
   vi.mocked(executeCommand).mockImplementation(async (request: ExecuteCommandRequest) => {
     if (request.id === "session.load") return DEFAULT_SESSION as never;
     if (request.id === "plugin.activateStartup") return [] as never;
     if (request.id === "file.new") return {
-      documentId: "document-1", name: "feed.xml", byteLen: "9", revision: "0", encoding: "utf8", languageId: "xml",
+      documentId: "document-1", name: "feed.xml", byteLen: "9", revision: "0", encoding: "utf8", languageId: "xml", tool: "xml",
     } as never;
     if (request.id === "tools.beautify") throw new Error("Invalid XML: <a> is never closed (line 1, column 1)");
     if (request.id === "tools.validate") return {

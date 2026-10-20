@@ -1,5 +1,6 @@
 use crate::format_tools::{self, ToolKind};
 use crate::line_changes::{ChangeHistory, ChangeTracker, LineChange, LineChangeStatus};
+use crate::{plist_tools, yaml_tools};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use nulis_diff::{
     compare_binary, compare_text, BinaryDiffRequest, CompareMode, DiffPage, TextDiffRequest,
@@ -151,6 +152,9 @@ pub struct DocumentSummary {
     pub language_id: String,
     /// Whether the document currently refuses every content change.
     pub read_only: bool,
+    /// The built-in tools the document's language has, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool: Option<ToolKind>,
 }
 
 /// The number of characters in a document, when it is small enough to count.
@@ -189,6 +193,13 @@ pub struct ValidationReport {
     pub line: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub column: Option<u64>,
+    /// What Beautify would lose on this document (YAML comments, anchors),
+    /// or why it cannot run (YAML tags); Beautify asks before losing anything.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub beautify_note: Option<String>,
+    /// Beautify would refuse this document.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub beautify_unavailable: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -871,6 +882,7 @@ impl DocumentManager {
             recovery_id: Some(recovery_id.clone()),
             language_id: language_id.as_str().to_owned(),
             read_only: false,
+            tool: ToolKind::for_language(language_id.as_str()),
         };
         self.sessions
             .lock()
@@ -3534,20 +3546,27 @@ impl DocumentManager {
         let (tool, source) = tool_source(session)?;
         let checked = source.and_then(|text| {
             let result = match tool {
-                ToolKind::Json => format_tools::validate_json(&text),
-                ToolKind::Xml => format_tools::validate_xml(&text),
+                ToolKind::Json => format_tools::validate_json(&text).map(|()| None),
+                ToolKind::Xml => format_tools::validate_xml(&text).map(|()| None),
+                ToolKind::Plist => plist_tools::validate_plist(&text).map(|()| None),
+                ToolKind::Yaml => yaml_tools::validate_yaml(&text).map(Some),
             };
             result.map_err(|error| ToolProblem::locate(session.encoding, &text, error))
         });
         Ok(match checked {
-            Ok(()) => ValidationReport {
-                tool,
-                valid: true,
-                message: format!("Valid {}", tool.label()),
-                byte_offset: None,
-                line: None,
-                column: None,
-            },
+            Ok(features) => {
+                let features = features.unwrap_or_default();
+                ValidationReport {
+                    tool,
+                    valid: true,
+                    message: format!("Valid {}", tool.label()),
+                    byte_offset: None,
+                    line: None,
+                    column: None,
+                    beautify_note: yaml_beautify_note(features),
+                    beautify_unavailable: features.tags,
+                }
+            }
             Err(problem) => ValidationReport {
                 tool,
                 valid: false,
@@ -3555,21 +3574,26 @@ impl DocumentManager {
                 byte_offset: Some(problem.byte_offset.to_string()),
                 line: Some(problem.line),
                 column: Some(problem.column),
+                beautify_note: None,
+                beautify_unavailable: false,
             },
         })
     }
 
-    /// Re-indents a valid JSON or XML document, or minifies JSON, as one
-    /// revision-checked undo step. An already formatted document is unchanged.
+    /// Re-indents a valid JSON, XML, YAML, or plist document, or minifies
+    /// JSON, as one revision-checked undo step. An already formatted document
+    /// is unchanged. YAML Beautify loses comments and writes anchors out in
+    /// full, so it runs on such a document only with `accept_loss`.
     ///
     /// # Errors
     /// Returns an error for a stale revision, a language without tools, an
-    /// oversized or invalid document, or a storage failure.
+    /// oversized or invalid document, a loss not accepted, or a storage failure.
     pub fn format_document(
         &self,
         document_id: &DocumentId,
         expected_revision: u64,
         minify: bool,
+        accept_loss: bool,
     ) -> Result<DocumentSummary, EditorError> {
         let mut sessions = self
             .sessions
@@ -3583,10 +3607,29 @@ impl DocumentManager {
         let formatted = source.and_then(|text| {
             let result = match tool {
                 ToolKind::Json => format_tools::format_json(&text, minify),
-                ToolKind::Xml if minify => {
-                    return Err(ToolProblem::plain("Minify is available for JSON only"))
+                _ if minify => return Err(ToolProblem::plain("Minify is available for JSON only")),
+                ToolKind::Xml | ToolKind::Plist => {
+                    let checked = if tool == ToolKind::Plist {
+                        plist_tools::validate_plist(&text)
+                    } else {
+                        Ok(())
+                    };
+                    checked.and_then(|()| format_tools::format_xml(&text))
                 }
-                ToolKind::Xml => format_tools::format_xml(&text),
+                ToolKind::Yaml => match yaml_tools::validate_yaml(&text) {
+                    Ok(features)
+                        if (features.comments || features.anchors)
+                            && !accept_loss
+                            && !features.tags =>
+                    {
+                        return Err(ToolProblem::plain(&format!(
+                            "{} Beautify again and confirm to go ahead.",
+                            yaml_beautify_note(features).unwrap_or_default()
+                        )))
+                    }
+                    Ok(_) => yaml_tools::format_yaml(&text),
+                    Err(error) => Err(error),
+                },
             };
             match result {
                 Ok(formatted) => Ok((formatted != text).then_some(formatted)),
@@ -3744,7 +3787,9 @@ fn tool_source(
     session: &EditorSession,
 ) -> Result<(ToolKind, Result<String, ToolProblem>), EditorError> {
     let tool = ToolKind::for_language(session.language_id.as_str()).ok_or_else(|| {
-        EditorError::Tool("JSON and XML tools are available for JSON and XML documents".into())
+        EditorError::Tool(
+            "These tools are available for JSON, XML, YAML, and plist documents".into(),
+        )
     })?;
     let table = session.document.table();
     if table.len() > MAX_TOOL_BYTES {
@@ -3771,6 +3816,26 @@ fn tool_source(
         TextEncoding::Windows1252 => Ok(decode_text(session.encoding, &bytes).0),
     };
     Ok((tool, text))
+}
+
+/// What YAML Beautify would lose, in one sentence, if anything.
+fn yaml_beautify_note(features: yaml_tools::YamlFeatures) -> Option<String> {
+    if features.tags {
+        return Some("Beautify cannot keep YAML tags such as !Ref, so it is not available for this document.".into());
+    }
+    let mut losses = Vec::new();
+    if features.comments {
+        losses.push("removes comments");
+    }
+    if features.anchors {
+        losses.push("writes anchors and aliases (&name, *name) out in full");
+    }
+    (!losses.is_empty()).then(|| {
+        format!(
+            "Beautify {}; values and key order are kept, but quoting and number spelling may change.",
+            losses.join(" and ")
+        )
+    })
 }
 
 fn primary_selection_range(session: &EditorSession) -> (u64, u64) {
@@ -4010,6 +4075,7 @@ fn summary(document_id: &DocumentId, session: &EditorSession) -> DocumentSummary
         recovery_id: session.recovery_id.clone(),
         language_id: session.language_id.as_str().to_owned(),
         read_only: session.document.is_read_only(),
+        tool: ToolKind::for_language(session.language_id.as_str()),
     }
 }
 
@@ -7534,7 +7600,7 @@ mod tests {
         );
         // An invalid document is never rewritten.
         assert!(matches!(
-            manager.format_document(id, document.revision, false),
+            manager.format_document(id, document.revision, false, false),
             Err(EditorError::Tool(message)) if message.contains("line 2, column 10")
         ));
         assert_eq!(document_text(&manager, id), "{\"b\":1,\n \"a\":[1,2}\n");
@@ -7544,26 +7610,136 @@ mod tests {
             .expect("fix");
         assert!(manager.validate_document(id).expect("report").valid);
         assert!(matches!(
-            manager.format_document(id, document.revision, false),
+            manager.format_document(id, document.revision, false, false),
             Err(EditorError::StaleRevision { .. })
         ));
         let pretty = manager
-            .format_document(id, fixed.revision, false)
+            .format_document(id, fixed.revision, false, false)
             .expect("beautify");
         let expected = "{\n  \"b\": 1,\n  \"a\": [\n    1,\n    2\n  ]\n}\n";
         assert_eq!(document_text(&manager, id), expected);
         // Already formatted: no new revision.
         let again = manager
-            .format_document(id, pretty.revision, false)
+            .format_document(id, pretty.revision, false, false)
             .expect("no-op");
         assert_eq!(again.revision, pretty.revision);
         let minified = manager
-            .format_document(id, pretty.revision, true)
+            .format_document(id, pretty.revision, true, false)
             .expect("minify");
         assert_eq!(document_text(&manager, id), "{\"b\":1,\"a\":[1,2]}\n");
         manager.undo(id).expect("undo minify");
         assert_eq!(document_text(&manager, id), expected);
         assert!(minified.dirty);
+    }
+
+    #[test]
+    fn yaml_tools_validate_and_beautify_only_after_accepting_what_is_lost() {
+        let root = tempfile::tempdir().expect("temporary root");
+        let path = root.path().join("ci.yml");
+        fs::write(
+            &path,
+            "# build job\nname:   build\nsteps:\n    -   run: make\n",
+        )
+        .expect("fixture");
+        let manager = DocumentManager::new(root.path().join("sessions"));
+        let document = manager.open_file(&path).expect("open");
+        let id = &document.document_id;
+        assert_eq!(document.tool, Some(super::ToolKind::Yaml));
+
+        let report = manager.validate_document(id).expect("report");
+        assert!(report.valid, "{}", report.message);
+        assert_eq!(report.message, "Valid YAML");
+        assert!(report
+            .beautify_note
+            .as_deref()
+            .is_some_and(|note| note.contains("removes comments")));
+        // Without the user's agreement nothing changes.
+        assert!(matches!(
+            manager.format_document(id, document.revision, false, false),
+            Err(EditorError::Tool(message)) if message.contains("confirm")
+        ));
+        assert_eq!(
+            document_text(&manager, id),
+            "# build job\nname:   build\nsteps:\n    -   run: make\n"
+        );
+        let pretty = manager
+            .format_document(id, document.revision, false, true)
+            .expect("beautify");
+        assert_eq!(
+            document_text(&manager, id),
+            "name: build\nsteps:\n  - run: make\n"
+        );
+        manager.undo(id).expect("one undo step");
+        assert!(document_text(&manager, id).starts_with("# build job"));
+        assert!(pretty.revision > document.revision);
+
+        // A repeated key is located; tags make Beautify unavailable.
+        let duplicate = root.path().join("dup.yaml");
+        fs::write(&duplicate, "a: 1\nb: 2\na: 3\n").expect("fixture");
+        let opened = manager.open_file(&duplicate).expect("open");
+        let report = manager
+            .validate_document(&opened.document_id)
+            .expect("report");
+        assert!(!report.valid);
+        assert_eq!((report.line, report.column), (Some(3), Some(1)));
+        let tagged = root.path().join("stack.yaml");
+        fs::write(&tagged, "bucket: !Ref Bucket\n").expect("fixture");
+        let opened = manager.open_file(&tagged).expect("open");
+        let report = manager
+            .validate_document(&opened.document_id)
+            .expect("report");
+        assert!(report.valid && report.beautify_unavailable);
+        assert!(manager
+            .format_document(&opened.document_id, opened.revision, false, true)
+            .is_err());
+    }
+
+    #[test]
+    fn plist_tools_check_structure_and_beautify_as_xml() {
+        let root = tempfile::tempdir().expect("temporary root");
+        let path = root.path().join("Info.plist");
+        fs::write(
+            &path,
+            "<plist version=\"1.0\"><dict><key>A</key><integer>x</integer></dict></plist>\n",
+        )
+        .expect("fixture");
+        let manager = DocumentManager::new(root.path().join("sessions"));
+        let document = manager.open_file(&path).expect("open");
+        let id = &document.document_id;
+        assert_eq!(document.language_id, "plist");
+        assert_eq!(document.tool, Some(super::ToolKind::Plist));
+        let report = manager.validate_document(id).expect("report");
+        assert!(!report.valid);
+        assert!(
+            report
+                .message
+                .starts_with("Invalid plist: <integer> must hold"),
+            "{}",
+            report.message
+        );
+        assert!(manager
+            .format_document(id, document.revision, false, false)
+            .is_err());
+
+        fs::write(
+            &path,
+            "<plist version=\"1.0\"><dict><key>A</key><integer>7</integer></dict></plist>\n",
+        )
+        .expect("fixed");
+        let reopened = DocumentManager::new(root.path().join("sessions2"));
+        let document = reopened.open_file(&path).expect("open");
+        let id = &document.document_id;
+        assert!(reopened.validate_document(id).expect("report").valid);
+        reopened
+            .format_document(id, document.revision, false, false)
+            .expect("beautify");
+        assert_eq!(
+            document_text(&reopened, id),
+            "<plist version=\"1.0\">\n  <dict>\n    <key>A</key>\n    <integer>7</integer>\n  </dict>\n</plist>\n"
+        );
+        assert!(reopened
+            .format_document(id, document.revision + 1, true, false)
+            .is_err());
     }
 
     #[test]
@@ -7583,7 +7759,7 @@ mod tests {
 
         let fixed = manager.replace(id, 0, 15, 18, "<c/>").expect("fix");
         manager
-            .format_document(id, fixed.revision, false)
+            .format_document(id, fixed.revision, false, false)
             .expect("beautify");
         assert_eq!(
             document_text(&manager, id),
@@ -7591,7 +7767,7 @@ mod tests {
         );
         let current = manager.summary(id).expect("summary");
         assert!(matches!(
-            manager.format_document(id, current.revision, true),
+            manager.format_document(id, current.revision, true, false),
             Err(EditorError::Tool(message)) if message.contains("JSON only")
         ));
 

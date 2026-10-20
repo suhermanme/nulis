@@ -52,6 +52,7 @@ tree-sitter = "=0.24.7"
 tree-sitter-json = "=0.24.8"
 tree-sitter-python = "=0.23.6"
 unicode-segmentation = "=1.13.3"
+yaml-rust2 = { version = "=0.13.0", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

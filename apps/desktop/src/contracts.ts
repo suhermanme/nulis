@@ -1,5 +1,5 @@
 /** Versioned JSON-compatible values mirrored from nulis-core's public IPC DTOs. */
-export const IPC_PROTOCOL_VERSION = 36 as const;
+export const IPC_PROTOCOL_VERSION = 37 as const;
 
 export interface ThemeRecord {
   schema?: string;
@@ -218,10 +218,15 @@ export interface DocumentSummary {
   languageId?: string;
   /** Whether the document currently refuses every content change. */
   readOnly?: boolean;
+  /** The built-in tools its language has (Validate, Beautify, and for JSON Minify). */
+  tool?: ToolKind;
 }
 
 /** The built-in tool set a document's language has, if any. */
-export type ToolKind = "json" | "xml";
+export type ToolKind = "json" | "xml" | "yaml" | "plist";
+
+/** How each tool set is named in menus and messages. */
+export const TOOL_LABELS: Record<ToolKind, string> = { json: "JSON", xml: "XML", yaml: "YAML", plist: "plist" };
 
 export interface ValidationReport {
   tool: ToolKind;
@@ -230,6 +235,10 @@ export interface ValidationReport {
   byteOffset?: string;
   line?: number;
   column?: number;
+  /** What Beautify would lose (YAML comments, anchors), or why it cannot run. */
+  beautifyNote?: string;
+  /** Beautify would refuse this document (YAML with tags). */
+  beautifyUnavailable?: boolean;
 }
 
 export interface RecoveryCandidate {

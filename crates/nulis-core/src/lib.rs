@@ -4,6 +4,8 @@ mod command;
 mod editor;
 mod format_tools;
 mod line_changes;
+mod plist_tools;
+mod yaml_tools;
 
 use editor::{ApplyCompareRequest, DocumentCompareRequest};
 
@@ -78,7 +80,7 @@ use nulis_automation::{
     CURRENT_REVISION_ARGUMENT,
 };
 
-pub const IPC_PROTOCOL_VERSION: u32 = 36;
+pub const IPC_PROTOCOL_VERSION: u32 = 37;
 pub const PRODUCT_NAME: &str = "Nulis";
 pub const APPLICATION_ID: &str = "com.nulis.editor";
 const MAX_SCRIPT_MESSAGES: usize = 100;
@@ -1567,6 +1569,16 @@ struct RevisionArguments {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct FormatArguments {
+    #[serde(with = "editor::decimal_u64")]
+    expected_revision: u64,
+    /// The user agreed that YAML Beautify may drop comments and expand anchors.
+    #[serde(default)]
+    accept_loss: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct InsertTextArguments {
     #[serde(with = "editor::decimal_u64")]
     expected_revision: u64,
@@ -2652,8 +2664,12 @@ fn register_tool_commands(commands: &mut CommandRegistry, documents: &Arc<Docume
     let manager = Arc::clone(documents);
     commands
         .register(
-            CommandDescriptor::new("tools.validate", "Validate JSON / XML", "Tools")
-                .expect("built-in command ID is valid"),
+            CommandDescriptor::new(
+                "tools.validate",
+                "Validate JSON / XML / YAML / plist",
+                "Tools",
+            )
+            .expect("built-in command ID is valid"),
             move |context, _arguments| {
                 let report = manager
                     .validate_document(&context_document(&context)?)
@@ -2663,7 +2679,11 @@ fn register_tool_commands(commands: &mut CommandRegistry, documents: &Arc<Docume
         )
         .expect("built-in command is unique");
     for (id, title, minify) in [
-        ("tools.beautify", "Beautify JSON / XML", false),
+        (
+            "tools.beautify",
+            "Beautify JSON / XML / YAML / plist",
+            false,
+        ),
         ("tools.minify", "Minify JSON", true),
     ] {
         let manager = Arc::clone(documents);
@@ -2671,12 +2691,13 @@ fn register_tool_commands(commands: &mut CommandRegistry, documents: &Arc<Docume
             .register(
                 CommandDescriptor::new(id, title, "Tools").expect("built-in command ID is valid"),
                 move |context, arguments| {
-                    let arguments: RevisionArguments = parse_arguments(arguments)?;
+                    let arguments: FormatArguments = parse_arguments(arguments)?;
                     let result = manager
                         .format_document(
                             &context_document(&context)?,
                             arguments.expected_revision,
                             minify,
+                            arguments.accept_loss,
                         )
                         .map_err(|error| editor_command_error(&error))?;
                     serde_json::to_value(result)

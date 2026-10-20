@@ -28,6 +28,7 @@ import type {
   WorkspaceFileList,
   WorkspaceSummary,
 } from "./contracts";
+import { TOOL_LABELS } from "./contracts";
 import { EditorViewport } from "./EditorViewport";
 import { Picker, useRestoreFocus, type PickerItem } from "./Picker";
 import { rankMatches } from "./quickOpen";
@@ -588,11 +589,12 @@ export function App() {
     [documents, shownDocumentId],
   );
   const activeDocumentId = activeDocument?.documentId ?? null;
-  // JSON and XML tools exist only while such a document is focused as text.
+  // The core says which tools a document's language has; they exist only while it is focused as text.
   const toolKind: ToolKind | null = !activeDocument || viewModes[activeDocument.documentId] === "hex" ? null
-    : activeDocument.languageId === "json" ? "json"
-      : activeDocument.languageId === "xml" || activeDocument.languageId === "xsl" ? "xml" : null;
-  const toolLabel = toolKind === "json" ? "JSON" : "XML";
+    : activeDocument.tool ?? null;
+  const toolLabel = toolKind ? TOOL_LABELS[toolKind] : "";
+  // YAML Beautify that would lose comments or anchors waits for the user's agreement here.
+  const [lossyBeautify, setLossyBeautify] = useState<{ documentId: string; note: string } | null>(null);
   const toolAvailable = (commandId: string) => toolKind !== null && (commandId !== "tools.minify" || toolKind === "json");
   useEffect(() => {
     if (desktopShell) void setToolsMenu(toolKind).catch(() => undefined);
@@ -1590,11 +1592,11 @@ export function App() {
     }
   };
 
-  /** Runs a JSON or XML tool on the focused document. */
-  const runTool = async (commandId: string) => {
+  /** Runs a JSON, XML, YAML, or plist tool on the focused document. */
+  const runTool = async (commandId: string, acceptLoss = false) => {
     if (!activeDocument || !toolAvailable(commandId)) {
       setStatus(commandId === "tools.minify" ? "Minify is available for JSON documents"
-        : "These tools are available for JSON and XML documents");
+        : "These tools are available for JSON, XML, YAML, and plist documents");
       return;
     }
     const context = { windowId: "main", documentId: activeDocument.documentId };
@@ -1611,9 +1613,17 @@ export function App() {
       setMacroRefreshVersion((version) => version + 1);
     };
     if (commandId === "tools.validate") { await validate(); return; }
+    if (commandId === "tools.beautify" && toolKind === "yaml" && !acceptLoss) {
+      // Beautify re-writes YAML from its values: say what that would lose, and ask.
+      const report = await executeCommand<ValidationReport>({ id: "tools.validate", context, arguments: {} });
+      if (!report.valid) { await validate(); return; }
+      if (report.beautifyUnavailable) { setStatus(report.beautifyNote ?? "Beautify is not available for this document"); return; }
+      if (report.beautifyNote) { setLossyBeautify({ documentId: activeDocument.documentId, note: report.beautifyNote }); return; }
+    }
     try {
       const updated = await executeCommand<DocumentSummary>({
-        id: commandId, context, arguments: { expectedRevision: activeDocument.revision },
+        id: commandId, context,
+        arguments: { expectedRevision: activeDocument.revision, ...(acceptLoss ? { acceptLoss: true } : {}) },
       });
       if (updated.revision === activeDocument.revision) {
         setStatus(`${toolLabel} is already ${commandId === "tools.minify" ? "minified" : "formatted"}`);
@@ -2451,6 +2461,23 @@ export function App() {
       </div> : null}
       {helpOpen ? <div className="settings-backdrop" role="presentation">
         <HelpWindow mode="inline" onClose={() => setHelpOpen(false)} />
+      </div> : null}
+      {lossyBeautify && lossyBeautify.documentId === activeDocument?.documentId ? <div className="decision-backdrop">
+        <section className="decision-dialog" role="dialog" aria-modal="true" aria-labelledby="lossy-beautify-title"
+          onKeyDown={(event) => {
+            keepFocusInDialog(event);
+            if (event.key === "Escape") setLossyBeautify(null);
+          }}>
+          <h2 id="lossy-beautify-title">Beautify {activeDocument.name}?</h2>
+          <p>{lossyBeautify.note} You can undo it with one Undo.</p>
+          <div className="decision-actions">
+            <button autoFocus type="button" onClick={() => setLossyBeautify(null)}>Cancel</button>
+            <button className="primary" type="button" onClick={() => {
+              setLossyBeautify(null);
+              void runTool("tools.beautify", true);
+            }}>Beautify</button>
+          </div>
+        </section>
       </div> : null}
       {pendingCloseDocument ? <div className="decision-backdrop">
         <section className="decision-dialog" role="dialog" aria-modal="true" aria-labelledby="close-document-title"

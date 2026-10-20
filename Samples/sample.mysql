@@ -1,0 +1,105 @@
+-- Nulis sample: MySQL / MariaDB
+/* Schema and queries */
+SET NAMES utf8mb4;
+CREATE DATABASE IF NOT EXISTS nulis_sample;
+USE nulis_sample;
+
+-- Table 0: alpha
+CREATE TABLE IF NOT EXISTS `alpha` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `name` VARCHAR(64) NOT NULL DEFAULT 'alpha',
+  `score` DECIMAL(8,2) DEFAULT 0.50,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB;
+SELECT `name`, AVG(`score`) AS avg_score FROM `alpha` WHERE `score` > 0 GROUP BY `name`;
+
+-- Table 1: beta
+CREATE TABLE IF NOT EXISTS `beta` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `name` VARCHAR(64) NOT NULL DEFAULT 'beta',
+  `score` DECIMAL(8,2) DEFAULT 1.50,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB;
+SELECT `name`, AVG(`score`) AS avg_score FROM `beta` WHERE `score` > 1 GROUP BY `name`;
+
+-- Table 2: gamma
+CREATE TABLE IF NOT EXISTS `gamma` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `name` VARCHAR(64) NOT NULL DEFAULT 'gamma',
+  `score` DECIMAL(8,2) DEFAULT 2.50,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB;
+SELECT `name`, AVG(`score`) AS avg_score FROM `gamma` WHERE `score` > 2 GROUP BY `name`;
+
+-- Table 3: delta
+CREATE TABLE IF NOT EXISTS `delta` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `name` VARCHAR(64) NOT NULL DEFAULT 'delta',
+  `score` DECIMAL(8,2) DEFAULT 3.50,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB;
+SELECT `name`, AVG(`score`) AS avg_score FROM `delta` WHERE `score` > 3 GROUP BY `name`;
+
+-- Table 4: epsilon
+CREATE TABLE IF NOT EXISTS `epsilon` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `name` VARCHAR(64) NOT NULL DEFAULT 'epsilon',
+  `score` DECIMAL(8,2) DEFAULT 4.50,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB;
+SELECT `name`, AVG(`score`) AS avg_score FROM `epsilon` WHERE `score` > 4 GROUP BY `name`;
+
+-- Table 5: zeta
+CREATE TABLE IF NOT EXISTS `zeta` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `name` VARCHAR(64) NOT NULL DEFAULT 'zeta',
+  `score` DECIMAL(8,2) DEFAULT 5.50,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB;
+SELECT `name`, AVG(`score`) AS avg_score FROM `zeta` WHERE `score` > 5 GROUP BY `name`;
+
+-- Table 6: eta
+CREATE TABLE IF NOT EXISTS `eta` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `name` VARCHAR(64) NOT NULL DEFAULT 'eta',
+  `score` DECIMAL(8,2) DEFAULT 6.50,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB;
+SELECT `name`, AVG(`score`) AS avg_score FROM `eta` WHERE `score` > 6 GROUP BY `name`;
+
+-- Table 7: theta
+CREATE TABLE IF NOT EXISTS `theta` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `name` VARCHAR(64) NOT NULL DEFAULT 'theta',
+  `score` DECIMAL(8,2) DEFAULT 7.50,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB;
+SELECT `name`, AVG(`score`) AS avg_score FROM `theta` WHERE `score` > 7 GROUP BY `name`;
+
+-- Table 8: iota
+CREATE TABLE IF NOT EXISTS `iota` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `name` VARCHAR(64) NOT NULL DEFAULT 'iota',
+  `score` DECIMAL(8,2) DEFAULT 8.50,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB;
+SELECT `name`, AVG(`score`) AS avg_score FROM `iota` WHERE `score` > 8 GROUP BY `name`;
+
+-- Table 9: kappa
+CREATE TABLE IF NOT EXISTS `kappa` (
+  `id` INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `name` VARCHAR(64) NOT NULL DEFAULT 'kappa',
+  `score` DECIMAL(8,2) DEFAULT 9.50,
+  `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB;
+SELECT `name`, AVG(`score`) AS avg_score FROM `kappa` WHERE `score` > 9 GROUP BY `name`;

@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>Nulis Sample</string>
+
+	<!-- Entry 0 -->
+	<key>AlphaSettings</key>
+	<dict>
+		<key>Enabled</key>
+		<true/>
+		<key>Count</key>
+		<integer>0</integer>
+		<key>Ratio</key>
+		<real>0.0</real>
+		<key>Updated</key>
+		<date>2026-10-01T09:14:02Z</date>
+	</dict>
+
+	<!-- Entry 1 -->
+	<key>BetaSettings</key>
+	<dict>
+		<key>Enabled</key>
+		<false/>
+		<key>Count</key>
+		<integer>3</integer>
+		<key>Ratio</key>
+		<real>0.5</real>
+		<key>Updated</key>
+		<date>2026-10-02T09:14:02Z</date>
+	</dict>
+
+	<!-- Entry 2 -->
+	<key>GammaSettings</key>
+	<dict>
+		<key>Enabled</key>
+		<true/>
+		<key>Count</key>
+		<integer>6</integer>
+		<key>Ratio</key>
+		<real>1.0</real>
+		<key>Updated</key>
+		<date>2026-10-03T09:14:02Z</date>
+	</dict>
+
+	<!-- Entry 3 -->
+	<key>DeltaSettings</key>
+	<dict>
+		<key>Enabled</key>
+		<false/>
+		<key>Count</key>
+		<integer>9</integer>
+		<key>Ratio</key>
+		<real>1.5</real>
+		<key>Updated</key>
+		<date>2026-10-04T09:14:02Z</date>
+	</dict>
+
+	<!-- Entry 4 -->
+	<key>EpsilonSettings</key>
+	<dict>
+		<key>Enabled</key>
+		<true/>
+		<key>Count</key>
+		<integer>12</integer>
+		<key>Ratio</key>
+		<real>2.0</real>
+		<key>Updated</key>
+		<date>2026-10-05T09:14:02Z</date>
+	</dict>
+
+	<!-- Entry 5 -->
+	<key>ZetaSettings</key>
+	<dict>
+		<key>Enabled</key>
+		<false/>
+		<key>Count</key>
+		<integer>15</integer>
+		<key>Ratio</key>
+		<real>2.5</real>
+		<key>Updated</key>
+		<date>2026-10-06T09:14:02Z</date>
+	</dict>
+
+	<!-- Entry 6 -->
+	<key>EtaSettings</key>
+	<dict>
+		<key>Enabled</key>
+		<true/>
+		<key>Count</key>
+		<integer>18</integer>
+		<key>Ratio</key>
+		<real>3.0</real>
+		<key>Updated</key>
+		<date>2026-10-07T09:14:02Z</date>
+	</dict>
+
+	<!-- Entry 7 -->
+	<key>ThetaSettings</key>
+	<dict>
+		<key>Enabled</key>
+		<false/>
+		<key>Count</key>
+		<integer>21</integer>
+		<key>Ratio</key>
+		<real>3.5</real>
+		<key>Updated</key>
+		<date>2026-10-08T09:14:02Z</date>
+	</dict>
+</dict>
+</plist>

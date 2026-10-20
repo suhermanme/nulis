@@ -37,16 +37,16 @@ Legend: `[ ]` not started, `[~]` partial, `[x]` complete. “Complete” require
 ## Search and languages
 
 - [x] Streaming find and replace (64 KiB reads, bounded results, wrap navigation, and atomic Replace All)
-- [x] Regular expressions and multiline search (finite-width regexes up to a 1 MiB match bound; unsafe unbounded expressions are rejected explicitly)
+- [x] Regular expressions and multiline search (M32: one linear-time style; unbounded patterns such as `\w+` with a reported 1 MiB match cap; capture groups in Replace; lookaround and backreferences refused with a named message; Search in column; highlights from the core)
 - [x] Find in files (regular-file scan with symlink exclusion, name filters, optional subfolders, line numbers and line text per match, and hard file/result caps)
-- [~] Find and Replace window (M21: floating Find / Find in Files / Replace tabs; current document, selection, or all open files; whole word; Count All; matching-lines list with Go To, Bookmark All, Copy; history) in its own windows
+- [~] Find and Replace window (M21: floating Find / Find in Files / Replace tabs; current document, selection, or all open files; whole word; Count All; matching-lines list with Go To, Bookmark All, Copy; history; M31–M32: the window fits its content, options are remembered, and a help button opens the regex section of Nulis Help) in its own windows
 - [x] Replace in Files (M22: preview with match counts, explicit confirmation, open documents changed in memory, closed files saved atomically only if unchanged since the preview, per-file report)
-- [x] Modular syntax highlighting and folding (bounded JSON/Python Tree-sitter modules, a Markdown scanner, and table-driven lexers for 34 more languages including C/C++, C#, Java, JavaScript/TypeScript, Rust, Swift, Zig, Go, PHP, Perl, Ruby, shell, Batch, PowerShell, SQL dialects, Visual Basic, HTML/XML/XSL, and CSS; stable token classes, bracket pairs, and brace/element folding)
+- [x] Modular syntax highlighting and folding (bounded JSON/Python Tree-sitter modules, a Markdown scanner, and table-driven lexers for 35 more languages including C/C++, C#, Java, JavaScript/TypeScript, Rust, Swift, Zig, Go, PHP, Perl, Ruby, shell, Batch, PowerShell, SQL dialects, Visual Basic, HTML/XML/XSL/plist, and CSS; stable token classes, bracket pairs, and brace/element folding)
 - [x] Symbols, language detection, and bracket matching (file-name and extension detection, `#!`/XML/PHP/HTML content detection for names that say nothing, override command/control, bounded symbols, and paired-bracket rendering)
 
 ## Specialized tools
 
-- [x] JSON and XML tools (validate with caret placement on the first problem, beautify, and JSON minify, shown only for JSON/XML documents; XML checking is well-formedness, not DTD or schema validation)
+- [x] JSON, XML, YAML, and plist tools (validate with caret placement on the first problem, beautify, and JSON minify, shown only for those documents; XML checking is well-formedness, not DTD or schema validation; YAML catches repeated keys, and Beautify asks before losing comments or anchors and refuses tags; plist checks structure and value types)
 - [x] Scalable hexadecimal editor (bounded raw-byte viewport, 64-bit paging, synchronized hex/ASCII selection, byte-native editing, and deep sparse-file regressions)
 - [x] Text/binary compare and merge (bounded line-window and raw-byte pages, bidirectional revision-checked hunk application, and content-aware folder comparison)
 - [x] Workspace/file explorer (File View with Open, Places, and Folder tabs; Places browses the computer and mounted volumes with lazy bounded listings, a file-name filter, and optional hidden files; the opened folder keeps its canonical root and symlink rule; files open through the central command)
@@ -58,7 +58,7 @@ Legend: `[ ]` not started, `[~]` partial, `[x]` complete. “Complete” require
 
 - [x] Central commands (every command is in the searchable palette, and the native File, Edit, View, Search, and Format menus carry the M20–M29 commands; `commands.test.ts` fails the build when the core, the desktop, and the menus disagree)
 - [x] Plugin architecture (validated packages, isolated JavaScript workers, digest-bound approval, activation events, command contributions, manager UI, and versioned SDK)
-- [x] Themes (complete semantic tokens, strict built-ins, bounded user-theme install/discovery/uninstall, and persisted live switching)
+- [x] Themes (complete semantic tokens, strict built-ins, bounded user-theme install/discovery/uninstall, persisted live switching, and contrast floors for selection, secondary text, and icons applied to every theme)
 - [x] Macro recording and sandboxed scripting (bounded macros plus explicitly approved, capability-gated scripts)
 - [~] Searchable settings and migrations (sectioned settings with per-section filters over schema-v1 customization storage and reset; workbench sessions migrate from schema v1 to v2; customization migration tooling for a future schema revision remains)
 - [x] Configurable shortcuts, menus, and toolbars (portable chords drive web/native menus and command dispatch)

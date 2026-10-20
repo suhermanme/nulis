@@ -2022,7 +2022,6 @@ pub(crate) const SPECS: &[LexerSpec] = &[
             "xml",
             "xsd",
             "svg",
-            "plist",
             "xaml",
             "csproj",
             "vbproj",
@@ -2038,6 +2037,13 @@ pub(crate) const SPECS: &[LexerSpec] = &[
             "storyboard",
             "xib",
         ],
+        mode: Mode::Markup,
+        ..BASE
+    },
+    LexerSpec {
+        id: "plist",
+        name: "Property List",
+        extensions: &["plist"],
         mode: Mode::Markup,
         ..BASE
     },
