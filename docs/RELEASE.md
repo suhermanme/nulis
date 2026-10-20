@@ -45,6 +45,10 @@ npx tauri build --bundles app --ci
 
 macOS bundles are ad-hoc signed (`bundle.macOS.signingIdentity` is `"-"` in `tauri.conf.json`), locally and in CI. That seals the bundle so Gatekeeper can offer **Open Anyway** under System Settings ▸ Privacy & Security for a downloaded copy, instead of reporting it as damaged; CI verifies the signature on the app and on the copy inside the `.dmg`. For a release without that step, replace `"-"` with an Apple Developer ID identity and provide notarization credentials (`APPLE_SIGNING_IDENTITY`, `APPLE_ID`, and related variables). The installers do not show the license as a click-through agreement: the GPL does not require acceptance to run the program, and its full text is in the application under Help ▸ About Nulis ▸ View License.
 
+## Platform test matrix
+
+`docs/PLATFORM_MATRIX.md` records what CI and people have verified on each operating system. Update it after a check by hand.
+
 ## Manual interaction checks (M15–M18)
 
 Automated tests cover the logic; these need a person on each target OS before a milestone in `IMPROVEMENT_SPEC.md` is marked complete:

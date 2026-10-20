@@ -29,7 +29,7 @@ import type {
   WorkspaceSummary,
 } from "./contracts";
 import { EditorViewport } from "./EditorViewport";
-import { Picker, type PickerItem } from "./Picker";
+import { Picker, useRestoreFocus, type PickerItem } from "./Picker";
 import { rankMatches } from "./quickOpen";
 import { HexViewport } from "./HexViewport";
 import { CompareView } from "./CompareView";
@@ -249,7 +249,8 @@ function comparablePath(path: string): string {
 
 function keepFocusInDialog(event: ReactKeyboardEvent<HTMLElement>) {
   if (event.key !== "Tab") return;
-  const controls = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"));
+  const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(
+    "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)"));
   if (controls.length === 0) return;
   if (event.shiftKey && document.activeElement === controls[0]) {
     event.preventDefault();
@@ -258,6 +259,38 @@ function keepFocusInDialog(event: ReactKeyboardEvent<HTMLElement>) {
     event.preventDefault();
     controls[0].focus();
   }
+}
+
+/** Asks for a file's new name; focus returns to where it was when it closes. */
+function RenameDialog({ name, busy, onSubmit, onCancel }: {
+  name: string; busy: boolean; onSubmit(name: string): void; onCancel(): void;
+}) {
+  useRestoreFocus();
+  return <div className="decision-backdrop">
+    <form className="decision-dialog" role="dialog" aria-modal="true" aria-labelledby="rename-file-title"
+      onSubmit={(event) => {
+        event.preventDefault();
+        const field = event.currentTarget.elements.namedItem("name");
+        if (field instanceof HTMLInputElement) onSubmit(field.value);
+      }}
+      onKeyDown={(event) => {
+        keepFocusInDialog(event);
+        if (event.key === "Escape") onCancel();
+      }}>
+      <h2 id="rename-file-title">Rename {name}</h2>
+      <p>The file is renamed in its folder. Unsaved changes stay unsaved.</p>
+      <input name="name" aria-label="New file name" defaultValue={name} autoFocus spellCheck={false}
+        onFocus={(event) => {
+          // Select the name without its extension, as file managers do.
+          const dot = event.currentTarget.value.lastIndexOf(".");
+          event.currentTarget.setSelectionRange(0, dot > 0 ? dot : event.currentTarget.value.length);
+        }} />
+      <div className="decision-actions">
+        <button type="button" disabled={busy} onClick={onCancel}>Cancel</button>
+        <button className="primary" type="submit" disabled={busy}>Rename</button>
+      </div>
+    </form>
+  </div>;
 }
 
 export function App() {
@@ -863,6 +896,9 @@ export function App() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      // A key the focused view already acted on (the editor's own undo, for
+      // one) must not run a second time through the window's shortcuts.
+      if (event.defaultPrevented) return;
       const binding = customization.keybindings.find((candidate) => matchesChord(event, candidate.key));
       if (binding) {
         if (desktopShell && customization.menu.some((entry) => entry.kind === "command" && entry.command === binding.command)) return;
@@ -2347,31 +2383,8 @@ export function App() {
         onChoose={(item) => pasteFromHistory(item.text)} onClose={() => setHistoryOpen(false)}
         footer={<button type="button" onClick={() => { setClipboardHistory([]); setHistoryOpen(false); setStatus("Clipboard history cleared"); }}>
           Clear History</button>} /> : null}
-      {renameTarget ? <div className="decision-backdrop">
-        <form className="decision-dialog" role="dialog" aria-modal="true" aria-labelledby="rename-file-title"
-          onSubmit={(event) => {
-            event.preventDefault();
-            const field = event.currentTarget.elements.namedItem("name");
-            if (field instanceof HTMLInputElement) void submitRename(field.value);
-          }}
-          onKeyDown={(event) => {
-            keepFocusInDialog(event);
-            if (event.key === "Escape") setRenameTarget(null);
-          }}>
-          <h2 id="rename-file-title">Rename {renameTarget.name}</h2>
-          <p>The file is renamed in its folder. Unsaved changes stay unsaved.</p>
-          <input name="name" aria-label="New file name" defaultValue={renameTarget.name} autoFocus spellCheck={false}
-            onFocus={(event) => {
-              // Select the name without its extension, as file managers do.
-              const dot = event.currentTarget.value.lastIndexOf(".");
-              event.currentTarget.setSelectionRange(0, dot > 0 ? dot : event.currentTarget.value.length);
-            }} />
-          <div className="decision-actions">
-            <button type="button" disabled={renameBusy} onClick={() => setRenameTarget(null)}>Cancel</button>
-            <button className="primary" type="submit" disabled={renameBusy}>Rename</button>
-          </div>
-        </form>
-      </div> : null}
+      {renameTarget ? <RenameDialog name={renameTarget.name} busy={renameBusy}
+        onSubmit={(name) => void submitRename(name)} onCancel={() => setRenameTarget(null)} /> : null}
       {macroOpen ? <MacroPanel activeDocument={activeDocument} onClose={() => setMacroOpen(false)}
         onDocumentChange={(document) => {
           upsertDocument(document);

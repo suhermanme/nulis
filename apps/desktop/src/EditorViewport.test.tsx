@@ -225,6 +225,17 @@ test("column and clipboard commands: append, swap, number sequence, sum, and pas
   vi.mocked(readText).mockResolvedValue("pasted");
 });
 
+test("Ctrl Y redoes on Windows and Linux, as well as Ctrl Shift Z", async () => {
+  render(<EditorViewport document={{ documentId: "document-1", name: "Untitled", byteLen: "7", revision: "0", encoding: "utf8" }}
+    onDocumentChange={() => undefined} onStatus={() => undefined} />);
+  const input = await screen.findByRole("textbox", { name: "Untitled editor" });
+  vi.mocked(executeCommand).mockClear();
+  fireEvent.keyDown(input, { key: "y", ctrlKey: true });
+  fireEvent.keyDown(input, { key: "Z", ctrlKey: true, shiftKey: true });
+  await waitFor(() => expect(vi.mocked(executeCommand).mock.calls.map(([request]) => request.id))
+    .toEqual(["editor.redo", "editor.redo"]));
+});
+
 test("shows a compact document map for a short file and exposes its visibility toggle", async () => {
   render(<EditorViewport document={{ documentId: "document-1", name: "Untitled", byteLen: "7", revision: "0", encoding: "utf8" }}
     onDocumentChange={() => undefined} onStatus={() => undefined} />);

@@ -4,11 +4,11 @@ Legend: `[ ]` not started, `[~]` partial, `[x]` complete. “Complete” require
 
 ## Foundation
 
-- [~] Cross-platform desktop shell (macOS built; hosted Windows/Linux runs pending)
+- [~] Cross-platform desktop shell (CI builds, installs, and starts it on macOS, Windows, and Linux on every push; Windows checked by hand on a Windows 11 machine; Linux not yet tried by hand)
 - [x] Headless Rust command registry
 - [x] Layered settings merge foundation
 - [~] Strongly typed IPC (versioned mirrored DTOs; generation pending)
-- [~] CI (three-platform matrix defined; first hosted run pending)
+- [x] CI (formatting, Clippy, and tests on macOS, Windows, and Linux; bundles installed and started on each; document fuzzing, a large-file benchmark, and dependency advisories; tagged releases publish every package with checksums)
 
 ## Documents and editing
 
@@ -18,7 +18,7 @@ Legend: `[ ]` not started, `[~]` partial, `[x]` complete. “Complete” require
 - [x] Virtualized editor viewport (bounded snapshots, virtual rows, line numbers, sparse-checkpoint random navigation, off-screen caret reveal, and cross-page drag paging are tested)
 - [x] Clipboard editing (bounded multi-selection copy/cut uses newline-joined core ranges and native text-write permission)
 - [~] Edit and Read-Only modes (per-document toggle enforced in `nulis-document` for every edit, undo, and redo; status bar badge, toolbar button, tab and pane lock, block caret, command, View menu item, and Primary+Shift+L; the mode is not persisted across sessions)
-- [x] Status bar position and size (caret line and column from the focused editor, size in bytes, and a streamed character count for documents up to 64 MiB)
+- [x] Status bar (caret line, column, and code point; size in bytes with character, word, and line counts up to 64 MiB; zoom; encoding; line endings with conversion)
 - [~] Insert/overwrite modes (Unicode-aware overwrite and UI toggle work; broader platform keyboard validation pending)
 - [~] Multiple documents and workspace tabs (one tab strip; dragging a tab into the content groups it into a named workspace of nested panes, with drop preview, pane pop-out, keyboard commands, bounded limits, and schema-v2 sessions; hosted platform and screen-reader validation pending)
 - [~] Precise pointer editing (core Unicode word selection for double-click and Primary+D, logical-line triple-click, and revision-checked drag move/copy as one undo step; manual pointer/IME checks on Windows and Linux pending)
@@ -28,7 +28,7 @@ Legend: `[ ]` not started, `[~]` partial, `[x]` complete. “Complete” require
 - [x] View features (M27: line-ending detection in the status bar, conversion to LF/CRLF/CR as one undo step, Enter keeps the line's ending; remembered word wrap with Alt Z; editor zoom with Ctrl/⌘ = - 0; show whitespace and line endings; line-number toggle; column marker at 80; Always on Top; View menu and palette)
 - [x] Search and navigation (M26: F3 find next/previous, matching bracket, Go to line:column, back/forward history, next/previous change, bookmark list and Delete Bookmarked Lines, word and line counts, code point at the caret; native Search menu)
 - [x] Formatting (M25: invert case, capitalize, trim, indent/outdent with Tab/Shift+Tab, language-aware toggle comment, trim trailing spaces, tabs↔spaces, sort ascending/descending/unique, Base64 encode/decode, insert date/time; Format menu, toolbar list, and palette; tab width fixed at 4)
-- [x] Caret keys, forward delete, Select All, and line commands (smart Home/End, document start/end, Delete, select/delete/duplicate/move line, delete to line start/end, open line below; one undo step each, multi-caret aware) with an editor right-click menu (M20; palette and native-menu entries pending)
+- [x] Caret keys, forward delete, Select All, and line commands (smart Home/End, document start/end, Delete, select/delete/duplicate/move line, delete to line start/end, open line below; one undo step each, multi-caret aware) with an editor right-click menu (M20), in the palette and the native Edit menu
 - [x] Multi-caret and multi-selection (bounded core fan-out, per-caret navigation, Alt-click creation, rendering, clipboard, and one-action undo/redo)
 - [x] Column/block editing (constant-size core rectangle, bounded line-local operations, virtual-space insert, row-distributed paste, and Alt-Shift drag)
 - [~] Encoding detection and conversion (lossless UTF-8 and Windows-1252 override/editing controls with source-byte mappings; automatic detection and broader conversion remain)
@@ -56,24 +56,24 @@ Legend: `[ ]` not started, `[~]` partial, `[x]` complete. “Complete” require
 
 ## Extensibility and customization
 
-- [~] Central commands (registry and searchable desktop palette cover file/workspace actions, layout actions, undo/redo, and editor operations; later milestone commands remain)
+- [x] Central commands (every command is in the searchable palette, and the native File, Edit, View, Search, and Format menus carry the M20–M29 commands; `commands.test.ts` fails the build when the core, the desktop, and the menus disagree)
 - [x] Plugin architecture (validated packages, isolated JavaScript workers, digest-bound approval, activation events, command contributions, manager UI, and versioned SDK)
 - [x] Themes (complete semantic tokens, strict built-ins, bounded user-theme install/discovery/uninstall, and persisted live switching)
 - [x] Macro recording and sandboxed scripting (bounded macros plus explicitly approved, capability-gated scripts)
 - [~] Searchable settings and migrations (sectioned settings with per-section filters over schema-v1 customization storage and reset; workbench sessions migrate from schema v1 to v2; customization migration tooling for a future schema revision remains)
 - [x] Configurable shortcuts, menus, and toolbars (portable chords drive web/native menus and command dispatch)
-- [~] Icon toolbars and separate Settings window (one bundled vector icon set with accessible names, tooltips, pressed states, and an overflow menu; a singleton sectioned Settings window with revision-checked apply, a narrow command allowlist, and frame restoration; native-window behavior on Windows/Linux not yet exercised)
+- [~] Icon toolbars and separate Settings window (one bundled vector icon set with accessible names, tooltips, pressed states, and an overflow menu; a singleton sectioned Settings window with revision-checked apply, a narrow command allowlist, and frame restoration; on Windows the secondary windows have no menu bar, open only once drawn, and Find, results, and Help reopen at once; checked by hand on Windows 11, Linux not yet)
 
 ## Documentation and licensing
 
 - [~] User guide and Help window (`docs/USER_GUIDE.md` and `docs/PLUGIN_GUIDE.md`, bundled and shown under Help ▸ Nulis Help and F1 in a separate sectioned window with search; native-window behavior not yet exercised by hand)
 - [x] Plugin developer guide and examples (`docs/PLUGIN_GUIDE.md`; `hello-nulis` and the TypeScript `nulis-tips` example both run in the real worker under test)
-- [x] About page (icon, version, origin of the name, copyright, GPL version 3 notice, and the full license text)
+- [x] About page (icon, version, origin of the name, copyright, GPL version 3 notice, and the full license text, over a dark or light batik background that follows the theme)
 - [x] Licensing (GPL-3.0-or-later declared in every manifest with the license text in `LICENSE`; every license in the locked dependency graph is compatible, as recorded in `THIRD_PARTY_LICENSES.md`)
 
 ## Production readiness
 
-- [~] Accessibility validation and platform conventions (keyboard-only editor input, screen-reader status/instructions, reduced motion, and forced colors implemented; manual AT and hosted platform validation pending)
+- [~] Accessibility validation and platform conventions (keyboard-only editor input, screen-reader status/instructions, reduced motion, and forced colors implemented; dialogs keep Tab inside and pickers and dialogs return focus when closed; Ctrl Y redo on Windows and Linux; manual screen-reader validation with VoiceOver, NVDA, and Orca pending)
 - [~] Performance corpus and bounded-memory measurements (repeatable sparse generator and 10 GiB M01 baseline; full corpus pending)
 - [~] Fuzzing and property-based document tests (generated model tests and a libFuzzer target work; hosted sanitizer run pending)
 - [~] Installers, signing, and notarization (macOS app bundle built and three-platform bundle CI configured; hosted builds, signing, and notarization pending)

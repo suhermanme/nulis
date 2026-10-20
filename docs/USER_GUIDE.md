@@ -17,17 +17,17 @@ From top to bottom, the window has these parts.
 | Title bar | The **Nulis** brand (click it to open the About page), the main toolbar, and the **Commands** button at the far right. |
 | Main toolbar | Icon buttons with a caption under each: New, Open, Save, Close, Undo, Redo, Split Right, Split Down, Sidebar, Automation, Plugins, and Settings. Validate, Beautify, and Minify appear here while a JSON or XML document is focused. Buttons that do not fit move into an overflow menu. |
 | Activity bar | The narrow column on the left: **Files** and **Remote** choose what the side bar shows. Search is in the Find and Replace window (**Ctrl/⌘ F**). **Symbols** is reserved for a later version and is disabled; use the symbols list in the editor toolbar instead. |
-| Side bar | File View, search, or remote browsing. Hide or show it with the Sidebar button. Drag its edge to resize it. |
+| Side bar | File View or remote browsing. Hide or show it with the Sidebar button. Drag its edge to resize it. |
 | Tab strip | One tab per open file or workspace, the **+** button for a new tab, and on the right the buttons for split view, document comparison, folder comparison, the terminal, and the hexadecimal editor. |
 | Editor toolbar | Tools for the focused document: find, Go To, bookmarks, Transform, encoding, View As, symbols, word wrap, column editing, folding, line change indicators, the document map, the **EDIT** / **READ ONLY** mode button, and the insert/overwrite indicator. |
 | Editor | The text (or hexadecimal) view, with line numbers and the change-indicator lane in the gutter. |
-| Status bar | Messages about the last action on the left. On the right: the **EDIT** / **READ ONLY** mode, the caret's line and column, the document's size in bytes and characters, the version, and the encoding. See *The status bar* below. |
+| Status bar | Messages about the last action on the left. On the right: the **EDIT** / **READ ONLY** mode, the caret's line and column and the code point after it, the document's size and counts, the zoom when it is not 100%, the version, the encoding, and the line endings. See *The status bar* below. |
 
 Every icon button has a tooltip that names its action and its shortcut.
 
 #### Menus
 
-On the desktop, Nulis uses the operating system's menu bar: **File**, **Edit**, **View**, **Tools**, **Workspace**, **Window**, and **Help**. On macOS, **Settings…** and **About Nulis** are also in the **Nulis** application menu.
+On the desktop, Nulis uses the operating system's menu bar: **File**, **Edit**, **View**, **Search**, **Format**, **Tools**, **Workspace**, **Window**, and **Help**. On Windows and Linux the menu bar belongs to the editor window only; Settings, Find and Replace, and Help have none. On macOS, **Settings…** and **About Nulis** are also in the **Nulis** application menu.
 
 #### Command palette
 
@@ -160,7 +160,7 @@ Right-click the text for a menu with Undo, Redo, Cut, Copy, Paste, Find, Replace
 | Move selected text | Drag the selection and drop it at the new place. |
 | Copy selected text by dragging | Hold **Option** (macOS) or **Ctrl** (Windows and Linux) while dropping. |
 | Cancel a drag | Press Escape. |
-| Undo / redo | **Ctrl/⌘ Z** / **Ctrl/⌘ Shift Z**, or the toolbar buttons. |
+| Undo / redo | **Ctrl/⌘ Z** / **Ctrl/⌘ Shift Z** (also **Ctrl Y** on Windows and Linux), or the toolbar buttons. |
 | Cut, copy, paste | The usual system shortcuts and the **Edit** menu. |
 | Add to the clipboard | **Edit ▸ Copy and Append** / **Cut and Append** add the selection to the end of what is already on the clipboard, on a new line. |
 | Swap with the clipboard | **Edit ▸ Paste and Copy** puts the selection on the clipboard and the clipboard's text in its place. |
@@ -430,6 +430,8 @@ Click **Files** in the activity bar. File View has three tabs.
 
 Folders are read only when you expand them, so browsing a large disk stays fast. Type a pattern such as `*.md; *.txt` in the filter field to show only matching files, and use the button beside it to show hidden files and folders. Click a file to open it.
 
+**File ▸ Show in Places** goes the other way: it opens the **Places** tab with every folder above the focused file expanded, and highlights the file.
+
 ### Remote files (SFTP)
 
 Click **Remote** in the activity bar to browse a server over SFTP.
@@ -479,7 +481,7 @@ Open Settings with **Ctrl/⌘ ,**, the **Settings** toolbar button, or the menu.
 | --- | --- |
 | **General** | Whether the welcome screen is shown at startup; restore all defaults. |
 | **Editor** | Font, font size, line height, ligatures; whether line change indicators are shown by default. |
-| **Appearance & Themes** | The color theme. There are 99 built-in themes, and you can install your own theme files (Nulis theme JSON, or NvChad Base46 Lua themes). |
+| **Appearance & Themes** | The color theme. There are 99 built-in themes, and you can install your own theme files (Nulis theme JSON, or NvChad Base46 Lua themes). The Nulis mark in the title bar and the About window's background follow the theme. |
 | **Languages** | The languages Nulis recognizes. |
 | **Keybindings** | The shortcut for any command. |
 | **Menus & Toolbar** | Which commands are in the File menu and on the main toolbar, and in what order. |
@@ -490,7 +492,7 @@ Changes are a draft until you press **Apply**. A dot marks each section with una
 
 ## Keyboard Shortcuts
 
-These are the defaults. Shortcuts for commands can be changed under **Settings ▸ Keybindings**.
+These are the defaults. Shortcuts for commands can be changed under **Settings ▸ Keybindings**. The native menus do not show the keys that the editor handles itself, such as **Alt Z**, **Ctrl/⌘ P**, zoom, and **F3**; they still work.
 
 | Shortcut | Action |
 | --- | --- |
@@ -505,7 +507,7 @@ These are the defaults. Shortcuts for commands can be changed under **Settings �
 | Ctrl/⌘ , | Settings |
 | F1 | Nulis Help |
 | Ctrl/⌘ Z | Undo |
-| Ctrl/⌘ Shift Z | Redo |
+| Ctrl/⌘ Shift Z, Ctrl Y | Redo (Ctrl Y on Windows and Linux) |
 | Ctrl/⌘ F | Find and Replace window, Find tab |
 | Ctrl/⌘ H | Find and Replace window, Replace tab |
 | Ctrl/⌘ G | Go to line |
@@ -548,12 +550,27 @@ Nulis keeps every operation bounded so that it stays responsive. The limits you 
 | Workspace name | 80 characters |
 | JSON and XML tools | Documents up to 8 MiB |
 | One regular-expression match | 1 MiB |
+| Carets or selections | 1,024 |
+| Bookmarks per document | 1,024 |
+| Rows of a column block (and Insert Number Sequence) | 100,000 |
+| Copy, cut, and Sum Selected Numbers | 8 MiB of selected text |
+| Lines containing the text | 5,000 lines (10,000 matches) |
+| Find in Files | 2,000 results from up to 10,000 files |
+| Replace in Files | 1,000 files at a time |
+| Character, word, and line counts | Documents up to 64 MiB |
+| Converting line endings | Documents up to 64 MiB, at most 1,000,000 line endings changed |
+| Document map with exact lines | Documents up to 8 MiB; larger ones are sampled |
+| Markdown preview | Documents up to 1 MiB |
+| Quick Open | 20,000 files of the opened folder (folders starting with a dot and `node_modules` are skipped) |
+| Open Recent | The last 20 files |
+| Paste from History | The last 20 copies of this session, each up to 1 MiB |
+| File name in Rename File | 255 bytes |
 
 When a limit is reached, the status bar explains which one.
 
 ## About and License
 
-**Help ▸ About Nulis** (or a click on the Nulis brand in the title bar) shows the version, the origin of the name, and the license. **View License** shows the full license text.
+**Help ▸ About Nulis** (or a click on the Nulis brand in the title bar) shows the version, the origin of the name, and the license, over a batik background (parang and kawung) that is dark or light to match the theme. **View License** shows the full license text.
 
 Nulis is free software. You can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
 

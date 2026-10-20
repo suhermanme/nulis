@@ -4,8 +4,8 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 
 ## Current state
 
-- **Current milestone:** M30 Integration and quality — pending (next to start)
-- **Overall:** 11 of 12 milestones completed (M19–M29)
+- **Current milestone:** none — the M19–M30 plan is complete. M19–M29 shipped in Nulis 0.2.0; the M30 fixes are on `main`, after that release.
+- **Overall:** 12 of 12 milestones completed (M19–M30)
 - **Baseline before M19 (commit `66853e1`):** `cargo test -p nulis-core` 86 passed; desktop Vitest 11 files, 115 tests passed.
 
 | Milestone | Status | Handover |
@@ -21,7 +21,7 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 | M27 View features (split from "View and file") | Completed (manual and Windows/Linux checks pending) | `handover/M27_HANDOVER.md` |
 | M28 File conveniences (split from "View and file") | Completed (manual and Windows/Linux checks pending) | `handover/M28_HANDOVER.md` |
 | M29 Column and clipboard tools | Completed (manual and Windows/Linux checks pending) | `handover/M29_HANDOVER.md` |
-| M30 Integration and quality | Pending | – |
+| M30 Integration and quality | Completed (manual screen-reader and Linux checks pending) | `handover/M30_HANDOVER.md` |
 
 ## M19 — Audit and foundation
 
@@ -119,6 +119,12 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 
 **Result (completed 2026-10-20, on `main`):** all criteria covered by tests. Verification on macOS: fmt and clippy clean; `cargo test --workspace` passed (nulis-core 108, nulis-desktop 7); lint and typecheck clean; Vitest 124 passed. Details: `handover/M23_HANDOVER.md`.
 
+## M30 — Integration and quality
+
+**Delivered:** `commands.test.ts` checks that the core, the desktop, and the native menus list the same commands and that every presentation command has a handler (it found none missing from M20–M29); fixed a double undo and redo (the window's shortcuts re-ran keys the editor had handled); Ctrl Y redo on Windows and Linux; dialogs keep Tab inside (fields included) and pickers and the Rename dialog return focus when closed; the user guide, `FEATURE_PARITY.md`, and the new `PLATFORM_MATRIX.md` brought up to date. Also during M30 (user requests): the new icon, the batik About window, release 0.2.0, and the Homebrew cask.
+
+**Result (completed 2026-10-20, on `main`):** fmt and clippy clean; `cargo test --workspace` passed (nulis-core 137); lint and typecheck clean; Vitest 15 files, 155 passed. Details: `handover/M30_HANDOVER.md`.
+
 ## Icon redesign (user request, 2026-10-20)
 
 The user asked for a modern, clean icon suited to macOS without the batik ribbon, and for batik to move to the About window instead. Three directions and five variations of the chosen one were presented on a design canvas; the user chose **A, Ink & Caret**: a bold cream N whose last stroke is an ember text caret, on a dark ink tile in the macOS shape (824 px body in a 1024 canvas, continuous corners, soft shadow).
@@ -196,6 +202,5 @@ The user asked for a modern, clean icon suited to macOS without the batik ribbon
 
 ## Next steps
 
-0. M30 Integration and quality is next: palette and native-menu entries for M20–M29 commands, shortcut audit, accessibility, user guide, parity doc, hosted OS matrix.
-1. Run the app (`npm run dev`) and try M20–M27 by hand on macOS (keys, menus, the Find window, line endings, view options).
-2. Push to CI to build Windows/Linux, and check the M19 Settings/Help window fix there.
+0. The plan is complete. What remains is checking by hand, listed in `PLATFORM_MATRIX.md`: the M20–M29 features on each OS, the new icon and About background, and screen readers.
+1. Not planned yet: native menus showing the shortcuts the page handles (Alt Z, zoom, Ctrl/⌘ P, F3), a Settings field for the column marker, and "Open with" registration on Windows and Linux.

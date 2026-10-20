@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 export interface PickerItem {
   key: string;
@@ -20,11 +20,25 @@ interface PickerProps<T extends PickerItem> {
   footer?: ReactNode;
 }
 
+/**
+ * Puts keyboard focus back where it was when the calling dialog opened, once
+ * it closes, so keyboard and screen-reader users keep their place.
+ */
+export function useRestoreFocus(): void {
+  // Read during the first render: by the time effects run, the dialog's own
+  // autofocus field already has focus.
+  const [previous] = useState(() => document.activeElement);
+  useEffect(() => () => {
+    if (previous instanceof HTMLElement && previous.isConnected) previous.focus({ preventScroll: true });
+  }, [previous]);
+}
+
 /** A searchable list in the style of the command palette. */
 export function Picker<T extends PickerItem>({
   label, searchLabel, placeholder, query, onQuery, items, emptyText, onChoose, onClose, footer,
 }: PickerProps<T>) {
   const [index, setIndex] = useState(0);
+  useRestoreFocus();
   const selected = Math.min(index, Math.max(0, items.length - 1));
   return <div className="palette-backdrop" role="presentation"
     onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>

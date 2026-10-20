@@ -85,6 +85,10 @@ vi.mock("./EditorViewport", () => ({
       <button type="button" onClick={() => onCaret?.({ line: "1234", column: 7, carets: 1, selectedBytes: "0", codePoint: 0xe9 })}>Move caret in {document.name}</button>
       <button type="button" onClick={() => onToggleReadOnly?.()}>Editor mode of {document.name}: {document.readOnly ? "read-only" : "edit"}</button>
       <button type="button" onClick={() => onClipboardText?.(`copied from ${document.name}\nsecond line`)}>Copy in {document.name}</button>
+      <textarea aria-label={`Keys in ${document.name}`} onKeyDown={(event) => {
+        // Like the real editor: it undoes on Primary Z itself and marks the key handled.
+        if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") event.preventDefault();
+      }} />
       {onOpenFind ? <>
         <button type="button" onClick={() => onOpenFind("find", "seeded")}>Find in {document.name}</button>
         <button type="button" onClick={() => onOpenFind("replace")}>Replace in {document.name}</button>
@@ -1329,6 +1333,49 @@ test("the About window uses the light batik with a light theme", async () => {
   const about = await screen.findByRole("dialog", { name: "Nulis" });
   expect(about).toHaveAttribute("data-batik", "light");
   expect(about.style.getPropertyValue("--about-batik")).toMatch(/about-batik-light/);
+});
+
+test("a key the editor handled is not run again by the window's shortcuts", async () => {
+  // The real defaults bind Primary Z to undo, which the editor also handles itself.
+  storedCustomization.document.keybindings = [{ key: "Primary+Z", command: "editor.undo" }];
+  vi.mocked(listCommands).mockResolvedValueOnce([
+    { id: "file.new", title: "New Text File", category: "File" },
+    { id: "editor.undo", title: "Undo", category: "Editor" },
+  ]);
+  await openDocuments("First");
+  const undone = { documentId: "document-1", name: "First", byteLen: "0", revision: "1", encoding: "utf8", sourcePath: "/tmp/First" };
+  responses["editor.undo"] = [undone, undone];
+  vi.mocked(executeCommand).mockClear();
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Keys in First" }), { key: "z", ctrlKey: true });
+  await settle();
+  expect(executeCommand).not.toHaveBeenCalledWith(expect.objectContaining({ id: "editor.undo" }));
+  // Outside the editor the shortcut still works.
+  fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({ id: "editor.undo" })));
+});
+
+test("closing a picker or the Rename dialog puts focus back where it was", async () => {
+  await openDocuments("First");
+  const keys = screen.getByRole("textbox", { name: "Keys in First" });
+  keys.focus();
+  fireEvent.keyDown(keys, { key: "p", code: "KeyP", ctrlKey: true });
+  const search = await screen.findByRole("textbox", { name: "Search files" });
+  expect(search).toHaveFocus();
+  fireEvent.keyDown(search, { key: "Escape" });
+  await waitFor(() => expect(keys).toHaveFocus());
+
+  await chooseMenu("File", "Rename File…");
+  const field = screen.getByRole("textbox", { name: "New file name" });
+  // Tab from the last button wraps to the field, Shift Tab from the field stays inside.
+  const dialog = screen.getByRole("dialog", { name: "Rename First" });
+  within(dialog).getByRole("button", { name: "Rename" }).focus();
+  fireEvent.keyDown(dialog, { key: "Tab" });
+  expect(field).toHaveFocus();
+  fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
+  expect(within(dialog).getByRole("button", { name: "Rename" })).toHaveFocus();
+  keys.focus();
+  fireEvent.keyDown(dialog, { key: "Escape" });
+  expect(screen.queryByRole("dialog", { name: "Rename First" })).toBeNull();
 });
 
 test("the tab strip offers scroll arrows only when its tabs overflow", async () => {

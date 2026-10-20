@@ -1855,6 +1855,13 @@ export function EditorViewport({
       void runHistory(event.shiftKey ? "editor.redo" : "editor.undo");
       return;
     }
+    // Ctrl Y is Redo on Windows and Linux; macOS uses Command Shift Z only.
+    if (event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "y"
+      && !isApplePlatform()) {
+      event.preventDefault();
+      void runHistory("editor.redo");
+      return;
+    }
     if (modifier && event.key === "F2") {
       event.preventDefault();
       void toggleBookmark();
