@@ -12,6 +12,10 @@ Nulis is free software under the [GNU General Public License, version 3 or later
 
 **[Download the latest release](https://github.com/suhermanme/nulis/releases/latest)** for macOS, Windows, and Linux.
 
+[![Watch the 2-minute tour of Nulis: large files, find and replace, workspaces, themes, and more](docs/images/tour-poster.jpg)](docs/media/nulis-tour.mp4)
+
+**[▶ Watch the 2-minute tour](docs/media/nulis-tour.mp4)** (silent, with captions)
+
 ![Nulis with a Rust file and a Python file side by side in one workspace](docs/images/screenshots/workspace-dark.png)
 
 - [Installing](#installing)
