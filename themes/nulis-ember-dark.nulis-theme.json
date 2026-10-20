@@ -1,7 +1,7 @@
 {
   "$schema": "https://schemas.example.invalid/nulis/theme/v1.json",
   "id": "nulis.ember-dark",
-  "name": "Ember Night",
+  "name": "Nulis · Ember Night",
   "version": 1,
   "kind": "dark",
   "colors": {
@@ -29,6 +29,8 @@
     "ui.border": "#292F39",
     "ui.text": "#E7E4DF",
     "ui.mutedText": "#969DA7",
+    "ui.icon": "#969DA7",
+    "ui.iconDisabled": "#464B53",
     "ui.accent": "#E88974",
     "ui.accentForeground": "#111419",
     "ui.focus": "#78B9D4",

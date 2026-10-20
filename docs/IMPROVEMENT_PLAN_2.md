@@ -1,6 +1,6 @@
 # Improvement plan 2: Find window, regular expressions and column search, theme contrast, YAML and plist tools, more file types (M31–M35)
 
-**Status:** approved 2026-10-20; M31–M32 completed, M33–M35 to do. Progress will live in `IMPLEMENTATION_TRACKER.md`; handovers in `docs/handover/`.
+**Status:** approved 2026-10-20; M31–M33 completed, M34–M35 to do. Progress will live in `IMPLEMENTATION_TRACKER.md`; handovers in `docs/handover/`.
 **Date:** 2026-10-20, against commit `b56de0c` (Nulis 0.2.1).
 **Milestone numbering:** continues `IMPROVEMENT_PLAN.md` (M19–M30 are complete), so this plan starts at M31.
 
@@ -28,7 +28,7 @@ The NvChad importer sets `editor.selection` to the theme's `base02` (`crates/nul
 
 Top-toolbar buttons (`.icon-button`, `apps/desktop/src/styles.css:823`) and activity-bar buttons (`.activitybar button`, `styles.css:786`) use `--muted`, which comes from `ui.mutedText`. The importer fills `ui.mutedText` from Base46 `grey_fg`, a color meant for faint text such as comments. Disabled buttons then get `opacity: .4` on top of it (`styles.css:829`, `:140`).
 
-- Contrast of `ui.mutedText` against `ui.toolbar`: Github Dark 2.28:1, Obsidian Ember 1.98:1, Vscode Light 1.47:1; Ember Night 6.69:1, Paper Current 4.17:1.
+- Contrast of `ui.mutedText` against `ui.toolbar`: Github Dark 2.28:1, Obsidian Ember 1.98:1, Vscode Light 1.47:1; Ember Night 6.69:1, Paper Current 4.17:1 (renamed "Nulis · Ember Night" and "Nulis · Paper Current" in M33 so they sort first).
 - **76 of 77 dark NvChad themes and 20 light ones are below 3:1**, the WCAG minimum for controls.
 
 ### 2.3 Find and Replace window (request 3)

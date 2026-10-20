@@ -4,8 +4,8 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 
 ## Current state
 
-- **Current milestone:** M33 Theme contrast (next). M31 and M32 are done on `main`, not committed or released yet.
-- **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 2 of 5 milestones completed (M31–M32)
+- **Current milestone:** M34 YAML and plist Validate (next). M31–M33 are done on `main`, not released yet.
+- **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 3 of 5 milestones completed (M31–M33)
 - **Baseline before M19 (commit `66853e1`):** `cargo test -p nulis-core` 86 passed; desktop Vitest 11 files, 115 tests passed.
 
 | Milestone | Status | Handover |
@@ -24,7 +24,7 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 | M30 Integration and quality | Completed (manual screen-reader and Linux checks pending) | `handover/M30_HANDOVER.md` |
 | M31 Find window fits its content | Completed (checked on macOS; Windows/Linux pending) | `handover/M31_M32_HANDOVER.md` |
 | M32 Regular expressions and column search | Completed (checked on macOS; Windows/Linux pending) | `handover/M31_M32_HANDOVER.md` |
-| M33 Theme contrast | Not started | – |
+| M33 Theme contrast | Completed (verified by the user on macOS; Windows/Linux pending) | this tracker, M33 section |
 | M34 YAML and plist Validate | Not started | – |
 | M35 CSV/TSV, YAML and plist highlighting | Not started | – |
 
@@ -141,6 +141,12 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 **Delivered:** one regex style on the linear-time `regex` engine; unbounded patterns (`\w+`, `a.*b`) allowed with a 1 MiB match cap that is reported, never cut; matches across chunk edges found once; capture groups in Replace (`$1`, `${name}`, `$0`/`$&`, `\1`, `\n`, `\t`), checked before anything changes, for Replace, Replace All and Replace in Files (`search.replaceMatch` checks the range is still a match); Search in column (From/To, status-bar columns, `^`/`$` at the column edges) for every single-document action and highlighting; "Highlight all" painted from core matches of the visible lines (`search.matchesInRange`) and kept in step with the query and options; one-sentence pattern errors with a position (`search.validatePattern`), shown in the status line above the buttons; options remembered between sessions; a "Regex help" button that opens Nulis Help at the new Regular expressions section (`open_help_window` takes a topic). Also fixed: every command failure reached the UI as a generic message because the core's `{ kind, detail }` was never turned into an `Error`; `executeCommand` now does that. IPC protocol 36.
 
 **Result (completed 2026-10-20, on `main`, not committed):** fmt and clippy clean; `cargo test --workspace` passed (nulis-core 140, nulis-search 22, nulis-desktop 9); lint and typecheck clean; Vitest 19 files, 170 passed. Checked in a debug build on macOS: window fit per tab, `id=\d+` with highlights, column 1–4 search, `$2:$1` Replace All and one-step undo, lookbehind message. Details: `handover/M31_M32_HANDOVER.md`.
+
+## M33 — Theme contrast
+
+**Delivered:** contrast floors applied to every theme when it loads (`crates/nulis-theme/src/contrast.rs`, `Theme::ensure_readable`): selection 1.6:1 against the editor background (an accent blend that keeps the theme's hue), text on it 4.5:1 or all the theme's text allows, apart from the current line where possible; secondary text 4.5:1; icons 3:1; disabled icons 1.8:1. New optional tokens `ui.icon` and `ui.iconDisabled`; toolbar and activity-bar icons use them, and disabled icons use a color instead of 40% opacity. The NvChad importer starts secondary text from `light_grey`; the catalog was regenerated. Theme files on disk are never changed. User request during M33: Nulis's own themes renamed **Nulis · Ember Night** and **Nulis · Paper Current** so they sort first by name. `THEME_SPEC.md` documents the tokens and floors.
+
+**Result (completed 2026-10-20):** fmt and clippy clean; `cargo test --workspace` passed (nulis-theme 10, including every bundled theme against the floors and a faint installed theme corrected at load); lint and typecheck clean; Vitest 170 passed. Release build verified by the user on macOS: selection and icons readable in NvChad themes. Obsidian Ember and Onedark meet the selection floor but cannot fully meet the text-on-selection and current-line targets with their own colors.
 
 ## Icon redesign (user request, 2026-10-20)
 

@@ -9,6 +9,12 @@ use std::{
 };
 use thiserror::Error;
 
+mod contrast;
+pub use contrast::{
+    Rgb, MIN_DISABLED_ICON_CONTRAST, MIN_ICON_CONTRAST, MIN_MUTED_TEXT_CONTRAST,
+    MIN_SELECTED_TEXT_CONTRAST, MIN_SELECTION_CONTRAST, MIN_SELECTION_LINE_CONTRAST,
+};
+
 pub const THEME_SCHEMA_VERSION: u32 = 1;
 pub const THEME_SCHEMA_URI: &str = "https://schemas.example.invalid/nulis/theme/v1.json";
 pub const MAX_THEME_BYTES: u64 = 256 * 1024;
@@ -60,6 +66,8 @@ pub const THEME_TOKENS: &[&str] = &[
     "diff.deleted",
     "diff.modified",
 ];
+/// Tokens a theme may leave out; Nulis derives them from its other colors.
+pub const OPTIONAL_THEME_TOKENS: &[&str] = &["ui.icon", "ui.iconDisabled"];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -96,7 +104,9 @@ impl Theme {
             }
         }
         for (token, color) in &self.colors {
-            if !THEME_TOKENS.contains(&token.as_str()) {
+            if !THEME_TOKENS.contains(&token.as_str())
+                && !OPTIONAL_THEME_TOKENS.contains(&token.as_str())
+            {
                 return Err(ThemeError::UnknownToken(token.clone()));
             }
             let valid_length = color.len() == 7 || color.len() == 9;
@@ -161,9 +171,10 @@ impl ThemeCatalog {
                 .take(MAX_USER_THEMES)
             {
                 let path = entry.path();
-                let Ok(theme) = read_theme(&path) else {
+                let Ok(mut theme) = read_theme(&path) else {
                     continue;
                 };
+                theme.ensure_readable();
                 if ids.insert(theme.id.clone()) {
                     themes.push(ThemeRecord {
                         theme,
@@ -172,6 +183,7 @@ impl ThemeCatalog {
                 }
             }
         }
+        // By name: "Nulis · …" comes before "NvChad · …", so Nulis's own themes lead.
         themes.sort_by(|left, right| left.theme.name.cmp(&right.theme.name));
         Ok(themes)
     }
@@ -223,6 +235,9 @@ impl ThemeCatalog {
         file.as_file().sync_all()?;
         file.persist_noclobber(&target)
             .map_err(|error| error.error)?;
+        // The file keeps the author's colors; what Nulis shows meets the contrast floors.
+        let mut theme = theme;
+        theme.ensure_readable();
         Ok(ThemeRecord {
             theme,
             built_in: false,
@@ -266,8 +281,9 @@ fn built_in_themes() -> Result<Vec<ThemeRecord>, ThemeError> {
     ))?);
     themes
         .into_iter()
-        .map(|theme| {
+        .map(|mut theme| {
             theme.validate()?;
+            theme.ensure_readable();
             Ok(ThemeRecord {
                 theme,
                 built_in: true,
@@ -276,6 +292,7 @@ fn built_in_themes() -> Result<Vec<ThemeRecord>, ThemeError> {
         .collect()
 }
 
+/// Reads and validates a theme file as written; see [`Theme::ensure_readable`].
 fn read_theme(path: &Path) -> Result<Theme, ThemeError> {
     let theme: Theme = serde_json::from_slice(&read_bounded_file(path)?)?;
     theme.validate()?;
@@ -390,7 +407,9 @@ pub fn import_nvchad_theme(source: &str, source_name: &str) -> Result<Theme, The
     set("ui.raised", ui("one_bg", "base02"));
     set("ui.border", ui("line", "base02"));
     set("ui.text", ui("white", "base05"));
-    set("ui.mutedText", ui("grey_fg", "base04"));
+    // `grey_fg` is meant for faint text such as comments; secondary text and
+    // icons start from the lighter grey and are strengthened below if needed.
+    set("ui.mutedText", ui("light_grey", "base04"));
     set("ui.accent", ui("blue", "base0D"));
     set("ui.accentForeground", base("base00"));
     set("ui.focus", ui("nord_blue", "base0D"));
@@ -430,7 +449,7 @@ pub fn import_nvchad_theme(source: &str, source_name: &str) -> Result<Theme, The
         &mix_hex(base("base00"), ui("yellow", "base0A"), 22)?,
     );
 
-    let theme = Theme {
+    let mut theme = Theme {
         schema: Some(THEME_SCHEMA_URI.into()),
         id: format!("nvchad.{id_suffix}"),
         name: format!("NvChad · {}", display_name(source_name)),
@@ -439,6 +458,7 @@ pub fn import_nvchad_theme(source: &str, source_name: &str) -> Result<Theme, The
         colors,
     };
     theme.validate()?;
+    theme.ensure_readable();
     Ok(theme)
 }
 
@@ -860,7 +880,9 @@ pub enum ThemeError {
 
 #[cfg(test)]
 mod tests {
-    use super::{import_nvchad_theme, Theme, ThemeCatalog, ThemeKind, THEME_TOKENS};
+    use super::{
+        import_nvchad_theme, Theme, ThemeCatalog, ThemeKind, OPTIONAL_THEME_TOKENS, THEME_TOKENS,
+    };
 
     const BASE46_THEME: &str = r##"
 local M = {}
@@ -944,7 +966,18 @@ return M
             catalog.install(&source).expect("install").theme.id,
             "example.ocean"
         );
-        assert_eq!(catalog.list().expect("list").len(), 100);
+        let listed = catalog.list().expect("list");
+        assert_eq!(listed.len(), 100);
+        // Sorted by name, which puts Nulis's own themes first.
+        let names: Vec<_> = listed
+            .iter()
+            .map(|record| record.theme.name.as_str())
+            .collect();
+        assert_eq!(
+            &names[..2],
+            ["Nulis · Ember Night", "Nulis · Paper Current"]
+        );
+        assert!(names[2..].windows(2).all(|pair| pair[0] <= pair[1]));
         catalog.uninstall("example.ocean").expect("uninstall");
         assert_eq!(catalog.list().expect("list").len(), 99);
     }
@@ -956,7 +989,10 @@ return M
         assert_eq!(converted.kind, ThemeKind::Dark);
         assert_eq!(converted.colors["editor.background"], "#101317");
         assert_eq!(converted.colors["ui.accent"], "#7AB0DF");
-        assert_eq!(converted.colors.len(), THEME_TOKENS.len());
+        assert_eq!(
+            converted.colors.len(),
+            THEME_TOKENS.len() + OPTIONAL_THEME_TOKENS.len()
+        );
 
         let directory = tempfile::tempdir().expect("temporary directory");
         let source = directory.path().join("sample-radium.lua");

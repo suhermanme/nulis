@@ -83,7 +83,7 @@ Each release also has a `SHA256SUMS.txt` to check the downloads: `sha256sum -c S
 
 ## A quick tour
 
-**Workspaces of split panes, in any of 99 themes.** Drag a tab into the editor to view files side by side; here, Paper Light with Rust, JSON, and Markdown.
+**Workspaces of split panes, in any of 99 themes.** Drag a tab into the editor to view files side by side; here, Nulis · Paper Current with Rust, JSON, and Markdown.
 
 ![Three files in one workspace with the Paper Light theme](docs/images/screenshots/light-theme.png)
 

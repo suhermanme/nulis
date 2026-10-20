@@ -11,6 +11,8 @@
   --menu: #151920;
   --border: #292f39;
   --muted: #969da7;
+  --icon: #969da7;
+  --icon-disabled: #464b53;
   --accent: #e88974;
   --accent-strong: #ff9a83;
   --ui-text: #e7e4df;
@@ -130,14 +132,14 @@ kbd { padding: 2px 6px; border: 1px solid #373e48; border-radius: 4px; color: #b
 }
 .activitybar button {
   position: relative; display: grid; justify-items: center; gap: 4px; width: 100%; padding: 7px 0;
-  border: 0; color: #717985; background: transparent; cursor: pointer;
+  border: 0; color: var(--icon); background: transparent; cursor: pointer;
 }
 .activitybar button > .icon { width: 30px; height: 30px; padding: 5px; border: 1px solid #343b45; border-radius: 9px; }
 .activitybar small { font-size: 9px; }
 .activitybar button.active { color: #f1e9e3; }
 .activitybar button.active::before { content: ""; position: absolute; left: 0; top: 7px; bottom: 7px; width: 2px; background: var(--accent); }
 .activitybar button.active > .icon { border-color: #b75d51; background: #e8897417; }
-.activitybar button:disabled { opacity: .45; cursor: not-allowed; }
+.activitybar button:disabled { color: var(--icon-disabled); cursor: not-allowed; }
 
 .sidebar { position: relative; min-width: 0; overflow: hidden; background: var(--panel); border-right: 1px solid var(--border); }
 .sidebar-resizer {
@@ -783,7 +785,7 @@ kbd,
 .hex-toolbar input {
   border-color: var(--border); color: var(--ui-text); background: var(--raised);
 }
-.activitybar button, .tree-icon, .tree-size, .tree-loading, .tree-limit,
+.tree-icon, .tree-size, .tree-loading, .tree-limit,
 .selection-count, .hex-toolbar, .palette-results small { color: var(--muted); }
 .activitybar button > .icon, .empty-explorer, .empty-explorer button { border-color: var(--border); }
 .activitybar button.active, .panel-heading, .workspace-heading, .tree-row,
@@ -822,11 +824,11 @@ kbd,
 .icon { flex: none; display: block; }
 .icon-button {
   display: inline-grid; place-items: center; flex: none; width: 28px; height: 28px; padding: 0;
-  border: 1px solid transparent; border-radius: 5px; color: var(--muted); background: transparent; cursor: pointer;
+  border: 1px solid transparent; border-radius: 5px; color: var(--icon); background: transparent; cursor: pointer;
 }
 .icon-button:hover:not(:disabled) { color: var(--ui-text); background: var(--hover); }
 .icon-button:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
-.icon-button:disabled { opacity: .4; cursor: default; }
+.icon-button:disabled { color: var(--icon-disabled); cursor: default; }
 .icon-button[aria-pressed="true"] {
   border-color: var(--accent); color: var(--accent);
   background: color-mix(in srgb, var(--accent) 16%, transparent);

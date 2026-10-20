@@ -213,6 +213,9 @@ export function preferenceCssVariables(preferences: EditorPreferences, themes: r
     "--menu": colors["ui.menu"],
     "--border": colors["ui.border"],
     "--muted": colors["ui.mutedText"],
+    // Icons have their own colors; a theme without them uses its secondary text.
+    "--icon": colors["ui.icon"] ?? colors["ui.mutedText"],
+    "--icon-disabled": colors["ui.iconDisabled"] ?? colors["ui.mutedText"],
     "--accent": colors["ui.accent"],
     "--accent-strong": colors["editor.caret"],
     "--accent-fg": colors["ui.accentForeground"],

@@ -508,7 +508,7 @@ Open Settings with **Ctrl/⌘ ,**, the **Settings** toolbar button, or the menu.
 | --- | --- |
 | **General** | Whether the welcome screen is shown at startup; restore all defaults. |
 | **Editor** | Font, font size, line height, ligatures; whether line change indicators are shown by default. |
-| **Appearance & Themes** | The color theme. There are 99 built-in themes, and you can install your own theme files (Nulis theme JSON, or NvChad Base46 Lua themes). The Nulis mark in the title bar and the About window's background follow the theme. |
+| **Appearance & Themes** | The color theme. There are 99 built-in themes, with Nulis's own **Nulis · Ember Night** (dark) and **Nulis · Paper Current** (light) at the top, and you can install your own theme files (Nulis theme JSON, or NvChad Base46 Lua themes). Every theme keeps the text selection, secondary text, and toolbar icons easy to see: where a theme's own colors are too faint, Nulis strengthens them in that theme's hues. The Nulis mark in the title bar and the About window's background follow the theme. |
 | **Languages** | The languages Nulis recognizes. |
 | **Keybindings** | The shortcut for any command. |
 | **Menus & Toolbar** | Which commands are in the File menu and on the main toolbar, and in what order. |
