@@ -1,5 +1,9 @@
 # Work state
 
+## Nulis 0.3.0 (plan 2, M31–M35)
+
+Released 2026-10-20. Scope, decisions, and verification are in `IMPROVEMENT_PLAN_2.md`, `IMPLEMENTATION_TRACKER.md` (M31–M35 and "Count All on huge files"), and `handover/M31_M32_HANDOVER.md`; the user-facing summary is `release-notes/v0.3.0.md`. In short: the Find window fits its content; one linear-time regex style with unbounded patterns, capture groups in Replace, and Search in column; contrast floors for selection, secondary text, and icons in every theme; YAML and plist Validate and Beautify; CSV/TSV and richer YAML highlighting; binary property lists in the hex editor; Count All without a limit as a background job; plain-text search on the regex engine's literal finder (about 8x faster). IPC protocol 39. Windows and Linux were checked only by CI for this release.
+
 ## Windows verification and fixes (implemented locally)
 
 Every package is now built, installed, and started by CI (`.github/workflows/ci.yml`): `Nulis.app` on macOS, the `.deb` and `.rpm` on Linux (the `.rpm` on Fedora in a container), and the NSIS installer on Windows. The same packages were also built in containers and checked by hand on Ubuntu 22.04 and 24.04, Debian 12, Fedora 44, and a Windows 11 virtual machine.

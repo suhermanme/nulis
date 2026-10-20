@@ -1,6 +1,6 @@
 # Improvement plan 2: Find window, regular expressions and column search, theme contrast, YAML and plist tools, more file types (M31–M35)
 
-**Status:** approved 2026-10-20; M31–M35 completed. Open question 2 answered: binary property lists open read-only in the hex editor. Open question 1 answered: YAML gets Validate and Beautify (Beautify asks before losing comments or anchors). Progress will live in `IMPLEMENTATION_TRACKER.md`; handovers in `docs/handover/`.
+**Status:** approved 2026-10-20; M31–M35 completed and released in Nulis 0.3.0. Open question 2 answered: binary property lists open read-only in the hex editor. Open question 1 answered: YAML gets Validate and Beautify (Beautify asks before losing comments or anchors). Progress will live in `IMPLEMENTATION_TRACKER.md`; handovers in `docs/handover/`.
 **Date:** 2026-10-20, against commit `b56de0c` (Nulis 0.2.1).
 **Milestone numbering:** continues `IMPROVEMENT_PLAN.md` (M19–M30 are complete), so this plan starts at M31.
 
