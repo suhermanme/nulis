@@ -268,7 +268,7 @@ These are in the **Format** menu and the command palette. Each change is one und
 
 Matching brackets are highlighted when the caret is next to one.
 
-The **document map** at the right edge shows a miniature of the document. Click it to jump. Its left edge shows ticks where lines have changed.
+The **document map** at the right edge shows a miniature of the document. A long document is scaled to fit the map's height, so the whole file is always visible; click a place in it to jump to the matching line. Documents larger than 8 MiB are shown from sampled lines. Its left edge shows ticks where lines have changed.
 
 ### Line change indicators
 

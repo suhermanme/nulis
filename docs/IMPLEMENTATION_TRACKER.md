@@ -119,6 +119,14 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 
 **Result (completed 2026-10-20, on `main`):** all criteria covered by tests. Verification on macOS: fmt and clippy clean; `cargo test --workspace` passed (nulis-core 108, nulis-desktop 7); lint and typecheck clean; Vitest 124 passed. Details: `handover/M23_HANDOVER.md`.
 
+## Fix after M29 — document map on long files (user report, Windows 0.1.1 video)
+
+**Problem:** above 64 KiB the core sampled 1,024 slices of 128 bytes at even byte offsets. Rows started mid-line, glued neighboring lines together, and were placed by byte position, so the map did not look like the file and clicks landed unevenly (13% of the map opened line 670 of about 5,000, 38% only line 1,552). Not Windows-specific: the same code runs on every platform.
+
+**Fix:** the core reads the whole text, with exact line numbers, up to 8 MiB (`DOCUMENT_MAP_FULL_BYTES`); above that each sample starts at a line start and stops at its line end (LF, CRLF, or CR). The desktop scales a document with more lines than fit to the map's height (no map scrolling), sizes the marker by visible lines, and a click opens the proportional line through `getViewportLine`.
+
+**Tests:** core long-file map with CRLF lines and a 9 MiB sampled map (whole lines, increasing offsets, long-line fallback); desktop fit test (row count, no scrolling, click halfway opens line 2,501 and moves the marker there). Not tried on Windows yet.
+
 ## M29 — Column and clipboard tools
 
 **Delivered:** Insert Number Sequence (column block, carets, or line starts; start, step, padding), Sum Selected Numbers (exact decimals), Left/Center/Right Justify in a column block, Convert to Fixed-Width / Delimited Columns (new line operations, delimiter detected or chosen), Copy and Append, Cut and Append, Paste and Copy, Paste from History (in-memory, 20 entries), Quick Open (Ctrl/⌘ P; open, folder, and recent files; core `workspace.listFiles`). A shared `Picker` now backs Open Recent, Quick Open, and Paste from History.

@@ -57,8 +57,11 @@ pub const MAX_VIEWPORT_BYTES: u64 = 256 * 1024;
 pub const MAX_DOCUMENT_MAP_SAMPLES: usize = 1024;
 pub const MAX_MARKDOWN_PREVIEW_BYTES: u64 = 1024 * 1024;
 pub const MAX_MARKDOWN_IMAGE_BYTES: u64 = 4 * 1024 * 1024;
-const DOCUMENT_MAP_FULL_BYTES: u64 = 64 * 1024;
-const DOCUMENT_MAP_SAMPLE_BYTES: u64 = 128;
+/// Up to this size the document map reads the whole text and knows line
+/// numbers; larger documents are sampled.
+const DOCUMENT_MAP_FULL_BYTES: u64 = 8 * 1024 * 1024;
+/// How far a sample of a large document reads to find a whole line.
+const DOCUMENT_MAP_SAMPLE_BYTES: u64 = 512;
 pub const MAX_HEX_VIEWPORT_BYTES: u64 = 64 * 1024;
 pub const MAX_HEX_EDIT_BYTES: usize = 256 * 1024;
 pub const MAX_HEX_CLIPBOARD_BYTES: u64 = 256 * 1024;
@@ -1836,13 +1839,14 @@ impl DocumentManager {
                     u128::from(length) * index as u128 / MAX_DOCUMENT_MAP_SAMPLES as u128,
                 )
                 .map_err(|_| EditorError::OffsetOverflow)?;
-                let bytes =
-                    table.read_vec(offset, DOCUMENT_MAP_SAMPLE_BYTES.min(length - offset))?;
-                samples.push(DocumentMapSample {
-                    byte_offset: offset,
-                    line: 0,
-                    text: document_map_text(session.encoding, &bytes),
-                });
+                let sample = large_map_sample(table, session.encoding, offset)?;
+                // Long lines can make neighbors land on the same line.
+                if samples
+                    .last()
+                    .is_none_or(|last: &DocumentMapSample| last.byte_offset < sample.byte_offset)
+                {
+                    samples.push(sample);
+                }
             }
             changes.extend(
                 session
@@ -4344,6 +4348,43 @@ fn encode_text(encoding: TextEncoding, text: &str) -> Result<Vec<u8>, EditorErro
     }
 }
 
+/// The first whole line at or after `offset` in a large document, read within
+/// [`DOCUMENT_MAP_SAMPLE_BYTES`]; a line longer than that is shown from `offset`.
+fn large_map_sample(
+    table: &PieceTable,
+    encoding: TextEncoding,
+    offset: u64,
+) -> Result<DocumentMapSample, EditorError> {
+    let length = table.len();
+    let from = offset.saturating_sub(1);
+    let window = table.read_vec(from, DOCUMENT_MAP_SAMPLE_BYTES.min(length - from))?;
+    // A line ends at LF, or at a CR that is not the first half of a CRLF.
+    let ends_line = |index: usize| match window.get(index) {
+        Some(b'\n') => true,
+        Some(b'\r') => window.get(index + 1) != Some(&b'\n'),
+        _ => false,
+    };
+    let skip = if offset == 0 {
+        0
+    } else if ends_line(0) {
+        1
+    } else {
+        (1..window.len())
+            .find(|index| ends_line(*index))
+            .map_or(1, |index| index + 1)
+    };
+    let rest = &window[skip.min(window.len())..];
+    let line = rest
+        .iter()
+        .position(|byte| matches!(byte, b'\r' | b'\n'))
+        .map_or(rest, |end| &rest[..end]);
+    Ok(DocumentMapSample {
+        byte_offset: from + skip as u64,
+        line: 0,
+        text: document_map_text(encoding, line),
+    })
+}
+
 fn document_map_text(encoding: TextEncoding, bytes: &[u8]) -> String {
     decode_text(encoding, bytes)
         .0
@@ -5915,17 +5956,63 @@ mod tests {
         assert_eq!(map.samples[1].byte_offset, 8);
         assert_eq!(map.samples[1].line, 2);
 
-        let large = manager
-            .create_untitled("large.txt".into(), "line of content\n".repeat(10_000))
-            .expect("large document");
-        let map = manager.document_map(&large.document_id).expect("large map");
-        assert_eq!(map.samples.len(), MAX_DOCUMENT_MAP_SAMPLES);
-        assert_eq!(map.samples[0].byte_offset, 0);
-        assert!(map.samples.last().expect("last sample").byte_offset < map.document_byte_len);
+        // Long files below the full-read limit keep exact line numbers.
+        let long = manager
+            .create_untitled("long.txt".into(), "line of content\r\n".repeat(10_000))
+            .expect("long document");
+        let map = manager.document_map(&long.document_id).expect("long map");
+        assert_eq!(map.total_lines, Some(10_001));
+        assert!(map.samples.len() <= MAX_DOCUMENT_MAP_SAMPLES + 1);
+        assert_eq!(map.samples[1].line, 11);
         assert!(map
             .samples
             .iter()
-            .all(|sample| sample.text.chars().count() <= 90));
+            .filter(|sample| sample.line <= 10_000)
+            .all(|sample| sample.text == "line of content"));
+    }
+
+    #[test]
+    fn a_large_document_map_samples_whole_lines() {
+        let directory = tempfile::tempdir().expect("folder");
+        let path = directory.path().join("large.txt");
+        let mut text = String::new();
+        let mut line = 0;
+        while text.len() as u64 <= super::DOCUMENT_MAP_FULL_BYTES {
+            use std::fmt::Write as _;
+            write!(text, "row {line:07} with some text\r\n").expect("text");
+            line += 1;
+        }
+        // One very long line: its samples fall back to fragments.
+        text.push_str(
+            &"x".repeat(3 * usize::try_from(super::DOCUMENT_MAP_SAMPLE_BYTES).expect("small")),
+        );
+        fs::write(&path, &text).expect("write");
+        let manager = DocumentManager::default();
+        let id = manager.open_file(&path).expect("open").document_id;
+        let map = manager.document_map(&id).expect("map");
+        assert_eq!(map.total_lines, None);
+        assert!(map.samples.len() <= MAX_DOCUMENT_MAP_SAMPLES);
+        assert_eq!(map.samples[0].byte_offset, 0);
+        let bytes = text.as_bytes();
+        for sample in &map.samples {
+            let offset = usize::try_from(sample.byte_offset).expect("offset");
+            if sample.text.starts_with('x') {
+                continue;
+            }
+            assert!(
+                offset == 0 || bytes[offset - 1] == b'\n',
+                "{offset} starts a line"
+            );
+            assert!(
+                sample.text.starts_with("row ") && sample.text.ends_with(" with some text"),
+                "{:?}",
+                sample.text
+            );
+        }
+        assert!(map
+            .samples
+            .windows(2)
+            .all(|pair| pair[0].byte_offset < pair[1].byte_offset));
     }
 
     #[test]

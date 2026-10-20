@@ -2008,9 +2008,14 @@ export function EditorViewport({
     ? displayedLines.length
     : Math.min(displayedLines.length, firstVisible + visibleCount + OVERSCAN_LINES * 2);
   const visibleLines = displayedLines.slice(firstVisible, lastVisible);
-  const mapPoint = (line: string, byteOffset: string) => mapTotalLines !== null
-    ? Math.max(0, Number(line) - 1) * MAP_ROW_HEIGHT
-    : Number(BigInt(byteOffset) * BigInt(mapHeight) / (BigInt(snapshot.documentByteLen) || 1n));
+  // A document with more lines than fit is scaled to the map's height, so the
+  // whole document is always visible and a click lands proportionally.
+  const fitMap = mapTotalLines !== null && mapTotalLines * MAP_ROW_HEIGHT > mapHeight;
+  const mapPoint = (line: string, byteOffset: string) => mapTotalLines === null
+    ? Number(BigInt(byteOffset) * BigInt(mapHeight) / (BigInt(snapshot.documentByteLen) || 1n))
+    : fitMap
+      ? Math.max(0, Number(line) - 1) / mapTotalLines * mapHeight
+      : Math.max(0, Number(line) - 1) * MAP_ROW_HEIGHT;
   const firstOnScreen = displayedLines[Math.min(displayedLines.length - 1, Math.floor(scrollTop / rowHeight))]?.line.line;
   const lastOnScreen = displayedLines[Math.min(displayedLines.length - 1,
     Math.floor((scrollTop + viewportHeight) / rowHeight))]?.line.line;
@@ -2020,13 +2025,15 @@ export function EditorViewport({
   const markerEnd = mapPoint(lastOnScreen ?? snapshot.lines.at(-1)?.line ?? "1",
     displayedLines[Math.min(displayedLines.length - 1, Math.floor((scrollTop + viewportHeight) / rowHeight))]?.line.endByte
       ?? snapshot.lines.at(-1)?.endByte ?? "0");
-  const markerHeight = mapTotalLines !== null
-    ? Math.max(8, viewportHeight / rowHeight * MAP_ROW_HEIGHT)
-    : Math.max(8, markerEnd - markerStart);
-  const mapContentHeight = mapTotalLines !== null
+  const visibleRows = viewportHeight / rowHeight;
+  const markerHeight = mapTotalLines === null
+    ? Math.max(8, markerEnd - markerStart)
+    : Math.max(8, fitMap ? visibleRows / mapTotalLines * mapHeight : visibleRows * MAP_ROW_HEIGHT);
+  const mapContentHeight = mapTotalLines !== null && !fitMap
     ? Math.max(mapHeight, mapTotalLines * MAP_ROW_HEIGHT + markerHeight)
     : mapHeight;
-  const mapStep = mapTotalLines !== null ? 1
+  // Keep about one sample per row; rows that would overlap are left out.
+  const mapStep = mapTotalLines !== null && !fitMap ? 1
     : Math.max(1, Math.ceil(mapSamples.length * MAP_ROW_HEIGHT / Math.max(1, mapHeight)));
   let insideCodeBlock = false;
   const previewSamples = mapSamples.map((sample, index) => {
@@ -2051,8 +2058,11 @@ export function EditorViewport({
       return Math.abs(samplePosition - clamped) < Math.abs(mapPoint(nearest.line, nearest.byteOffset) - clamped)
         ? sample : nearest;
     });
+    // With line numbers, the click names a line exactly; otherwise the nearest sample.
+    const targetLine = mapTotalLines === null ? null : Math.min(mapTotalLines, Math.max(1,
+      Math.floor(fitMap ? clamped / mapHeight * mapTotalLines : clamped / MAP_ROW_HEIGHT) + 1));
     if (mapTotalLines !== null && !snapshot.next && snapshot.lines[0]?.startByte === "0") {
-      const index = displayedLines.findIndex(({ line }) => Number(line.line) >= Number(selected.line));
+      const index = displayedLines.findIndex(({ line }) => Number(line.line) >= (targetLine ?? Number(selected.line)));
       const surface = surfaceRef.current;
       if (index >= 0 && surface) {
         const nextTop = Math.max(0, index * rowHeight - viewportHeight / 2);
@@ -2063,7 +2073,10 @@ export function EditorViewport({
       }
     }
     const generation = ++mapNavigationGenerationRef.current;
-    void getViewportAt({ documentId: document.documentId, byteOffset: selected.byteOffset, maxBytes: VIEWPORT_BYTES })
+    const reveal = targetLine === null
+      ? getViewportAt({ documentId: document.documentId, byteOffset: selected.byteOffset, maxBytes: VIEWPORT_BYTES })
+      : getViewportLine({ documentId: document.documentId, line: String(targetLine), maxBytes: VIEWPORT_BYTES });
+    void reveal
       .then((revealed) => {
         if (generation !== mapNavigationGenerationRef.current) return;
         const first = revealed.lines[0];
@@ -2739,7 +2752,7 @@ export function EditorViewport({
         }}>
         <div className="document-map-content" style={{ height: mapContentHeight }}>
           <div className="document-map-viewport" style={{
-            top: markerStart,
+            top: fitMap || mapTotalLines === null ? Math.max(0, Math.min(markerStart, mapHeight - markerHeight)) : markerStart,
             height: markerHeight,
           }} />
           {previewSamples

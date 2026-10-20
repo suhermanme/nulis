@@ -300,6 +300,47 @@ test("document map tracks visible lines and scrolls within a loaded document", a
   expect(getViewportAt).not.toHaveBeenCalled();
 });
 
+test("a long document's map fits the whole file and a click opens the matching line", async () => {
+  const lines = Array.from({ length: 30 }, (_, index) => ({
+    line: String(index + 1), startByte: String(index * 10), endByte: String(index * 10 + 10),
+    text: `line ${index + 1}`, sourceByteWidths: [1, 1, 1, 1, 1, 1], continuation: false, truncated: false,
+  }));
+  vi.mocked(getViewport).mockResolvedValueOnce({
+    documentId: "document-1", revision: "0", documentByteLen: "50000", encoding: "utf8",
+    lines, selections: [{ anchorByte: "0", activeByte: "0" }], bookmarks: [],
+    next: { byteOffset: "300", line: "31", lineContinuation: false },
+  });
+  // 5,000 lines with one sample every 5 lines, as the core sends them.
+  vi.mocked(getDocumentMap).mockResolvedValueOnce({
+    documentId: "document-1", revision: "0", documentByteLen: "50000", totalLines: 5000,
+    samples: Array.from({ length: 1000 }, (_, index) => ({
+      byteOffset: String(index * 50), line: String(index * 5 + 1), text: `line ${index * 5 + 1}`,
+    })),
+  });
+  vi.mocked(getViewportLine).mockResolvedValueOnce({
+    documentId: "document-1", revision: "0", documentByteLen: "50000", encoding: "utf8",
+    lines: [{ ...lines[0]!, line: "2501", startByte: "25000", endByte: "25010", text: "line 2501" }],
+    selections: [{ anchorByte: "0", activeByte: "0" }], bookmarks: [],
+  });
+  render(<EditorViewport document={{ documentId: "document-1", name: "Untitled",
+    byteLen: "50000", revision: "0", encoding: "utf8" }} onDocumentChange={() => undefined} onStatus={() => undefined} />);
+  const map = await screen.findByRole("button", { name: "Document map" });
+  // The map is 800 px tall (its default before measuring): rows are thinned to fit, nothing scrolls.
+  await waitFor(() => expect(map.querySelectorAll(".document-map-line").length).toBeGreaterThan(150));
+  expect(map.querySelectorAll(".document-map-line").length).toBeLessThanOrEqual(200);
+  expect(map.querySelector<HTMLElement>(".document-map-content")?.style.height).toBe("800px");
+  const lastRow = [...map.querySelectorAll<HTMLElement>(".document-map-line")].at(-1);
+  expect(Number.parseFloat(lastRow?.style.top ?? "0")).toBeLessThan(800);
+  expect(map.querySelector<HTMLElement>(".document-map-viewport")?.style.top).toBe("0px");
+
+  map.getBoundingClientRect = () => ({ top: 0, height: 800 }) as DOMRect;
+  fireEvent.pointerDown(map, { clientY: 400, pointerId: 1 });
+  await waitFor(() => expect(getViewportLine).toHaveBeenCalledWith(expect.objectContaining({ line: "2501" })));
+  expect(await screen.findByText("line 2501")).toBeInTheDocument();
+  const marker = map.querySelector<HTMLElement>(".document-map-viewport");
+  await waitFor(() => expect(Number.parseFloat(marker?.style.top ?? "0")).toBeCloseTo(400, 0));
+});
+
 test("focuses the input when the active tab changes to a newly loaded document", async () => {
   const { rerender } = render(
     <EditorViewport
