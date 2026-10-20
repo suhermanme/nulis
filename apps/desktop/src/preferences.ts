@@ -154,6 +154,34 @@ export function stepZoom(zoom: number, direction: -1 | 0 | 1): number {
   return ZOOM_LEVELS[Math.max(0, Math.min(ZOOM_LEVELS.length - 1, current + direction))];
 }
 
+const RECENT_FILES_KEY = "nulis.recentFiles.v1";
+export const MAX_RECENT_FILES = 20;
+
+/** Files opened on this computer, most recent first. */
+export function loadRecentFiles(): string[] {
+  try {
+    const stored: unknown = JSON.parse(window.localStorage.getItem(RECENT_FILES_KEY) ?? "[]");
+    return Array.isArray(stored)
+      ? [...new Set(stored.filter((item): item is string => typeof item === "string" && item.length > 0))].slice(0, MAX_RECENT_FILES)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveRecentFiles(paths: readonly string[]): void {
+  try {
+    window.localStorage.setItem(RECENT_FILES_KEY, JSON.stringify(paths.slice(0, MAX_RECENT_FILES)));
+  } catch {
+    // The list still applies for this session.
+  }
+}
+
+/** `paths` with `path` moved to the front, and `replaced` (a renamed file's old path) dropped. */
+export function withRecentFile(paths: readonly string[], path: string, replaced?: string): string[] {
+  return [path, ...paths.filter((item) => item !== path && item !== replaced)].slice(0, MAX_RECENT_FILES);
+}
+
 const WELCOME_KEY = "nulis.welcomeOnStartup.v1";
 
 /** Whether the welcome screen is shown when the application starts without open documents. */

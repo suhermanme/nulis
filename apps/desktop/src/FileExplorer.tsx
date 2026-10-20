@@ -68,12 +68,16 @@ interface FileExplorerProps {
   onDocumentMenu?(documentId: string, x: number, y: number): void;
   /** The opened-folder tree. */
   folder: ReactNode;
+  /** A file to show in Places; a new `id` shows it again. */
+  reveal?: { path: string; id: number };
 }
 
 /** File View: open documents, the whole machine (Places), and the opened folder. */
 export function FileExplorer({
-  tab, onTab, documents, activeDocumentId, onShowDocument, onOpenPath, onStatus, onDocumentMenu, folder,
+  tab, onTab, documents, activeDocumentId, onShowDocument, onOpenPath, onStatus, onDocumentMenu, folder, reveal,
 }: FileExplorerProps) {
+  const [revealed, setRevealed] = useState<string | null>(null);
+  const treeRef = useRef<HTMLDivElement>(null);
   const [places, setPlaces] = useState<Place[] | null>(null);
   const [directories, setDirectories] = useState<Record<string, PlaceDirectory>>({});
   const [expanded, setExpanded] = useState<string[]>([]);
@@ -110,13 +114,55 @@ export function FileExplorer({
       }
       if (!alive.current) return;
       setDirectories((current) => ({ ...current, ...loaded }));
-      setExpanded(chain.filter((path) => loaded[path]));
+      // Keep folders a "Show in Places" may have opened meanwhile.
+      setExpanded((current) => [...new Set([...current, ...chain.filter((path) => loaded[path])])]);
     })().catch((error: unknown) => {
       if (!alive.current) return;
       setPlaces([]);
       onStatus(error instanceof Error ? error.message : "Could not list places");
     });
   }, [list, onStatus, tab]);
+
+  // Show in Places: open every folder above the file, then highlight it.
+  const showHiddenRef = useRef(showHidden);
+  showHiddenRef.current = showHidden;
+  const matchesRef = useRef(matches);
+  matchesRef.current = matches;
+  const revealId = reveal?.id;
+  useEffect(() => {
+    if (!reveal || tab !== "places") return undefined;
+    let cancelled = false;
+    const target = reveal.path;
+    const chain = pathAncestors(target).slice(0, -1);
+    void (async () => {
+      const loaded: Record<string, PlaceDirectory> = {};
+      for (const path of chain) {
+        if (directoriesRef.current[path]) continue;
+        try {
+          loaded[path] = await list(path, showHiddenRef.current);
+        } catch (error: unknown) {
+          if (!cancelled) onStatus(error instanceof Error ? error.message : "Could not show the file in Places");
+          return;
+        }
+      }
+      if (cancelled) return;
+      setDirectories((current) => ({ ...current, ...loaded }));
+      setExpanded((current) => [...new Set([...current, ...chain])]);
+      setRevealed(target);
+      const parent = loaded[chain.at(-1) ?? ""] ?? directoriesRef.current[chain.at(-1) ?? ""];
+      const entry = parent?.entries.find((item) => item.path === target);
+      if (!entry) onStatus("The file is not listed in Places; it may be hidden");
+      else if (!matchesRef.current(entry.name)) setFilter("");
+    })();
+    return () => { cancelled = true; };
+  }, [revealId, tab]);
+  useEffect(() => {
+    if (!revealed) return;
+    const row = [...(treeRef.current?.querySelectorAll<HTMLElement>("[data-path]") ?? [])]
+      .find((element) => element.dataset.path === revealed);
+    row?.scrollIntoView?.({ block: "nearest" });
+    row?.focus({ preventScroll: true });
+  }, [directories, expanded, revealed]);
 
   const toggle = async (path: string) => {
     if (expanded.includes(path)) {
@@ -167,7 +213,8 @@ export function FileExplorer({
     const isDirectory = entry.kind === "directory";
     const open = isDirectory && expanded.includes(entry.path);
     return <div key={entry.path}>
-      <button type="button" className={`tree-row ${entry.kind}${entry.path === home ? " home" : ""}`}
+      <button type="button" data-path={entry.path}
+        className={`tree-row ${entry.kind}${entry.path === home ? " home" : ""}${entry.path === revealed ? " revealed" : ""}`}
         style={{ paddingLeft: 8 + depth * 14 }} disabled={entry.kind === "other"} title={entry.path}
         aria-expanded={isDirectory ? open : undefined}
         onClick={() => { if (isDirectory) void toggle(entry.path); else onOpenPath(entry.path); }}>
@@ -203,7 +250,7 @@ export function FileExplorer({
         <button type="button" aria-pressed={showHidden} title="Show hidden files and folders"
           aria-label="Show hidden files" onClick={() => void toggleHidden()}>.*</button>
       </div>
-      <div className="workspace-tree" role="tree" aria-label="Places">
+      <div className="workspace-tree" role="tree" aria-label="Places" ref={treeRef}>
         {places === null ? <div className="tree-loading">Loading…</div>
           : roots.length === 0 ? <p className="tree-limit">No places are available.</p>
             : roots.map((place) => renderRow({ name: place.name, path: place.path, kind: "directory" }, 0, "drive"))}

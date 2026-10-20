@@ -62,10 +62,15 @@ When no file is open at startup, Nulis shows a welcome screen with buttons for a
 | New file | **Ctrl/⌘ N**, the **New** toolbar button, the **+** button in the tab strip, or **File ▸ New Text File**. |
 | Open a file | **Ctrl/⌘ O**, the **Open** toolbar button, or **File ▸ Open File…**. You can also drag files from the file manager onto the window, or open them from File View. |
 | Open a file from Finder (macOS) | Right-click the file and choose **Open With ▸ Nulis**, or drop it on the Nulis icon in the Dock. If Nulis is already open, the file opens in the existing window. |
+| Open a recent file | **File ▸ Open Recent…** lists the last 20 files you opened on this computer. Type to narrow the list; Enter or a click opens the file. A file that no longer exists is removed from the list. **Clear Recent Files** empties it. |
 | Open a folder | **Open a folder** on the welcome screen, or the *Open Folder* command in the palette. The folder appears in the **Folder** tab of File View. |
 | Save | **Ctrl/⌘ S**, the **Save** toolbar button, or **File ▸ Save**. |
 | Save under a new name | **Ctrl/⌘ Shift S** or **File ▸ Save As…**. |
+| Save every changed file | **File ▸ Save All**. A file that has never been saved asks where to save it; cancelling skips that file. |
+| Rename the file | **File ▸ Rename File…** renames the file in its folder. Unsaved changes stay unsaved, and the text is not reloaded. A name that is already taken is refused. Untitled and remote files cannot be renamed this way. |
+| Find the file on disk | **File ▸ Show in Places** opens File View on the **Places** tab with the folders above the file expanded and the file highlighted. |
 | Close the file | **Ctrl/⌘ W**, the **Close** toolbar button, the **×** on the tab, or **File ▸ Close File**. |
+| Close every file | **File ▸ Close All Files**. Nulis asks about each file with unsaved changes; **Cancel** stops and keeps the remaining tabs. |
 | Close the window | **Ctrl/⌘ Shift W**, or the window's close button. |
 
 Right-click a tab, or a file in the **Open** list of File View, for a menu with **Close**, **Close All Files Except This**, **Save**, and **Save As…**.

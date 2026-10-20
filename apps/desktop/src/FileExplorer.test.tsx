@@ -138,3 +138,22 @@ test("path and filter helpers handle both path styles", () => {
   // Regex metacharacters in a pattern are literal.
   expect(fileFilter("a+b(1).txt")("a+b(1).txt")).toBe(true);
 });
+
+test("Show in Places opens the folders above a file and highlights it", async () => {
+  const props = { onTab: vi.fn(), onShowDocument: vi.fn(), onOpenPath: vi.fn(), onStatus: vi.fn() };
+  const view = (reveal?: { path: string; id: number }) => <FileExplorer tab="places" {...props} activeDocumentId={null}
+    folder={<p>folder tree</p>} documents={[]} reveal={reveal} />;
+  const { rerender } = render(view());
+  await screen.findByRole("button", { name: /notes\.md/ });
+  expect(screen.queryByRole("button", { name: /backup\.sql/ })).toBeNull();
+
+  rerender(view({ path: "/Volumes/DATABANK/backup.sql", id: 1 }));
+  const row = await screen.findByRole("button", { name: /backup\.sql/ });
+  await waitFor(() => expect(row).toHaveClass("revealed"));
+  expect(row).toHaveFocus();
+  expect(screen.getByRole("button", { name: /DATABANK/ })).toHaveAttribute("aria-expanded", "true");
+
+  // A hidden file is not listed, so the status says why.
+  rerender(view({ path: "/Users/medys/.zshrc", id: 2 }));
+  await waitFor(() => expect(props.onStatus).toHaveBeenCalledWith("The file is not listed in Places; it may be hidden"));
+});

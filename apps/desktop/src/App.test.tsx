@@ -1204,6 +1204,70 @@ test("View options apply to every editor, are remembered, and zoom has keys and 
   expect(within(footer).queryByRole("button", { name: /Zoom/ })).toBeNull();
 });
 
+test("Open Recent lists opened files, filters them, opens one, and drops a file that is gone", async () => {
+  window.localStorage.setItem("nulis.recentFiles.v1", JSON.stringify(["/work/old.txt", "/work/gone.txt"]));
+  await openDocuments("First");
+  expect(JSON.parse(window.localStorage.getItem("nulis.recentFiles.v1") ?? "[]"))
+    .toEqual(["/tmp/First", "/work/old.txt", "/work/gone.txt"]);
+
+  await chooseMenu("File", "Open Recent…");
+  const picker = screen.getByRole("dialog", { name: "Open Recent" });
+  expect(within(picker).getAllByRole("option").map((option) => option.textContent))
+    .toEqual(["First/tmp", "old.txt/work", "gone.txt/work"]);
+  const search = within(picker).getByRole("textbox", { name: "Search recent files" });
+  fireEvent.change(search, { target: { value: "OLD" } });
+  expect(within(picker).getAllByRole("option")).toHaveLength(1);
+  responses["file.open"] = [{ documentId: "document-9", name: "old.txt", byteLen: "1", revision: "0", encoding: "utf8", sourcePath: "/work/old.txt" }];
+  fireEvent.keyDown(search, { key: "Enter" });
+  expect(await screen.findByText("old.txt editor")).toBeInTheDocument();
+  expect(screen.queryByRole("dialog", { name: "Open Recent" })).toBeNull();
+
+  // A file that can no longer be opened leaves the list.
+  responses["file.open"] = [{ then: (_resolve: unknown, reject: (error: Error) => void) => reject(new Error("No such file")) }];
+  await chooseMenu("File", "Open Recent…");
+  fireEvent.click(within(screen.getByRole("dialog", { name: "Open Recent" })).getByRole("option", { name: /gone\.txt/ }));
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Could not open gone.txt; it was removed from Recent Files"));
+  expect(JSON.parse(window.localStorage.getItem("nulis.recentFiles.v1") ?? "[]")).toEqual(["/work/old.txt", "/tmp/First"]);
+});
+
+test("Save All saves every changed file, Rename renames the active one, and Close All closes everything", async () => {
+  const make = (index: number, name: string) => ({
+    documentId: `document-${index}`, name, byteLen: "1", revision: "1", encoding: "utf8", sourcePath: `/tmp/${name}`, dirty: true,
+  });
+  responses["file.new"] = [make(1, "First"), make(2, "Second")];
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  fireEvent.click(screen.getByRole("button", { name: "New text file" }));
+  await screen.findByText("First editor");
+  fireEvent.click(screen.getByRole("button", { name: "New tab" }));
+  await screen.findByText("Second editor");
+
+  responses["file.save"] = [{ ...make(1, "First"), dirty: false }, { ...make(2, "Second"), dirty: false }];
+  await chooseMenu("File", "Save All");
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Saved 2 files"));
+  expect(vi.mocked(executeCommand).mock.calls.filter(([request]) => request.id === "file.save")
+    .map(([request]) => request.context.documentId)).toEqual(["document-1", "document-2"]);
+
+  await chooseMenu("File", "Rename File…");
+  const dialog = screen.getByRole("dialog", { name: "Rename Second" });
+  const field = within(dialog).getByRole("textbox", { name: "New file name" });
+  expect(field).toHaveValue("Second");
+  fireEvent.change(field, { target: { value: "Renamed.md" } });
+  responses["file.renameTo"] = [{ ...make(2, "Renamed.md"), dirty: false, sourcePath: "/tmp/Renamed.md" }];
+  fireEvent.click(within(dialog).getByRole("button", { name: "Rename" }));
+  expect(await screen.findByText("Renamed.md editor")).toBeInTheDocument();
+  expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
+    id: "file.renameTo", context: expect.objectContaining({ documentId: "document-2" }), arguments: { name: "Renamed.md" },
+  }));
+  expect(JSON.parse(window.localStorage.getItem("nulis.recentFiles.v1") ?? "[]")).toEqual(["/tmp/Renamed.md", "/tmp/First"]);
+
+  await chooseMenu("File", "Show in Places");
+  expect(screen.getByRole("tab", { name: "Places" })).toHaveAttribute("aria-selected", "true");
+
+  await chooseMenu("File", "Close All Files");
+  await waitFor(() => expect(screen.queryByText(/ editor$/)).toBeNull());
+});
+
 test("the tab strip offers scroll arrows only when its tabs overflow", async () => {
   await openDocuments("First", "Second", "Third");
   const strip = screen.getByRole("tablist", { name: "Open documents" });

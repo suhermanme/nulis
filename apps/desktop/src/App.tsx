@@ -86,15 +86,18 @@ import {
   BUILT_IN_THEMES,
   loadEditorPreferences,
   loadLineChangeDefault,
+  loadRecentFiles,
   loadViewOptions,
   loadWelcomeOnStartup,
   normalizeEditorPreferences,
   preferenceCssVariables,
   saveEditorPreferences,
   saveLineChangeDefault,
+  saveRecentFiles,
   saveViewOptions,
   saveWelcomeOnStartup,
   stepZoom,
+  withRecentFile,
   type ViewOptions,
 } from "./preferences";
 
@@ -116,7 +119,9 @@ const TOOLBAR_CAPTIONS: Record<string, string> = {
   "workbench.splitRight": "Split Right", "workbench.splitDown": "Split Down", "workbench.toggleEditorMode": "Hex",
   "workbench.closeTab": "Close Tab", "workbench.closeFile": "Close", "workbench.openSettings": "Settings", "app.about": "About", "workbench.openHelp": "Help", "editor.toggleReadOnly": "Read Only",
   "view.toggleLineChangeIndicators": "Changes", "view.toggleWordWrap": "Wrap", "view.toggleWhitespace": "Whitespace",
-  "view.zoomIn": "Zoom In", "view.zoomOut": "Zoom Out", "view.toggleAlwaysOnTop": "On Top", "tools.validate": "Validate", "tools.beautify": "Beautify",
+  "view.zoomIn": "Zoom In", "view.zoomOut": "Zoom Out", "view.toggleAlwaysOnTop": "On Top",
+  "file.saveAll": "Save All", "file.closeAll": "Close All", "file.openRecent": "Recent", "file.rename": "Rename",
+  "file.revealInPlaces": "Show", "tools.validate": "Validate", "tools.beautify": "Beautify",
   "tools.minify": "Minify", "workspace.rename": "Rename", "workspace.ungroup": "Ungroup",
 };
 const NAV_ICONS: Record<typeof NAV_ITEMS[number], IconName> = {
@@ -179,6 +184,16 @@ function defaultSession(): WorkbenchSession {
 function usableSession(value: WorkbenchSession | null | undefined): WorkbenchSession {
   return value && value.schemaVersion === 2 && Array.isArray(value.layouts)
     && Array.isArray(value.documents) ? value : defaultSession();
+}
+
+/** The last part of a path. */
+function baseName(path: string): string {
+  return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
+}
+
+function folderName(path: string): string {
+  const name = baseName(path);
+  return path.slice(0, Math.max(0, path.length - name.length)).replace(/[\\/]$/, "") || path;
 }
 
 function encodingLabel(document: DocumentSummary | undefined): string {
@@ -248,6 +263,13 @@ export function App() {
   const [viewOptions, setViewOptions] = useState(loadViewOptions);
   const viewOptionsRef = useRef(viewOptions);
   const [alwaysOnTop, setAlwaysOnTop] = useState(false);
+  const [recentFiles, setRecentFiles] = useState(loadRecentFiles);
+  const [recentOpen, setRecentOpen] = useState(false);
+  const [recentQuery, setRecentQuery] = useState("");
+  const [recentIndex, setRecentIndex] = useState(0);
+  const [renameTarget, setRenameTarget] = useState<{ documentId: string; name: string } | null>(null);
+  const [renameBusy, setRenameBusy] = useState(false);
+  const [placesReveal, setPlacesReveal] = useState<{ path: string; id: number } | undefined>(undefined);
   const [welcomeOnStartup, setWelcomeOnStartup] = useState(loadWelcomeOnStartup);
   // The welcome screen stays for this session after its tick box turns it off for the next start.
   const [welcomeVisible, setWelcomeVisible] = useState(loadWelcomeOnStartup);
@@ -575,7 +597,15 @@ export function App() {
     return current.map((tab) => tab.id === holder.id && pane ? { ...tab, activePane: pane.id } : tab);
   };
   const showDocument = (documentId: string) => setTabs((current) => revealIn(current, documentId));
+  const rememberRecent = (path: string, replaced?: string) => {
+    setRecentFiles((current) => {
+      const next = withRecentFile(current, path, replaced);
+      saveRecentFiles(next);
+      return next;
+    });
+  };
   const addDocument = (created: DocumentSummary) => {
+    if (created.sourcePath && !created.remoteUri) rememberRecent(created.sourcePath);
     setDocuments((current) => current.some(
       (document) => document.documentId === created.documentId,
     ) ? current : [...current, created]);
@@ -712,6 +742,7 @@ export function App() {
         arguments: { expectedRevision: document.revision, path: destination },
       });
       upsertDocument(saved);
+      if (saved.sourcePath) rememberRecent(saved.sourcePath);
       setStatus(`Saved ${saved.name}`);
       return true;
     } catch (error: unknown) {
@@ -984,18 +1015,96 @@ export function App() {
   };
 
   /** Opens a file chosen in Places by absolute path, or focuses it when already open. */
-  const openPath = async (path: string) => {
+  const openPath = async (path: string): Promise<boolean> => {
     const existing = documents.find((document) => document.sourcePath === path);
-    if (existing) { showDocument(existing.documentId); return; }
+    if (existing) { showDocument(existing.documentId); return true; }
     try {
       const opened = await executeCommand<DocumentSummary>({
         id: "file.open", context: { windowId: "main" }, arguments: { path },
       });
       addDocument(opened);
       setStatus(`Opened ${opened.name}`);
+      return true;
     } catch (error: unknown) {
       setStatus(errorMessage(error, "Could not open file"));
+      return false;
     }
+  };
+
+  /** Saves every document with unsaved changes; untitled ones ask where to save. */
+  const saveAll = async () => {
+    const dirty = documents.filter((document) => document.dirty);
+    const local = dirty.filter((document) => !document.remoteUri);
+    if (dirty.length === 0) { setStatus("All files are saved"); return; }
+    let saved = 0;
+    for (const document of local) {
+      if (await saveDocumentFor(document, false)) saved += 1;
+    }
+    const left = dirty.length - saved;
+    setStatus(left === 0 ? `Saved ${saved} ${saved === 1 ? "file" : "files"}`
+      : `Saved ${saved} of ${dirty.length} files; ${left} still ${left === 1 ? "has" : "have"} unsaved changes`);
+  };
+  const closeAll = () => {
+    void continueTabsClose(tabsRef.current.map((tab) => tab.id), documents, tabsRef.current);
+  };
+  const openRecent = () => {
+    if (recentFiles.length === 0) { setStatus("No recent files yet"); return; }
+    setRecentQuery("");
+    setRecentIndex(0);
+    setRecentOpen(true);
+  };
+  const openRecentPath = async (path: string) => {
+    setRecentOpen(false);
+    if (await openPath(path)) return;
+    setRecentFiles((current) => {
+      const next = current.filter((item) => item !== path);
+      saveRecentFiles(next);
+      return next;
+    });
+    setStatus(`Could not open ${baseName(path)}; it was removed from Recent Files`);
+  };
+  const clearRecent = () => {
+    setRecentFiles([]);
+    saveRecentFiles([]);
+    setRecentOpen(false);
+    setStatus("Recent files cleared");
+  };
+  const requestRenameFile = () => {
+    if (!activeDocument) { setStatus("No active document"); return; }
+    if (activeDocument.remoteUri || !activeDocument.sourcePath) {
+      setStatus(activeDocument.remoteUri ? "Remote files cannot be renamed here" : "Save the document before renaming it");
+      return;
+    }
+    setRenameTarget({ documentId: activeDocument.documentId, name: activeDocument.name });
+  };
+  const submitRename = async (name: string) => {
+    const target = renameTarget;
+    const document = target ? documents.find((item) => item.documentId === target.documentId) : undefined;
+    if (!target || !document || renameBusy) return;
+    if (name.trim() === document.name) { setRenameTarget(null); return; }
+    setRenameBusy(true);
+    try {
+      const renamed = await executeCommand<DocumentSummary>({
+        id: "file.renameTo", context: { windowId: "main", documentId: document.documentId }, arguments: { name },
+      });
+      upsertDocument(renamed);
+      if (renamed.sourcePath) rememberRecent(renamed.sourcePath, document.sourcePath);
+      setRenameTarget(null);
+      setStatus(`Renamed ${document.name} to ${renamed.name}`);
+    } catch (error: unknown) {
+      setStatus(errorMessage(error, "Could not rename the file"));
+    } finally {
+      setRenameBusy(false);
+    }
+  };
+  const revealInPlaces = () => {
+    const path = activeDocument?.remoteUri ? undefined : activeDocument?.sourcePath;
+    if (!path) { setStatus("Only a saved file on this computer can be shown in Places"); return; }
+    setActivePanel("files");
+    setSidebarVisible(true);
+    setExplorerTab("places");
+    saveExplorerTab("places");
+    setPlacesReveal((current) => ({ path, id: (current?.id ?? 0) + 1 }));
   };
 
   // Files from the system (Open With, a double-click, the Dock, the command
@@ -1468,6 +1577,12 @@ export function App() {
     "view.zoomOut": () => zoom(-1),
     "view.zoomReset": () => zoom(0),
     "view.toggleAlwaysOnTop": toggleAlwaysOnTop,
+    "file.saveAll": saveAll,
+    "file.closeAll": closeAll,
+    "file.openRecent": openRecent,
+    "file.clearRecent": clearRecent,
+    "file.rename": requestRenameFile,
+    "file.revealInPlaces": revealInPlaces,
     "workspace.rename": requestRename,
     "workspace.groupRight": () => groupWithNextTab("right"),
     "workspace.groupDown": () => groupWithNextTab("bottom"),
@@ -1808,12 +1923,22 @@ export function App() {
       onSelect: () => runById("file.reload"),
     });
   }
+  const localFile = Boolean(activeDocument?.sourcePath) && !activeDocument?.remoteUri;
+  const fileExtras: MenuItem[] = ([
+    ["file.openRecent", "Open Recent…", recentFiles.length === 0],
+    ["file.saveAll", "Save All", !documents.some((document) => document.dirty)],
+    ["file.rename", "Rename File…", !localFile],
+    ["file.revealInPlaces", "Show in Places", !localFile],
+  ] as const).filter(([command]) => !customization.menu.some((entry) => entry.kind === "command" && entry.command === command))
+    .map(([command, label, disabled]) => ({ label, disabled, onSelect: () => runById(command) }));
+  fileMenu.push({ kind: "separator" }, ...fileExtras);
   if (!customization.menu.some((entry) => entry.kind === "command" && entry.command === "workbench.closeFile")) {
     fileMenu.push({ kind: "separator" }, {
       label: "Close File", shortcut: shortcutFor("workbench.closeFile"), disabled: !activeDocument,
       onSelect: () => runById("workbench.closeFile"),
     });
   }
+  fileMenu.push({ label: "Close All Files", disabled: tabs.length === 0, onSelect: () => runById("file.closeAll") });
   const viewMenu: MenuItem[] = [
     { label: "Line Change Indicators", checked: lineChangeDefault, shortcut: shortcutFor("view.toggleLineChangeIndicators"),
       onSelect: () => runById("view.toggleLineChangeIndicators") },
@@ -1879,6 +2004,9 @@ export function App() {
   const activeCount = characterCount && characterCount.documentId === activeDocument?.documentId
     ? characterCount : undefined;
   const activeCharacters = activeCount?.characters;
+  const recentNeedle = recentQuery.trim().toLocaleLowerCase();
+  const recentMatches = recentNeedle
+    ? recentFiles.filter((path) => path.toLocaleLowerCase().includes(recentNeedle)) : recentFiles;
   const lineEndingStyle = activeCount?.lineEnding;
   const lineEndingLabel = lineEndingStyle === "mixed" ? "Mixed"
     : lineEndingStyle && lineEndingStyle !== "none" ? LINE_ENDING_LABELS[lineEndingStyle] : "LF";
@@ -2002,6 +2130,7 @@ export function App() {
         : <FileExplorer tab={explorerTab} onTab={(next) => { setExplorerTab(next); saveExplorerTab(next); }}
           documents={documents} activeDocumentId={activeDocumentId} onShowDocument={showDocument}
           onOpenPath={(path) => void openPath(path)} onStatus={setStatus} onDocumentMenu={openDocumentMenu}
+          reveal={placesReveal}
           folder={<>
           <div className="panel-heading"><span>EXPLORER</span><div>
             <IconButton icon="open" label="Open workspace" onClick={() => void openWorkspace()} />
@@ -2107,6 +2236,55 @@ export function App() {
             {paletteCommands.length === 0 ? <p>No matching commands</p> : null}
           </div>
         </section>
+      </div> : null}
+      {recentOpen ? <div className="palette-backdrop" role="presentation"
+        onMouseDown={(event) => { if (event.target === event.currentTarget) setRecentOpen(false); }}>
+        <section className="command-palette" role="dialog" aria-modal="true" aria-label="Open Recent">
+          <input autoFocus aria-label="Search recent files" placeholder="Type part of a file name or folder" value={recentQuery}
+            onChange={(event) => { setRecentQuery(event.currentTarget.value); setRecentIndex(0); }}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowDown") { event.preventDefault(); setRecentIndex((index) => Math.min(index + 1, recentMatches.length - 1)); }
+              if (event.key === "ArrowUp") { event.preventDefault(); setRecentIndex((index) => Math.max(index - 1, 0)); }
+              if (event.key === "Enter" && recentMatches[recentIndex]) { event.preventDefault(); void openRecentPath(recentMatches[recentIndex]); }
+              if (event.key === "Escape") setRecentOpen(false);
+            }} />
+          <div className="palette-results" role="listbox" aria-label="Recent files">
+            {recentMatches.map((path, index) => <button type="button" role="option" title={path}
+              aria-selected={index === recentIndex} className={index === recentIndex ? "selected" : ""}
+              key={path} onMouseEnter={() => setRecentIndex(index)} onClick={() => void openRecentPath(path)}>
+              <span>{baseName(path)}</span><small>{folderName(path)}</small>
+            </button>)}
+            {recentMatches.length === 0 ? <p>No matching files</p> : null}
+          </div>
+          <div className="palette-footer">
+            <button type="button" onClick={() => runById("file.clearRecent")}>Clear Recent Files</button>
+          </div>
+        </section>
+      </div> : null}
+      {renameTarget ? <div className="decision-backdrop">
+        <form className="decision-dialog" role="dialog" aria-modal="true" aria-labelledby="rename-file-title"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const field = event.currentTarget.elements.namedItem("name");
+            if (field instanceof HTMLInputElement) void submitRename(field.value);
+          }}
+          onKeyDown={(event) => {
+            keepFocusInDialog(event);
+            if (event.key === "Escape") setRenameTarget(null);
+          }}>
+          <h2 id="rename-file-title">Rename {renameTarget.name}</h2>
+          <p>The file is renamed in its folder. Unsaved changes stay unsaved.</p>
+          <input name="name" aria-label="New file name" defaultValue={renameTarget.name} autoFocus spellCheck={false}
+            onFocus={(event) => {
+              // Select the name without its extension, as file managers do.
+              const dot = event.currentTarget.value.lastIndexOf(".");
+              event.currentTarget.setSelectionRange(0, dot > 0 ? dot : event.currentTarget.value.length);
+            }} />
+          <div className="decision-actions">
+            <button type="button" disabled={renameBusy} onClick={() => setRenameTarget(null)}>Cancel</button>
+            <button className="primary" type="submit" disabled={renameBusy}>Rename</button>
+          </div>
+        </form>
       </div> : null}
       {macroOpen ? <MacroPanel activeDocument={activeDocument} onClose={() => setMacroOpen(false)}
         onDocumentChange={(document) => {

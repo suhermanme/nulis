@@ -38,6 +38,8 @@ pub use line_endings::{
     MAX_LINE_ENDING_CHANGES, MAX_LINE_ENDING_CONVERSION_BYTES,
 };
 pub use navigation::ChangeDirection;
+mod rename;
+pub use rename::MAX_FILE_NAME_BYTES;
 mod replace_in_files;
 pub use find_all::{
     FindAllResult, FoundLine, FoundMatch, MAX_FIND_ALL_LINES, MAX_FIND_ALL_MATCHES,
@@ -5197,6 +5199,8 @@ pub enum EditorError {
     LineEndingConversionTooLarge { size: u64, maximum: u64 },
     #[error("Converting line endings is limited to {0} changed lines")]
     TooManyLineEndingChanges(usize),
+    #[error("Could not rename: {0}")]
+    Rename(String),
     #[error("search operation failed: {0}")]
     Search(String),
     #[error("syntax operation failed: {0}")]

@@ -22,6 +22,13 @@ const FILE_SAVE_MENU_ID: &str = "file.save";
 const FILE_SAVE_AS_MENU_ID: &str = "file.saveAs";
 const CLOSE_FILE_MENU_ID: &str = "workbench.closeFile";
 const RELOAD_MENU_ID: &str = "file.reload";
+/// File commands always offered after the customizable part of the File menu.
+const FILE_EXTRA_MENU_COMMANDS: &[(&str, &str)] = &[
+    ("file.openRecent", "Open Recent…"),
+    ("file.saveAll", "Save All"),
+    ("file.rename", "Rename File…"),
+    ("file.revealInPlaces", "Show in Places"),
+];
 const CLOSE_WINDOW_MENU_ID: &str = "window.close";
 const QUIT_MENU_ID: &str = "app.quit";
 const MAX_NATIVE_MENU_ENTRIES: usize = 64;
@@ -588,12 +595,22 @@ fn install_native_menu(app: &tauri::AppHandle, entries: &[NativeMenuEntry]) -> t
         file_builder = file_builder
             .item(&MenuItemBuilder::with_id(RELOAD_MENU_ID, "Reload from Disk").build(app)?);
     }
+    for (command, title) in FILE_EXTRA_MENU_COMMANDS {
+        if !native_menu_has(entries, command) {
+            file_builder =
+                file_builder.item(&MenuItemBuilder::with_id(*command, *title).build(app)?);
+        }
+    }
     if !native_menu_has(entries, CLOSE_FILE_MENU_ID) {
         file_builder = file_builder.item(
             &MenuItemBuilder::with_id(CLOSE_FILE_MENU_ID, "Close File")
                 .accelerator("CmdOrCtrl+W")
                 .build(app)?,
         );
+    }
+    if !native_menu_has(entries, "file.closeAll") {
+        file_builder = file_builder
+            .item(&MenuItemBuilder::with_id("file.closeAll", "Close All Files").build(app)?);
     }
     // macOS places Settings in the application menu; other platforms use File.
     #[cfg(not(target_os = "macos"))]

@@ -657,6 +657,10 @@ kbd { padding: 2px 6px; border: 1px solid #373e48; border-radius: 4px; color: #b
 .palette-results button.selected { color: #fff7f2; background: #a84f415e; }
 .palette-results small { color: #858d98; font-size: 10px; }
 .palette-results p { padding: 8px 10px; color: var(--muted); font-size: 11px; }
+.palette-results small { min-width: 0; max-width: 65%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-footer { display: flex; justify-content: flex-end; padding: 6px 10px; border-top: 1px solid var(--border); }
+.palette-footer button { padding: 3px 8px; border: 0; border-radius: 4px; color: var(--muted); background: none; font: inherit; font-size: 11px; cursor: pointer; }
+.palette-footer button:hover { color: var(--ui-text); background: var(--raised); }
 
 .settings-backdrop {
   position: fixed; z-index: 120; inset: 0; display: grid; place-items: center; padding: 24px;
@@ -673,6 +677,10 @@ kbd { padding: 2px 6px; border: 1px solid #373e48; border-radius: 4px; color: #b
 }
 .decision-dialog h2 { margin: 0 0 10px; font-size: 18px; }
 .decision-dialog p { margin: 0 0 20px; color: var(--muted); }
+.decision-dialog input[name="name"] {
+  width: 100%; margin: 0 0 20px; padding: 7px 9px; border: 1px solid var(--border); border-radius: 5px;
+  color: var(--ui-text); background: var(--editor-bg); font: inherit;
+}
 .decision-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .decision-actions button, .recovery-row button {
   min-height: 30px; padding: 5px 12px; border: 1px solid var(--border); border-radius: 5px;
@@ -921,6 +929,7 @@ kbd,
 .file-view .tree-row .icon { color: var(--muted); }
 .file-view .tree-row.directory .icon { color: var(--warning); }
 .file-view .tree-row.home { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.file-view .tree-row.revealed { background: color-mix(in srgb, var(--accent) 28%, transparent); box-shadow: inset 2px 0 var(--accent); }
 .file-view .tree-row .tab-dirty { margin-left: auto; padding-right: 8px; }
 
 /* ── Editor tools ────────────────────────────────────────────────────────── */

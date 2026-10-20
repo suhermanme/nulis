@@ -66,6 +66,7 @@ export const WORKBENCH_ACTIONS = [
   "workbench.openHelp",
   "workbench.nextTab", "workbench.previousTab", "workbench.moveTabLeft", "workbench.moveTabRight",
   "view.toggleLineChangeIndicators",
+  "file.saveAll", "file.closeAll", "file.openRecent", "file.clearRecent", "file.rename", "file.revealInPlaces",
   "view.toggleWordWrap", "view.toggleWhitespace", "view.toggleLineEndings", "view.toggleLineNumbers",
   "view.toggleColumnMarker", "view.zoomIn", "view.zoomOut", "view.zoomReset", "view.toggleAlwaysOnTop",
   "workspace.rename", "workspace.groupRight", "workspace.groupDown", "workspace.ungroup",

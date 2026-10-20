@@ -4,8 +4,8 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 
 ## Current state
 
-- **Current milestone:** M28 File conveniences — pending (next to start)
-- **Overall:** 9 of 12 milestones completed (M19–M27)
+- **Current milestone:** M29 Column and clipboard tools — pending (next to start)
+- **Overall:** 10 of 12 milestones completed (M19–M28)
 - **Baseline before M19 (commit `66853e1`):** `cargo test -p nulis-core` 86 passed; desktop Vitest 11 files, 115 tests passed.
 
 | Milestone | Status | Handover |
@@ -19,7 +19,7 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 | M25 Format and transforms | Completed (manual and Windows/Linux checks pending) | `handover/M25_HANDOVER.md` |
 | M26 Search and navigation | Completed (manual and Windows/Linux checks pending) | `handover/M26_HANDOVER.md` |
 | M27 View features (split from "View and file") | Completed (manual and Windows/Linux checks pending) | `handover/M27_HANDOVER.md` |
-| M28 File conveniences (split from "View and file") | Pending | – |
+| M28 File conveniences (split from "View and file") | Completed (manual and Windows/Linux checks pending) | `handover/M28_HANDOVER.md` |
 | M29 Column and clipboard tools | Pending | – |
 | M30 Integration and quality | Pending | – |
 
@@ -119,6 +119,12 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 
 **Result (completed 2026-10-20, on `main`):** all criteria covered by tests. Verification on macOS: fmt and clippy clean; `cargo test --workspace` passed (nulis-core 108, nulis-desktop 7); lint and typecheck clean; Vitest 124 passed. Details: `handover/M23_HANDOVER.md`.
 
+## M28 — File conveniences
+
+**Delivered:** Save All (untitled files ask for a destination), Close All Files (the existing per-file save prompts), Open Recent (last 20 local files, searchable picker, missing files dropped, Clear Recent Files), Rename File (core `file.renameTo`, same folder, unsaved edits kept), Show in Places (expands the folders above the file and highlights it). File menu entries are always offered after the customizable part.
+
+**Result (completed 2026-10-20, on `main`):** fmt and clippy clean; `cargo test --workspace` passed (nulis-core 127); lint and typecheck clean; Vitest 12 files, 141 passed. IPC 34. Details: `handover/M28_HANDOVER.md`.
+
 ## M27 — View features
 
 **Delivered:** line-ending detection (status bar **LF / CRLF / CR / Mixed**, from the character-count pass, or the first 1 MiB above 64 MiB); conversion to LF, CRLF, or CR as one undo step from the status bar or the Format menu; Enter inserts the caret line's ending; word wrap remembered and in the View menu (Alt Z); editor zoom 50–300% (Ctrl/⌘ = - 0) with a status badge; show whitespace; show line endings; line-number toggle; column marker at 80; Always on Top. View options are saved per computer (`nulis.viewOptions.v1`). Also fixed an unhandled error in an M26 desktop test (a mock returned a document summary as selections).
@@ -157,6 +163,6 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 
 ## Next steps
 
-0. M28 File conveniences is next: Save All, Close All, Open Recent (in-app picker), Rename File, show the file in Places.
+0. M29 Column and clipboard tools is next: insert number sequence, sum, justify in rectangle; CSV↔fixed width; copy/cut append, paste-and-copy, clipboard history; Quick Open.
 1. Run the app (`npm run dev`) and try M20–M27 by hand on macOS (keys, menus, the Find window, line endings, view options).
 2. Push to CI to build Windows/Linux, and check the M19 Settings/Help window fix there.

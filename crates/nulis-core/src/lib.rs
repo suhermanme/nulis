@@ -23,11 +23,11 @@ pub use editor::{
     SyntaxHighlight, SyntaxSnapshot, SyntaxSymbol, TextEncoding, TextTransform, VerticalDirection,
     ViewportAtRequest, ViewportCursor, ViewportLine, ViewportLineRequest, ViewportRequest,
     ViewportSnapshot, WorkspaceSearchMatch, WorkspaceSearchResult, LINE_ENDING_SAMPLE_BYTES,
-    MAX_BOOKMARKS, MAX_CLIPBOARD_BYTES, MAX_EDIT_BYTES, MAX_FIND_ALL_LINES, MAX_FIND_ALL_MATCHES,
-    MAX_HEX_CLIPBOARD_BYTES, MAX_HEX_EDIT_BYTES, MAX_HEX_VIEWPORT_BYTES, MAX_LINE_ENDING_CHANGES,
-    MAX_LINE_ENDING_CONVERSION_BYTES, MAX_LINE_PREVIEW_BYTES, MAX_MARKDOWN_PREVIEW_BYTES,
-    MAX_MERGE_BYTES, MAX_RECTANGULAR_ROWS, MAX_REPLACE_FILES, MAX_SELECTIONS, MAX_VIEWPORT_BYTES,
-    MAX_WORKSPACE_SEARCH_FILES, MAX_WORKSPACE_SEARCH_RESULTS,
+    MAX_BOOKMARKS, MAX_CLIPBOARD_BYTES, MAX_EDIT_BYTES, MAX_FILE_NAME_BYTES, MAX_FIND_ALL_LINES,
+    MAX_FIND_ALL_MATCHES, MAX_HEX_CLIPBOARD_BYTES, MAX_HEX_EDIT_BYTES, MAX_HEX_VIEWPORT_BYTES,
+    MAX_LINE_ENDING_CHANGES, MAX_LINE_ENDING_CONVERSION_BYTES, MAX_LINE_PREVIEW_BYTES,
+    MAX_MARKDOWN_PREVIEW_BYTES, MAX_MERGE_BYTES, MAX_RECTANGULAR_ROWS, MAX_REPLACE_FILES,
+    MAX_SELECTIONS, MAX_VIEWPORT_BYTES, MAX_WORKSPACE_SEARCH_FILES, MAX_WORKSPACE_SEARCH_RESULTS,
 };
 pub use format_tools::ToolKind;
 pub use line_changes::{LineChange, LineChangeStatus};
@@ -77,7 +77,7 @@ use nulis_automation::{
     CURRENT_REVISION_ARGUMENT,
 };
 
-pub const IPC_PROTOCOL_VERSION: u32 = 33;
+pub const IPC_PROTOCOL_VERSION: u32 = 34;
 pub const PRODUCT_NAME: &str = "Nulis";
 pub const APPLICATION_ID: &str = "com.nulis.editor";
 const MAX_SCRIPT_MESSAGES: usize = 100;
@@ -1742,6 +1742,12 @@ struct ConvertLineEndingsArguments {
     target: LineEnding,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RenameFileArguments {
+    name: String,
+}
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ReloadArguments {
@@ -2346,6 +2352,12 @@ const WORKBENCH_ACTIONS: &[(&str, &str, &str)] = &[
     ("workbench.splitRight", "Split Editor Right", "View"),
     ("workbench.splitDown", "Split Editor Down", "View"),
     ("workbench.closeFile", "Close File", "File"),
+    ("file.saveAll", "Save All", "File"),
+    ("file.closeAll", "Close All Files", "File"),
+    ("file.openRecent", "Open Recent…", "File"),
+    ("file.clearRecent", "Clear Recent Files", "File"),
+    ("file.rename", "Rename File…", "File"),
+    ("file.revealInPlaces", "Show in Places", "File"),
     ("workbench.closeTab", "Close Tab", "View"),
     ("workbench.openSettings", "Settings…", "Application"),
     ("workbench.openHelp", "Nulis Help", "Help"),
@@ -3489,6 +3501,22 @@ fn register_file_commands(commands: &mut CommandRegistry, documents: &Arc<Docume
                 let arguments: RevisionArguments = parse_arguments(arguments)?;
                 let result = manager
                     .save(&document_id, arguments.expected_revision)
+                    .map_err(|error| editor_command_error(&error))?;
+                serde_json::to_value(result).map_err(|error| serialization_command_error(&error))
+            },
+        )
+        .expect("built-in command is unique");
+
+    let manager = Arc::clone(documents);
+    commands
+        .register(
+            CommandDescriptor::new("file.renameTo", "Rename File To", "File")
+                .expect("built-in command ID is valid"),
+            move |context, arguments| {
+                let document_id = context_document(&context)?;
+                let arguments: RenameFileArguments = parse_arguments(arguments)?;
+                let result = manager
+                    .rename_file(&document_id, &arguments.name)
                     .map_err(|error| editor_command_error(&error))?;
                 serde_json::to_value(result).map_err(|error| serialization_command_error(&error))
             },
