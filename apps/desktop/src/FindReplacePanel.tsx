@@ -110,13 +110,13 @@ export interface CountReport {
 const grouped = (value: string | number) => Number(value).toLocaleString("en-US");
 const plural = (count: string | number, word: string) => `${grouped(count)} ${word}${Number(count) === 1 ? "" : word.endsWith("ch") ? "es" : "s"}`;
 
-/** Bytes as KB, MB, or GB with one decimal. */
+/** Bytes as KB, MB, or GB with one decimal, in units of 1,000 as Finder and Explorer's details show them. */
 export function sizeText(bytes: string | number): string {
   const value = Number(bytes);
   const units = ["bytes", "KB", "MB", "GB", "TB"];
   let index = 0;
   let scaled = value;
-  while (scaled >= 1024 && index < units.length - 1) { scaled /= 1024; index += 1; }
+  while (scaled >= 1000 && index < units.length - 1) { scaled /= 1000; index += 1; }
   return index === 0 ? `${value} bytes` : `${scaled.toFixed(1)} ${units[index]}`;
 }
 

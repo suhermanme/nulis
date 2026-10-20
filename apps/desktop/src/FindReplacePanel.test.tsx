@@ -139,8 +139,8 @@ it("reads column fields as whole numbers from 1", () => {
 
 it("counts every match in the background, shows progress, and can be cancelled", async () => {
   const reports = [
-    { matches: "1234567", lines: "900000", scannedBytes: String(13 * 1024 ** 3), totalBytes: String(31.8 * 1024 ** 3), documents: 1, documentsWithMatches: 0, done: false, cancelled: false },
-    { matches: "2500000", lines: "1800000", scannedBytes: String(31.8 * 1024 ** 3), totalBytes: String(31.8 * 1024 ** 3), documents: 1, documentsWithMatches: 1, done: true, cancelled: false },
+    { matches: "1234567", lines: "900000", scannedBytes: "13000000000", totalBytes: "31788301041", documents: 1, documentsWithMatches: 0, done: false, cancelled: false },
+    { matches: "2500000", lines: "1800000", scannedBytes: "31788301041", totalBytes: "31788301041", documents: 1, documentsWithMatches: 1, done: true, cancelled: false },
   ];
   vi.mocked(executeCommand).mockImplementation(async (request) => {
     if (request.id === "search.countStart") return { jobId: 7 };
