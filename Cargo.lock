@@ -2787,7 +2787,7 @@ dependencies = [
 
 [[package]]
 name = "nulis-automation"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "rhai",
  "serde",
@@ -2798,7 +2798,7 @@ dependencies = [
 
 [[package]]
 name = "nulis-benchmarks"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "nulis-core",
  "nulis-document",
@@ -2808,7 +2808,7 @@ dependencies = [
 
 [[package]]
 name = "nulis-core"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "base64 0.22.1",
  "nulis-automation",
@@ -2833,7 +2833,7 @@ dependencies = [
 
 [[package]]
 name = "nulis-desktop"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "nulis-core",
  "nulis-plugin-host",
@@ -2849,7 +2849,7 @@ dependencies = [
 
 [[package]]
 name = "nulis-diff"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "nulis-large-file",
  "serde",
@@ -2858,7 +2858,7 @@ dependencies = [
 
 [[package]]
 name = "nulis-document"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "nulis-large-file",
  "serde",
@@ -2867,7 +2867,7 @@ dependencies = [
 
 [[package]]
 name = "nulis-filesystem"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "nulis-document",
  "nulis-large-file",
@@ -2879,7 +2879,7 @@ dependencies = [
 
 [[package]]
 name = "nulis-hex"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "nulis-document",
  "thiserror 2.0.21",
@@ -2887,15 +2887,15 @@ dependencies = [
 
 [[package]]
 name = "nulis-large-file"
-version = "0.2.0"
+version = "0.2.1"
 
 [[package]]
 name = "nulis-platform"
-version = "0.2.0"
+version = "0.2.1"
 
 [[package]]
 name = "nulis-plugin-host"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "boa_engine",
  "rustix",
@@ -2909,7 +2909,7 @@ dependencies = [
 
 [[package]]
 name = "nulis-remote"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "keyring",
  "nulis-large-file",
@@ -2922,7 +2922,7 @@ dependencies = [
 
 [[package]]
 name = "nulis-search"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "nulis-document",
  "nulis-large-file",
@@ -2934,7 +2934,7 @@ dependencies = [
 
 [[package]]
 name = "nulis-settings"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -2944,7 +2944,7 @@ dependencies = [
 
 [[package]]
 name = "nulis-syntax"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "serde",
  "thiserror 2.0.21",
@@ -2955,7 +2955,7 @@ dependencies = [
 
 [[package]]
 name = "nulis-terminal"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "portable-pty",
  "serde",
@@ -2964,7 +2964,7 @@ dependencies = [
 
 [[package]]
 name = "nulis-theme"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "serde",
  "serde_json",
