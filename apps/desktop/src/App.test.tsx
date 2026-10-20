@@ -76,7 +76,7 @@ vi.mock("./EditorViewport", () => ({
     <div>
       <div data-line-changes={String(showLineChanges)} data-search={JSON.stringify(searchRequest ?? null)}
         data-action={editorAction?.action ?? ""}>{document.name} editor</div>
-      <button type="button" onClick={() => onCaret?.({ line: "1234", column: 7, carets: 1, selectedBytes: "0" })}>Move caret in {document.name}</button>
+      <button type="button" onClick={() => onCaret?.({ line: "1234", column: 7, carets: 1, selectedBytes: "0", codePoint: 0xe9 })}>Move caret in {document.name}</button>
       <button type="button" onClick={() => onToggleReadOnly?.()}>Editor mode of {document.name}: {document.readOnly ? "read-only" : "edit"}</button>
       {onOpenFind ? <>
         <button type="button" onClick={() => onOpenFind("find", "seeded")}>Find in {document.name}</button>
@@ -1113,7 +1113,7 @@ test("the Help menu opens sectioned help and the About page", async () => {
 test("the status bar shows the caret position, the size in bytes and characters, and the mode", async () => {
   const first = { documentId: "document-1", name: "First", byteLen: "1234567", revision: "0", encoding: "utf8", readOnly: false };
   responses["file.new"] = [first];
-  responses["editor.characterCount"] = [{ revision: "0", characters: "1200000" }];
+  responses["editor.characterCount"] = [{ revision: "0", characters: "1200000", words: "180000", lines: "1" }];
   responses["editor.toggleReadOnly"] = [{ ...first, readOnly: true }, { ...first, readOnly: false }];
   render(<App />);
   await screen.findByText("Nulis 0.1.0");
@@ -1124,12 +1124,13 @@ test("the status bar shows the caret position, the size in bytes and characters,
 
   // Size: bytes at once, characters when the count arrives.
   expect(within(footer).getByText("1,234,567 bytes")).toBeInTheDocument();
-  expect(await within(footer).findByText("1,234,567 bytes · 1,200,000 characters")).toBeInTheDocument();
+  expect(await within(footer).findByText("1,234,567 bytes · 1,200,000 characters · 180,000 words · 1 line")).toBeInTheDocument();
 
   // Caret position follows the focused editor.
   expect(within(footer).queryByText(/^Ln /)).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Move caret in First" }));
   expect(within(footer).getByText("Ln 1,234, Col 7")).toBeInTheDocument();
+  expect(within(footer).getByText("U+00E9")).toHaveAttribute("title", "Character after the caret (Unicode code point)");
 
   // Mode: the badge names the state and toggles it; the tab gains a lock.
   const mode = within(footer).getByRole("button", { name: "Edit mode: switch to Read-Only mode" });

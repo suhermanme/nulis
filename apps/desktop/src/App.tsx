@@ -47,7 +47,7 @@ import {
   FIND_EVENTS, FindReplacePanel, ResultsWindow, type FindContext, type FindMessage, type FindTab, type MatchTarget, type ResultList,
 } from "./FindReplacePanel";
 import { Icon, IconButton, iconForCommand, type IconName } from "./icons";
-import { EDITOR_ACTIONS, PALETTE_COMMANDS, shortcutLabel, type EditorActionName } from "./commands";
+import { EDITOR_ACTIONS, FIND_WINDOW_COMMANDS, PALETTE_COMMANDS, shortcutLabel, type EditorActionName } from "./commands";
 import {
   closeWindowAfterSave, configureNativeMenu, executeCommand, getApplicationInfo, listCommands, openFindWindow, openHelpWindow, openResultsWindow, openSettingsWindow, takeLaunchPaths,
   setToolsMenu,
@@ -185,11 +185,21 @@ function groupDigits(value: string): string {
   return /^\d+$/.test(value) ? value.replace(/\B(?=(\d{3})+(?!\d))/g, ",") : value;
 }
 
-/** "1,024 bytes · 1,000 characters"; the characters are left out when not counted. */
-function sizeLabel(byteLen: string, characters: string | undefined): string {
-  const bytes = `${groupDigits(byteLen)} ${byteLen === "1" ? "byte" : "bytes"}`;
-  return characters === undefined ? bytes
-    : `${bytes} · ${groupDigits(characters)} ${characters === "1" ? "character" : "characters"}`;
+/** "1,024 bytes · 1,000 characters · 180 words · 12 lines"; counts are left out when not counted. */
+function sizeLabel(byteLen: string, count?: { characters?: string; words?: string; lines?: string }): string {
+  const part = (value: string | undefined, one: string, many: string) =>
+    value === undefined ? [] : [`${groupDigits(value)} ${value === "1" ? one : many}`];
+  return [
+    `${groupDigits(byteLen)} ${byteLen === "1" ? "byte" : "bytes"}`,
+    ...part(count?.characters, "character", "characters"),
+    ...part(count?.words, "word", "words"),
+    ...part(count?.lines, "line", "lines"),
+  ].join(" · ");
+}
+
+/** "U+00E9" for the status bar. */
+function codePointLabel(codePoint: number): string {
+  return `U+${codePoint.toString(16).toUpperCase().padStart(4, "0")}`;
 }
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -1381,6 +1391,7 @@ export function App() {
   };
   const workbenchActions: Record<string, (() => void | Promise<void>) | undefined> = {
     ...Object.fromEntries(Object.entries(EDITOR_ACTIONS).map(([commandId, action]) => [commandId, () => sendEditorAction(action)])),
+    ...Object.fromEntries(Object.entries(FIND_WINDOW_COMMANDS).map(([commandId, tab]) => [commandId, () => openFindPanel(tab)])),
     "workbench.toggleSplit": toggleSplit,
     "workbench.splitRight": () => splitActive("right"),
     "workbench.splitDown": () => splitActive("bottom"),
@@ -1791,8 +1802,9 @@ export function App() {
   }, [countedEncoding, countedId, countedRevision]);
   const hexMode = activeDocument ? viewModes[activeDocument.documentId] === "hex" : false;
   const activeCaret = caret && !hexMode && caret.documentId === activeDocument?.documentId ? caret : null;
-  const activeCharacters = characterCount && characterCount.documentId === activeDocument?.documentId
-    ? characterCount.characters : undefined;
+  const activeCount = characterCount && characterCount.documentId === activeDocument?.documentId
+    ? characterCount : undefined;
+  const activeCharacters = activeCount?.characters;
 
   const renderView = (document: DocumentSummary, pane: PaneNode, active: boolean, ordinal: number, total: number) => {
     const viewId = total > 1 ? `pane ${ordinal}` : "primary";
@@ -1814,6 +1826,7 @@ export function App() {
           onOpenFind={active ? openFindPanel : undefined}
           searchRequest={active ? searchRequest : undefined}
           editorAction={active ? editorAction : undefined}
+          onShowResults={showSearchResults}
           revealOffset={active && revealTarget?.documentId === document.documentId ? revealTarget.byteOffset : undefined} />;
   };
 
@@ -1961,10 +1974,12 @@ export function App() {
         {activeCaret ? <span title="Caret position: line and column">Ln {groupDigits(activeCaret.line)}, Col {groupDigits(String(activeCaret.column))}{
           activeCaret.carets > 1 ? ` · ${activeCaret.carets} carets` : ""}{
           activeCaret.selectedBytes !== "0" ? ` · ${groupDigits(activeCaret.selectedBytes)} bytes selected` : ""}</span> : null}
+        {activeCaret?.codePoint !== undefined ? <span title="Character after the caret (Unicode code point)">
+          {codePointLabel(activeCaret.codePoint)}</span> : null}
         {activeDocument ? <span title={activeCharacters === undefined
-          ? "Size in bytes. Characters are counted for documents up to 64 MiB."
-          : "Size in bytes, and the number of characters in the document's encoding"}>
-          {sizeLabel(activeDocument.byteLen, activeCharacters)}</span> : null}
+          ? "Size in bytes. Characters, words, and lines are counted for documents up to 64 MiB."
+          : "Size in bytes, and the characters, words, and lines in the document"}>
+          {sizeLabel(activeDocument.byteLen, activeCount)}</span> : null}
         <span>{info ? `${info.productName} ${info.version}` : "Core pending"}</span>
         <span>{encodingLabel(activeDocument)}</span><span>LF</span>
       </footer>

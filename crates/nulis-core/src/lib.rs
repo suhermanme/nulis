@@ -11,10 +11,10 @@ pub use command::{
     CommandContext, CommandDescriptor, CommandError, CommandRegistry, CommandResult,
 };
 pub use editor::{
-    BookmarkDirection, ClipboardPayload, DocumentId, DocumentManager, DocumentMapChange,
-    DocumentMapSample, DocumentMapSnapshot, DocumentSummary, EditorError, ExternalChange,
-    ExternalChangeKind, FileSearchScope, FileStamp, FindAllResult, FindDirection, FindResult,
-    FoundLine, FoundMatch, HexCaret, HexClipboardPayload, HexCursor, HexEditResult,
+    BookmarkDirection, ChangeDirection, ClipboardPayload, DocumentId, DocumentManager,
+    DocumentMapChange, DocumentMapSample, DocumentMapSnapshot, DocumentSummary, EditorError,
+    ExternalChange, ExternalChangeKind, FileSearchScope, FileStamp, FindAllResult, FindDirection,
+    FindResult, FoundLine, FoundMatch, HexCaret, HexClipboardPayload, HexCursor, HexEditResult,
     HexViewportRequest, HexViewportRow, HexViewportSnapshot, HorizontalDirection,
     LanguageDescriptor, LineEditResult, LineFormatOptions, LineOperation, MarkdownPreviewSource,
     RecoveryCandidate, RectangularSelection, ReplaceAllResult, ReplaceFileOutcome, ReplacePreview,
@@ -75,7 +75,7 @@ use nulis_automation::{
     CURRENT_REVISION_ARGUMENT,
 };
 
-pub const IPC_PROTOCOL_VERSION: u32 = 31;
+pub const IPC_PROTOCOL_VERSION: u32 = 32;
 pub const PRODUCT_NAME: &str = "Nulis";
 pub const APPLICATION_ID: &str = "com.nulis.editor";
 const MAX_SCRIPT_MESSAGES: usize = 100;
@@ -1724,6 +1724,14 @@ struct ReplaceInFilesArguments {
     options: SearchOptions,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ChangeNearArguments {
+    #[serde(with = "editor::decimal_u64")]
+    from_byte: u64,
+    direction: ChangeDirection,
+}
+
 #[derive(Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ReloadArguments {
@@ -1913,6 +1921,7 @@ fn is_recordable_command(id: &str) -> bool {
             | "editor.deleteForward"
             | "editor.selectAll"
             | "editor.lineOperation"
+            | "editor.deleteBookmarkedLines"
             | "editor.replace"
             | "editor.setSelections"
             | "editor.undo"
@@ -2392,6 +2401,28 @@ const WORKBENCH_ACTIONS: &[(&str, &str, &str)] = &[
     ("format.base64Encode", "Encode Base64", "Format"),
     ("format.base64Decode", "Decode Base64", "Format"),
     ("format.insertDateTime", "Insert Date and Time", "Format"),
+    ("search.openFind", "Find…", "Search"),
+    ("search.openReplace", "Replace…", "Search"),
+    ("search.openFindInFiles", "Find in Files…", "Search"),
+    ("search.openReplaceInFiles", "Replace in Files…", "Search"),
+    ("search.findNext", "Find Next", "Search"),
+    ("search.findPrevious", "Find Previous", "Search"),
+    ("search.goToLine", "Go to Line…", "Search"),
+    ("search.matchBrace", "Go to Matching Bracket", "Search"),
+    ("search.nextChange", "Next Change", "Search"),
+    ("search.previousChange", "Previous Change", "Search"),
+    ("search.navigateBack", "Go Back", "Search"),
+    ("search.navigateForward", "Go Forward", "Search"),
+    ("search.nextBookmark", "Next Bookmark", "Search"),
+    ("search.previousBookmark", "Previous Bookmark", "Search"),
+    ("search.toggleBookmark", "Toggle Bookmark", "Search"),
+    ("search.listBookmarks", "List Bookmarks", "Search"),
+    ("search.clearBookmarks", "Clear All Bookmarks", "Search"),
+    (
+        "search.deleteBookmarkedLines",
+        "Delete Bookmarked Lines",
+        "Search",
+    ),
 ];
 
 fn register_workbench_commands(commands: &mut CommandRegistry) {
@@ -2603,10 +2634,7 @@ fn register_editor_commands(commands: &mut CommandRegistry, documents: &Arc<Docu
         )
         .expect("built-in command is unique");
 
-    register_line_commands(commands, documents);
-    register_find_all_commands(commands, documents);
-    register_replace_in_files_commands(commands, documents);
-    register_external_change_commands(commands, documents);
+    register_editing_extensions(commands, documents);
 
     let manager = Arc::clone(documents);
     commands
@@ -2898,6 +2926,61 @@ fn register_search_commands(commands: &mut CommandRegistry, documents: &Arc<Docu
         .expect("built-in command is unique");
 }
 
+fn register_navigation_commands_m26(
+    commands: &mut CommandRegistry,
+    documents: &Arc<DocumentManager>,
+) {
+    let manager = Arc::clone(documents);
+    commands
+        .register(
+            CommandDescriptor::new("editor.changeNear", "Find Nearby Change", "Editor")
+                .expect("built-in command ID is valid"),
+            move |context, arguments| {
+                let document_id = context_document(&context)?;
+                let arguments: ChangeNearArguments = parse_arguments(arguments)?;
+                let result = manager
+                    .change_near(&document_id, arguments.from_byte, arguments.direction)
+                    .map_err(|error| editor_command_error(&error))?;
+                Ok(result.map_or(Value::Null, |offset| Value::String(offset.to_string())))
+            },
+        )
+        .expect("built-in command is unique");
+
+    let manager = Arc::clone(documents);
+    commands
+        .register(
+            CommandDescriptor::new("editor.bookmarkLines", "List Bookmarks", "Editor")
+                .expect("built-in command ID is valid"),
+            move |context, _arguments| {
+                let result = manager
+                    .bookmark_lines(&context_document(&context)?)
+                    .map_err(|error| editor_command_error(&error))?;
+                serde_json::to_value(result).map_err(|error| serialization_command_error(&error))
+            },
+        )
+        .expect("built-in command is unique");
+
+    let manager = Arc::clone(documents);
+    commands
+        .register(
+            CommandDescriptor::new(
+                "editor.deleteBookmarkedLines",
+                "Delete Bookmarked Lines",
+                "Editor",
+            )
+            .expect("built-in command ID is valid"),
+            move |context, arguments| {
+                let document_id = context_document(&context)?;
+                let arguments: RevisionArguments = parse_arguments(arguments)?;
+                let result = manager
+                    .delete_bookmarked_lines(&document_id, arguments.expected_revision)
+                    .map_err(|error| editor_command_error(&error))?;
+                serde_json::to_value(result).map_err(|error| serialization_command_error(&error))
+            },
+        )
+        .expect("built-in command is unique");
+}
+
 fn register_external_change_commands(
     commands: &mut CommandRegistry,
     documents: &Arc<DocumentManager>,
@@ -3133,6 +3216,15 @@ fn register_transform_and_bookmark_commands(
             },
         )
         .expect("built-in command is unique");
+}
+
+/// Line, search, file-change, and navigation commands added in M20–M26.
+fn register_editing_extensions(commands: &mut CommandRegistry, documents: &Arc<DocumentManager>) {
+    register_line_commands(commands, documents);
+    register_find_all_commands(commands, documents);
+    register_replace_in_files_commands(commands, documents);
+    register_external_change_commands(commands, documents);
+    register_navigation_commands_m26(commands, documents);
 }
 
 fn register_line_commands(commands: &mut CommandRegistry, documents: &Arc<DocumentManager>) {

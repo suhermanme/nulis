@@ -23,6 +23,28 @@ export const EDITOR_ACTIONS = {
   "format.base64Encode": "base64Encode",
   "format.base64Decode": "base64Decode",
   "format.insertDateTime": "insertDateTime",
+  "search.findNext": "findNext",
+  "search.findPrevious": "findPrevious",
+  "search.goToLine": "goToLine",
+  "search.matchBrace": "matchBrace",
+  "search.nextChange": "nextChange",
+  "search.previousChange": "previousChange",
+  "search.navigateBack": "navigateBack",
+  "search.navigateForward": "navigateForward",
+  "search.nextBookmark": "nextBookmark",
+  "search.previousBookmark": "previousBookmark",
+  "search.toggleBookmark": "toggleBookmark",
+  "search.listBookmarks": "listBookmarks",
+  "search.clearBookmarks": "clearBookmarks",
+  "search.deleteBookmarkedLines": "deleteBookmarkedLines",
+} as const;
+
+/** Commands that open the Find and Replace window on a tab. */
+export const FIND_WINDOW_COMMANDS = {
+  "search.openFind": "find",
+  "search.openReplace": "replace",
+  "search.openFindInFiles": "findInFiles",
+  "search.openReplaceInFiles": "replaceInFiles",
 } as const;
 export type EditorActionName = typeof EDITOR_ACTIONS[keyof typeof EDITOR_ACTIONS];
 const EDITOR_ACTION_IDS = Object.keys(EDITOR_ACTIONS) as Array<keyof typeof EDITOR_ACTIONS>;
@@ -41,6 +63,7 @@ export const WORKBENCH_ACTIONS = [
   "workspace.popOutPane", "workspace.closePane", "workspace.focusNextPane", "workspace.focusPreviousPane",
   "workspace.growPane", "workspace.shrinkPane",
   ...EDITOR_ACTION_IDS,
+  ...(Object.keys(FIND_WINDOW_COMMANDS) as Array<keyof typeof FIND_WINDOW_COMMANDS>),
 ] as const;
 
 /** JSON and XML tools; offered only while such a document is focused. */

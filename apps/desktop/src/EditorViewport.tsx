@@ -22,6 +22,7 @@ import type {
   HorizontalDirection,
   LanguageDescriptor,
   LineChange,
+  FoundLine,
   LineEditResult,
   LineOperation,
   TextTransformName,
@@ -39,6 +40,7 @@ import type {
 import { Icon, IconButton } from "./icons";
 import { ContextMenu, type MenuItem } from "./Toolbar";
 import type { EditorActionName } from "./commands";
+import type { ResultList } from "./FindReplacePanel";
 import {
   executeCommand, getDocumentMap, getMarkdownPreviewSource, getViewport, getViewportAt, getViewportLine,
 } from "./ipc";
@@ -114,7 +116,17 @@ export function formatDateTime(date: Date): string {
 }
 
 /** What each editor action does: a line operation, a selection transform, or inserted text. */
-const EDITOR_ACTION_KINDS: Record<EditorActionName, { line: LineOperation } | { transform: TextTransformName } | { insertDateTime: true }> = {
+/** Search and navigation commands the editor carries out itself. */
+type NavigationAction =
+  | "findNext" | "findPrevious" | "goToLine" | "matchBrace" | "nextChange" | "previousChange"
+  | "navigateBack" | "navigateForward" | "nextBookmark" | "previousBookmark" | "toggleBookmark"
+  | "listBookmarks" | "clearBookmarks" | "deleteBookmarkedLines";
+
+/** Caret positions remembered for Go Back / Go Forward. */
+const MAX_NAVIGATION_HISTORY = 100;
+
+const EDITOR_ACTION_KINDS: Record<EditorActionName,
+  { line: LineOperation } | { transform: TextTransformName } | { insertDateTime: true } | { navigate: NavigationAction }> = {
   selectLines: { line: "selectLines" }, duplicateLines: { line: "duplicateLines" }, deleteLines: { line: "deleteLines" },
   moveLinesUp: { line: "moveLinesUp" }, moveLinesDown: { line: "moveLinesDown" }, insertLineBelow: { line: "insertLineBelow" },
   uppercase: { transform: "uppercase" }, lowercase: { transform: "lowercase" }, capitalize: { transform: "capitalize" },
@@ -124,6 +136,12 @@ const EDITOR_ACTION_KINDS: Record<EditorActionName, { line: LineOperation } | { 
   sortAscending: { line: "sortAscending" }, sortDescending: { line: "sortDescending" }, sortUnique: { line: "sortUnique" },
   base64Encode: { transform: "base64Encode" }, base64Decode: { transform: "base64Decode" },
   insertDateTime: { insertDateTime: true },
+  findNext: { navigate: "findNext" }, findPrevious: { navigate: "findPrevious" }, goToLine: { navigate: "goToLine" },
+  matchBrace: { navigate: "matchBrace" }, nextChange: { navigate: "nextChange" }, previousChange: { navigate: "previousChange" },
+  navigateBack: { navigate: "navigateBack" }, navigateForward: { navigate: "navigateForward" },
+  nextBookmark: { navigate: "nextBookmark" }, previousBookmark: { navigate: "previousBookmark" },
+  toggleBookmark: { navigate: "toggleBookmark" }, listBookmarks: { navigate: "listBookmarks" },
+  clearBookmarks: { navigate: "clearBookmarks" }, deleteBookmarkedLines: { navigate: "deleteBookmarkedLines" },
 };
 
 function copyModifierHeld(event: { altKey: boolean; ctrlKey: boolean }): boolean {
@@ -147,6 +165,20 @@ function utf16IndexForByte(text: string, sourceByteWidths: number[], byteOffset:
     scalarIndex += 1;
   }
   return utf16;
+}
+
+/** Source bytes covered by the first `utf16Index` UTF-16 units of a line. */
+function byteOffsetForUtf16(text: string, sourceByteWidths: number[], utf16Index: number): number {
+  let bytes = 0;
+  let utf16 = 0;
+  let scalarIndex = 0;
+  for (const scalar of text) {
+    if (utf16 >= utf16Index) break;
+    bytes += sourceByteWidths[scalarIndex] ?? textEncoder.encode(scalar).length;
+    utf16 += scalar.length;
+    scalarIndex += 1;
+  }
+  return bytes;
 }
 
 function utf16IndexForScalarColumn(text: string, column: bigint): number {
@@ -348,6 +380,8 @@ interface EditorViewportProps {
   onReload?(): void;
   /** The latest menu or palette editing command; only the focused editor receives one. */
   editorAction?: { id: number; action: EditorActionName };
+  /** Shows a list of lines (the bookmarks) in the results window. */
+  onShowResults?(list: ResultList): void;
 }
 
 export function EditorViewport({
@@ -374,6 +408,7 @@ export function EditorViewport({
   onOpenFind,
   onReload,
   editorAction,
+  onShowResults,
 }: EditorViewportProps) {
   const rowHeight = Math.max(12, Math.min(100, lineHeight));
   // Several panes can show views at once, so element IDs are per view.
@@ -1010,10 +1045,116 @@ export function EditorViewport({
     }
   }, [insertText, onStatus, refuseEdit]);
 
+  const deleteBookmarkedLines = async () => {
+    if (refuseEdit()) return;
+    const run = async () => {
+      const revision = editRevisionRef.current;
+      if (revision === null) return;
+      const result = await executeCommand<LineEditResult>({
+        id: "editor.deleteBookmarkedLines",
+        context: { windowId: "main", documentId: document.documentId },
+        arguments: { expectedRevision: revision },
+      });
+      editRevisionRef.current = result.document.revision;
+      onDocumentChange(result.document);
+      await refreshRef.current();
+    };
+    const result = editChainRef.current.then(run, run);
+    editChainRef.current = result.catch(() => undefined);
+    try {
+      await result;
+      onStatus("Deleted bookmarked lines");
+    } catch (error: unknown) {
+      onStatus(error instanceof Error ? error.message : "Could not delete bookmarked lines");
+    }
+  };
+
+  const matchBrace = async () => {
+    const pairs = snapshot?.syntax?.bracketPairs ?? [];
+    const caret = BigInt(caretByteRef.current);
+    const at = pairs.find((pair) => {
+      const open = BigInt(pair.openByte);
+      const close = BigInt(pair.closeByte);
+      return caret === open || caret === open + 1n || caret === close || caret === close + 1n;
+    });
+    // Next to a bracket: its partner. Otherwise: the closing bracket of the innermost enclosing pair.
+    const target = at
+      ? (caret === BigInt(at.openByte) || caret === BigInt(at.openByte) + 1n ? at.closeByte : at.openByte)
+      : pairs
+        .filter((pair) => BigInt(pair.openByte) < caret && caret <= BigInt(pair.closeByte))
+        .sort((left, right) => Number(BigInt(right.openByte) - BigInt(left.openByte)))[0]?.closeByte;
+    if (!target) { onStatus("No bracket at the caret"); return; }
+    rememberPosition();
+    await moveCaretTo(target);
+  };
+
+  const navigate = async (action: NavigationAction) => {
+    try {
+      switch (action) {
+        case "findNext":
+        case "findPrevious":
+          if (findQuery) await runFind(action === "findNext" ? "next" : "previous");
+          else onOpenFind?.("find");
+          return;
+        case "goToLine": setGoToOpen(true); return;
+        case "matchBrace": await matchBrace(); return;
+        case "nextChange":
+        case "previousChange": {
+          const target = await executeCommand<string | null>({
+            id: "editor.changeNear",
+            context: { windowId: "main", documentId: document.documentId },
+            arguments: { fromByte: caretByteRef.current, direction: action === "nextChange" ? "next" : "previous" },
+          });
+          if (target === null || target === undefined) { onStatus(action === "nextChange" ? "No later change" : "No earlier change"); return; }
+          rememberPosition();
+          await moveCaretTo(target);
+          onStatus(action === "nextChange" ? "Next change" : "Previous change");
+          return;
+        }
+        case "navigateBack":
+        case "navigateForward": {
+          const from = action === "navigateBack" ? backHistory : forwardHistory;
+          const to = action === "navigateBack" ? forwardHistory : backHistory;
+          const target = from.current.at(-1);
+          if (target === undefined) { onStatus(action === "navigateBack" ? "Nothing to go back to" : "Nothing to go forward to"); return; }
+          from.current = from.current.slice(0, -1);
+          to.current = [...to.current.slice(-(MAX_NAVIGATION_HISTORY - 1)), caretByteRef.current];
+          await moveCaretTo(target);
+          return;
+        }
+        case "nextBookmark": await moveToBookmark("next"); return;
+        case "previousBookmark": await moveToBookmark("previous"); return;
+        case "toggleBookmark": await toggleBookmark(); return;
+        case "clearBookmarks": await clearBookmarks(); return;
+        case "deleteBookmarkedLines": await deleteBookmarkedLines(); return;
+        case "listBookmarks": {
+          const lines = await executeCommand<FoundLine[]>({
+            id: "editor.bookmarkLines",
+            context: { windowId: "main", documentId: document.documentId },
+            arguments: null,
+          });
+          if (!lines?.length) { onStatus("There are no bookmarks"); return; }
+          onShowResults?.({
+            title: `Bookmarks in ${document.name}`, truncated: false, multipleSources: false,
+            rows: lines.map((line) => ({
+              key: `${document.documentId}:${line.startByte}`, documentId: document.documentId, line: line.line,
+              text: line.truncated ? `${line.text}…` : line.text,
+              startByte: line.startByte, endByte: line.startByte, lineStartByte: line.startByte,
+            })),
+          });
+          return;
+        }
+      }
+    } catch (error: unknown) {
+      onStatus(error instanceof Error ? error.message : "Navigation failed");
+    }
+  };
+
   const runEditorAction = (action: EditorActionName) => {
     const kind = EDITOR_ACTION_KINDS[action];
     if ("line" in kind) void runLineOperation(kind.line);
     else if ("transform" in kind) void transformSelections(kind.transform);
+    else if ("navigate" in kind) void navigate(kind.navigate);
     else void insertText(formatDateTime(new Date()));
   };
   const runEditorActionRef = useRef(runEditorAction);
@@ -1035,8 +1176,27 @@ export function EditorViewport({
     onStatus("Bookmark toggled");
   }, [document.documentId, onStatus, refresh]);
 
+  // Go Back / Go Forward: caret positions from before each jump.
+  const backHistory = useRef<string[]>([]);
+  const forwardHistory = useRef<string[]>([]);
+  const caretByteRef = useRef("0");
+  caretByteRef.current = snapshot?.selections[0]?.activeByte ?? "0";
+  const rememberPosition = useCallback(() => {
+    const here = caretByteRef.current;
+    if (backHistory.current.at(-1) !== here) {
+      backHistory.current = [...backHistory.current.slice(-(MAX_NAVIGATION_HISTORY - 1)), here];
+    }
+    forwardHistory.current = [];
+  }, []);
+  const moveCaretTo = useCallback(async (byte: string) => {
+    const selection = { anchorByte: byte, activeByte: byte };
+    await commitSelections([selection]);
+    await revealSelections([selection]);
+  }, [commitSelections, revealSelections]);
+
   const moveToBookmark = useCallback(
     async (direction: "previous" | "next") => {
+      rememberPosition();
       const selections = await executeCommand<Selection[]>({
         id: "editor.moveToBookmark",
         context: { windowId: "main", documentId: document.documentId },
@@ -1045,7 +1205,7 @@ export function EditorViewport({
       await revealSelections(selections);
       onStatus(`${direction === "next" ? "Next" : "Previous"} bookmark`);
     },
-    [document.documentId, onStatus, revealSelections],
+    [document.documentId, onStatus, revealSelections, rememberPosition],
   );
 
   const clearBookmarks = useCallback(async () => {
@@ -1123,12 +1283,13 @@ export function EditorViewport({
         return;
       }
       setCurrentFindMatch(result.selection);
+      rememberPosition();
       await revealSelections([result.selection]);
       onStatus(`${result.wrapped ? "Wrapped to " : ""}${direction} match`);
     } catch (error: unknown) {
       onStatus(error instanceof Error ? error.message : "Search failed");
     }
-  }, [document.documentId, findQuery, onStatus, revealSelections, searchOptions, snapshot]);
+  }, [document.documentId, findQuery, onStatus, rememberPosition, revealSelections, searchOptions, snapshot]);
 
   const replaceCurrent = useCallback(async () => {
     if (!snapshot) return;
@@ -1195,11 +1356,19 @@ export function EditorViewport({
   }, [document.documentId, findQuery, onDocumentChange, onStatus, refresh, replacement, searchOptions, snapshot]);
 
   const runGoToLine = () => {
-    const line = goToLine.trim();
-    if (!/^[1-9]\d{0,18}$/.test(line)) { onStatus("Enter a line number"); return; }
+    const match = /^([1-9]\d{0,18})(?:\s*[:,]\s*([1-9]\d{0,8}))?$/.exec(goToLine.trim());
+    if (!match) { onStatus("Enter a line number, or line:column"); return; }
+    const line = match[1] ?? "1";
+    const column = Number(match[2] ?? "1");
+    rememberPosition();
     void getViewportLine({ documentId: document.documentId, line, maxBytes: VIEWPORT_BYTES }).then(async (revealed) => {
       const first = revealed.lines[0];
-      const caret = first?.startByte ?? "0";
+      // The column counts characters; it stops at the end of the line.
+      const characters = first ? Array.from(first.text) : [];
+      const units = characters.slice(0, column - 1).join("").length;
+      const caret = first
+        ? (BigInt(first.startByte) + BigInt(byteOffsetForUtf16(first.text, first.sourceByteWidths, units))).toString()
+        : "0";
       setPageHistory((history) => [...history.slice(-(MAX_PAGE_HISTORY - 1)), currentCursor]);
       setCurrentCursor({ byteOffset: caret, line: first?.line ?? "1", lineContinuation: first?.continuation ?? false });
       setSnapshot(revealed);
@@ -1407,6 +1576,12 @@ export function EditorViewport({
     if (modifier && !event.altKey && !event.shiftKey && event.key === "/") {
       return run(() => runLineOperation("toggleComment"));
     }
+    if (event.key === "F3" && !modifier && !event.altKey) return run(() => navigate(event.shiftKey ? "findPrevious" : "findNext"));
+    if (modifier && event.shiftKey && !event.altKey && (event.key === "\\" || event.key === "|")) return run(() => navigate("matchBrace"));
+    if (modifier && !event.shiftKey && !event.altKey && (event.key === "[" || event.key === "]")) {
+      return run(() => navigate(event.key === "[" ? "navigateBack" : "navigateForward"));
+    }
+    if (event.key === "F5" && event.altKey && !modifier) return run(() => navigate(event.shiftKey ? "previousChange" : "nextChange"));
     // Tab indents when a selection covers more than one line; Shift Tab always outdents.
     if (event.key === "Tab" && !modifier && !event.altKey) {
       if (event.shiftKey) return run(() => runLineOperation("outdent"));
@@ -1715,16 +1890,11 @@ export function EditorViewport({
   const caretFold = caretLine
     ? syntax.folds.find((fold) => fold.startLine === caretLine.line)
     : undefined;
-  const caretColumn = caretLine
-    ? Array.from(caretLine.text.slice(
-      0,
-      utf16IndexForByte(
-        caretLine.text,
-        caretLine.sourceByteWidths,
-        Number(activeByte - BigInt(caretLine.startByte)),
-      ),
-    )).length + 1
-    : 1;
+  const caretUtf16 = caretLine
+    ? utf16IndexForByte(caretLine.text, caretLine.sourceByteWidths, Number(activeByte - BigInt(caretLine.startByte)))
+    : 0;
+  const caretColumn = caretLine ? Array.from(caretLine.text.slice(0, caretUtf16)).length + 1 : 1;
+  const caretCodePoint = caretLine ? caretLine.text.codePointAt(caretUtf16) : undefined;
   const selectionBytes = snapshot.selections.reduce((total, selection) => {
     const anchor = BigInt(selection.anchorByte);
     const active = BigInt(selection.activeByte);
@@ -1733,6 +1903,7 @@ export function EditorViewport({
   caretRef.current = caretLine ? {
     line: caretLine.line, column: caretColumn, carets: snapshot.selections.length,
     selectedBytes: selectionBytes.toString(),
+    codePoint: caretCodePoint,
     selection: snapshot.selections[0] && !snapshot.rectangularSelection ? {
       startByte: (BigInt(snapshot.selections[0].anchorByte) < BigInt(snapshot.selections[0].activeByte)
         ? snapshot.selections[0].anchorByte : snapshot.selections[0].activeByte),
@@ -1786,7 +1957,7 @@ export function EditorViewport({
         {accessibilityStatus}
       </div>
       {goToOpen ? <div className="findbar gotobar" role="search" aria-label="Go to line">
-        <input autoFocus aria-label="Line number" inputMode="numeric" placeholder="Line number" value={goToLine}
+        <input autoFocus aria-label="Line number" placeholder="Line or line:column" value={goToLine}
           onChange={(event) => setGoToLine(event.currentTarget.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") { event.preventDefault(); runGoToLine(); }
@@ -1872,6 +2043,7 @@ export function EditorViewport({
             event.currentTarget.value = "";
             if (!offset) return;
             const selection = { anchorByte: offset, activeByte: offset };
+            rememberPosition();
             void commitSelections([selection])
               .then(() => revealSelections([selection]))
               .catch((error: unknown) => {
@@ -1940,7 +2112,19 @@ export function EditorViewport({
         }}
         onPointerDown={(event) => {
           if (event.button !== 0) return;
+          const surface = event.currentTarget;
+          const bounds = surface.getBoundingClientRect();
+          // Leave the scrollbars alone so they can still be dragged.
+          const onScrollbar = (surface.offsetWidth > surface.clientWidth && event.clientX >= bounds.left + surface.clientWidth)
+            || (surface.offsetHeight > surface.clientHeight && event.clientY >= bounds.top + surface.clientHeight);
+          if (onScrollbar) return;
+          // Pressing empty space would otherwise move focus away from the
+          // editor (lines handle their own presses and never get here).
+          event.preventDefault();
           inputRef.current?.focus({ preventScroll: true });
+          const onLine = event.target instanceof Element && event.target.closest(".editor-line");
+          // Below the last line of the document: the caret goes to its end.
+          if (!onLine && !snapshot.next) void moveHorizontal("documentEnd", event.shiftKey);
         }}
         onPointerMove={(event) => {
           const drag = dragSelectionRef.current;

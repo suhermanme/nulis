@@ -31,6 +31,8 @@ mod external_changes;
 mod find_all;
 pub use external_changes::{ExternalChange, ExternalChangeKind};
 mod line_ops;
+mod navigation;
+pub use navigation::ChangeDirection;
 mod replace_in_files;
 pub use find_all::{
     FindAllResult, FoundLine, FoundMatch, MAX_FIND_ALL_LINES, MAX_FIND_ALL_MATCHES,
@@ -149,6 +151,12 @@ pub struct CharacterCount {
     /// A decimal string, like every other 64-bit value crossing IPC.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub characters: Option<String>,
+    /// Runs of non-space characters, counted in the same pass.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub words: Option<String>,
+    /// Lines (line endings plus one), counted in the same pass.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lines: Option<String>,
 }
 
 /// The outcome of checking a document with a built-in tool.
@@ -926,24 +934,46 @@ impl DocumentManager {
             .ok_or_else(|| EditorError::UnknownDocument(document_id.clone()))?;
         let table = session.document.table();
         let length = table.len();
-        let characters = if length > MAX_CHARACTER_COUNT_BYTES {
-            None
-        } else if session.encoding == TextEncoding::Utf8 {
-            let mut count = 0_u64;
-            let mut offset = 0_u64;
-            while offset < length {
-                let chunk = table.read_vec(offset, CHARACTER_COUNT_CHUNK.min(length - offset))?;
-                count += chunk.iter().filter(|byte| **byte & 0xC0 != 0x80).count() as u64;
-                offset += chunk.len() as u64;
+        if length > MAX_CHARACTER_COUNT_BYTES {
+            return Ok(CharacterCount {
+                revision: table.revision(),
+                characters: None,
+                words: None,
+                lines: None,
+            });
+        }
+        let utf8 = session.encoding == TextEncoding::Utf8;
+        let (mut characters, mut words, mut endings) = (0_u64, 0_u64, 0_u64);
+        let (mut in_word, mut after_cr) = (false, false);
+        let mut offset = 0_u64;
+        while offset < length {
+            let chunk = table.read_vec(offset, CHARACTER_COUNT_CHUNK.min(length - offset))?;
+            for &byte in &chunk {
+                // Windows-1252 maps every byte to one character; UTF-8 counts sequence starts.
+                if !utf8 || byte & 0xC0 != 0x80 {
+                    characters += 1;
+                }
+                let space = matches!(byte, b' ' | b'\t' | b'\n' | b'\r' | 0x0B | 0x0C);
+                if !space && !in_word {
+                    words += 1;
+                }
+                in_word = !space;
+                if byte == b'\n' || after_cr {
+                    endings += 1;
+                }
+                after_cr = byte == b'\r';
             }
-            Some(count.to_string())
-        } else {
-            // Windows-1252 maps every byte to exactly one character.
-            Some(length.to_string())
-        };
+            offset += chunk.len() as u64;
+        }
+        if after_cr {
+            endings += 1;
+        }
+        let characters = Some(characters.to_string());
         Ok(CharacterCount {
             revision: table.revision(),
             characters,
+            words: Some(words.to_string()),
+            lines: Some((endings + 1).to_string()),
         })
     }
 

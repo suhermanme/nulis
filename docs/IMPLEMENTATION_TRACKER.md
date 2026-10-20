@@ -4,8 +4,8 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 
 ## Current state
 
-- **Current milestone:** M26 — pending (next to start)
-- **Overall:** 7 of 11 milestones completed (M19–M25)
+- **Current milestone:** M27 — pending (next to start)
+- **Overall:** 8 of 11 milestones completed (M19–M26)
 - **Baseline before M19 (commit `66853e1`):** `cargo test -p nulis-core` 86 passed; desktop Vitest 11 files, 115 tests passed.
 
 | Milestone | Status | Handover |
@@ -17,7 +17,7 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 | M23 External changes and Reload (user request) | Completed (manual and Windows/Linux checks pending) | `handover/M23_HANDOVER.md` |
 | M24 New application icon (user request) | Completed | `handover/M24_HANDOVER.md` |
 | M25 Format and transforms | Completed (manual and Windows/Linux checks pending) | `handover/M25_HANDOVER.md` |
-| M26 Search and navigation | Pending | – |
+| M26 Search and navigation | Completed (manual and Windows/Linux checks pending) | `handover/M26_HANDOVER.md` |
 | M27 View and file | Pending | – |
 | M28 Column and clipboard tools | Pending | – |
 | M29 Integration and quality | Pending | – |
@@ -118,6 +118,12 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 
 **Result (completed 2026-10-20, on `main`):** all criteria covered by tests. Verification on macOS: fmt and clippy clean; `cargo test --workspace` passed (nulis-core 108, nulis-desktop 7); lint and typecheck clean; Vitest 124 passed. Details: `handover/M23_HANDOVER.md`.
 
+## M26 — Search and navigation
+
+**Delivered:** F3/Shift+F3 find next/previous (opens Find when there is no search), Go to Matching Bracket (Ctrl/⌘ Shift \), Go to line:column, Go Back/Forward (Ctrl/⌘ [ / ]) over jumps, Next/Previous Change (Alt F5 / Alt Shift F5), List Bookmarks (results window), Delete Bookmarked Lines, word and line counts, code point at the caret, native Search menu, and palette entries. Not done from the plan: incremental search, character names.
+
+**Result (completed 2026-10-20, on `main`):** fmt and clippy clean; `cargo test --workspace` passed (nulis-core 116); lint and typecheck clean; Vitest 130 passed. IPC 32. Details: `handover/M26_HANDOVER.md`.
+
 ## M25 — Format and transforms
 
 **Scope (as delivered):** invert case, capitalize words, Base64 encode/decode (new `TextTransform`s); indent, outdent, toggle comment, trim trailing spaces, tabs→spaces, leading spaces→tabs, sort ascending/descending/unique (new `LineOperation`s with `LineFormatOptions`); insert date/time; Format menu (native), Edit-menu line commands, toolbar Format list, palette entries for all of these and for the M20 line commands; Tab/Shift+Tab and Ctrl/⌘ /. Also: theme-colored status badges (user request).
@@ -144,7 +150,7 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 
 ## Next steps
 
-0. M26 Search and navigation is next.
+0. M27 View and file is next (the status bar's line-ending label is still a fixed "LF").
 1. Run the app (`npm run dev`) and try M20 keys/context menu and the M21 window by hand on macOS.
 2. Push to CI to build Windows/Linux, and check the M19 Settings/Help window fix there.
 3. Start M22 per the scope above, then M23 and M24 (user requests).

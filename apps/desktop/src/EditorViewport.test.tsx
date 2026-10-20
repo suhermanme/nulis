@@ -1232,7 +1232,7 @@ test("goes to a line through a bounded core query and places the caret there", a
   const input = screen.getByRole("textbox", { name: "Line number" });
   fireEvent.change(input, { target: { value: "x" } });
   fireEvent.keyDown(input, { key: "Enter" });
-  expect(onStatus).toHaveBeenCalledWith("Enter a line number");
+  expect(onStatus).toHaveBeenCalledWith("Enter a line number, or line:column");
   expect(getViewportLine).not.toHaveBeenCalled();
 
   fireEvent.change(input, { target: { value: "40" } });
@@ -1243,6 +1243,19 @@ test("goes to a line through a bounded core query and places the caret there", a
     id: "editor.setSelections", arguments: { selections: [{ anchorByte: "400", activeByte: "400" }] },
   })));
   await waitFor(() => expect(screen.queryByRole("textbox", { name: "Line number" })).not.toBeInTheDocument());
+
+  // line:column puts the caret at that character; a column past the end stops at the end.
+  vi.mocked(getViewportLine).mockResolvedValueOnce({
+    documentId: "document-1", revision: "0", documentByteLen: "900", encoding: "utf8",
+    lines: [{ line: "40", startByte: "400", endByte: "407", text: "fé rty", sourceByteWidths: [1, 2, 1, 1, 1, 1], continuation: false, truncated: false }],
+    selections: [{ anchorByte: "0", activeByte: "0" }], bookmarks: [],
+  });
+  fireEvent.keyDown(editor, { key: "g", ctrlKey: true });
+  fireEvent.change(screen.getByRole("textbox", { name: "Line number" }), { target: { value: "40:3" } });
+  fireEvent.keyDown(screen.getByRole("textbox", { name: "Line number" }), { key: "Enter" });
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
+    id: "editor.setSelections", arguments: { selections: [{ anchorByte: "403", activeByte: "403" }] },
+  })));
 });
 
 test("highlights every visible occurrence of the find query when the panel asks", async () => {
@@ -1440,6 +1453,95 @@ test("the Format list and menu actions run transforms, line formatting, and date
     id: "editor.insertText", arguments: expect.objectContaining({ text: expect.stringMatching(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/) }),
   })));
   expect(formatDateTime(new Date(2026, 0, 5, 7, 8, 9))).toBe("2026-01-05 07:08:09");
+});
+
+test("next change, matching bracket, and Go Back / Go Forward move the caret", async () => {
+  vi.mocked(executeCommand).mockImplementation(async (request) => {
+    if (request.id === "editor.changeNear") return "4";
+    if (request.id === "editor.setSelections") return (request.arguments as { selections: unknown[] }).selections;
+    return { documentId: "document-1", name: "Untitled", byteLen: "7", revision: "1", encoding: "utf8" };
+  });
+  vi.mocked(getViewport).mockResolvedValueOnce({
+    documentId: "document-1", revision: "0", documentByteLen: "7", encoding: "utf8",
+    lines: [
+      { line: "1", startByte: "0", endByte: "4", text: "(o)", sourceByteWidths: [1, 1, 1], continuation: false, truncated: false },
+      { line: "2", startByte: "4", endByte: "7", text: "two", sourceByteWidths: [1, 1, 1], continuation: false, truncated: false },
+    ],
+    selections: [{ anchorByte: "0", activeByte: "0" }], bookmarks: [],
+    syntax: { languageId: "plaintext", parsedBytes: 7, highlights: [], folds: [], symbols: [], bracketPairs: [{ openByte: "0", closeByte: "2" }] },
+  } as never);
+  const onStatus = vi.fn();
+  render(<EditorViewport document={{ documentId: "document-1", name: "Untitled", byteLen: "7", revision: "0", encoding: "utf8" }}
+    onDocumentChange={() => undefined} onStatus={onStatus} />);
+  const editor = await screen.findByRole("textbox", { name: "Untitled editor" });
+  const caretAt = (byte: string) => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
+    id: "editor.setSelections", arguments: { selections: [{ anchorByte: byte, activeByte: byte }] },
+  }));
+  fireEvent.keyDown(editor, { key: "|", ctrlKey: true, shiftKey: true });
+  await waitFor(() => caretAt("2"));
+  fireEvent.keyDown(editor, { key: "F5", altKey: true });
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
+    id: "editor.changeNear", arguments: { fromByte: "2", direction: "next" },
+  })));
+  await waitFor(() => caretAt("4"));
+  vi.mocked(executeCommand).mockClear();
+  fireEvent.keyDown(editor, { key: "[", ctrlKey: true });
+  await waitFor(() => caretAt("2"));
+  fireEvent.keyDown(editor, { key: "[", ctrlKey: true });
+  await waitFor(() => caretAt("0"));
+  fireEvent.keyDown(editor, { key: "]", ctrlKey: true });
+  await waitFor(() => caretAt("2"));
+});
+
+test("F3 repeats the last search, or opens Find when there is none; bookmarks can be listed", async () => {
+  vi.mocked(executeCommand).mockImplementation(async (request) => {
+    if (request.id === "editor.bookmarkLines") return [{ line: "2", startByte: "4", text: "two", truncated: false, matches: 1 }];
+    return { revision: "0", wrapped: false, selection: { anchorByte: "4", activeByte: "7" } };
+  });
+  const onOpenFind = vi.fn();
+  const onShowResults = vi.fn();
+  const props = { document: { documentId: "document-1", name: "Untitled", byteLen: "7", revision: "0", encoding: "utf8" } as const,
+    onDocumentChange: () => undefined, onStatus: () => undefined, onOpenFind, onShowResults };
+  const { rerender } = render(<EditorViewport {...props} />);
+  const editor = await screen.findByRole("textbox", { name: "Untitled editor" });
+  fireEvent.keyDown(editor, { key: "F3" });
+  expect(onOpenFind).toHaveBeenCalledWith("find");
+  rerender(<EditorViewport {...props} searchRequest={{ id: 1, action: "highlight", query: "two", replacement: "", regex: false, caseSensitive: true }} />);
+  await waitFor(() => expect(screen.getByRole("button", { name: "Highlight matches" })).toBeEnabled());
+  fireEvent.keyDown(editor, { key: "F3", shiftKey: true });
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
+    id: "search.find", arguments: expect.objectContaining({ query: "two", direction: "previous" }),
+  })));
+  rerender(<EditorViewport {...props} editorAction={{ id: 1, action: "listBookmarks" }} />);
+  await waitFor(() => expect(onShowResults).toHaveBeenCalledWith(expect.objectContaining({
+    title: "Bookmarks in Untitled",
+    rows: [expect.objectContaining({ documentId: "document-1", line: "2", text: "two", startByte: "4" })],
+  })));
+});
+
+test("pressing empty space below the text focuses the editor and puts the caret at the end", async () => {
+  respondLikeCore();
+  const { container } = render(<EditorViewport document={{ documentId: "document-1", name: "Untitled", byteLen: "7", revision: "0", encoding: "utf8" }}
+    onDocumentChange={() => undefined} onStatus={() => undefined} autoFocus={false} />);
+  const editor = await screen.findByRole("textbox", { name: "Untitled editor" });
+  const surface = container.querySelector<HTMLElement>(".editor-surface")!;
+  Object.defineProperty(surface, "clientWidth", { configurable: true, value: 800 });
+  Object.defineProperty(surface, "clientHeight", { configurable: true, value: 600 });
+  Object.defineProperty(surface, "offsetWidth", { configurable: true, value: 815 });
+  Object.defineProperty(surface, "offsetHeight", { configurable: true, value: 600 });
+  expect(editor).not.toHaveFocus();
+
+  // The vertical scrollbar, right of the client area, is left alone.
+  fireEvent.pointerDown(surface, { button: 0, clientX: 805, clientY: 300 });
+  expect(editor).not.toHaveFocus();
+
+  const press = new PointerEvent("pointerdown", { bubbles: true, cancelable: true, button: 0, clientX: 300, clientY: 500 });
+  act(() => { surface.dispatchEvent(press); });
+  expect(press.defaultPrevented).toBe(true);
+  expect(editor).toHaveFocus();
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
+    id: "editor.moveHorizontal", arguments: { direction: "documentEnd", extend: false },
+  })));
 });
 
 // Kept last: it replaces the shared mocks' implementations.

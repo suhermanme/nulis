@@ -114,6 +114,34 @@ const EDIT_MENU_COMMANDS: &[(&str, &str)] = &[
     ("edit.moveLinesDown", "Move Line Down"),
     ("edit.insertLineBelow", "Insert Line Below"),
 ];
+const SEARCH_MENU_COMMANDS: &[&[(&str, &str)]] = &[
+    &[
+        ("search.openFind", "Find…"),
+        ("search.openReplace", "Replace…"),
+        ("search.findNext", "Find Next"),
+        ("search.findPrevious", "Find Previous"),
+    ],
+    &[
+        ("search.openFindInFiles", "Find in Files…"),
+        ("search.openReplaceInFiles", "Replace in Files…"),
+    ],
+    &[
+        ("search.goToLine", "Go to Line…"),
+        ("search.matchBrace", "Go to Matching Bracket"),
+        ("search.navigateBack", "Go Back"),
+        ("search.navigateForward", "Go Forward"),
+        ("search.nextChange", "Next Change"),
+        ("search.previousChange", "Previous Change"),
+    ],
+    &[
+        ("search.toggleBookmark", "Toggle Bookmark"),
+        ("search.nextBookmark", "Next Bookmark"),
+        ("search.previousBookmark", "Previous Bookmark"),
+        ("search.listBookmarks", "List Bookmarks…"),
+        ("search.clearBookmarks", "Clear All Bookmarks"),
+        ("search.deleteBookmarkedLines", "Delete Bookmarked Lines"),
+    ],
+];
 const FORMAT_MENU_COMMANDS: &[&[(&str, &str)]] = &[
     &[
         ("format.uppercase", "To Upper Case"),
@@ -626,6 +654,13 @@ fn add_command_menus(app: &tauri::AppHandle, menu: &Menu<tauri::Wry>) -> tauri::
         edit.append(&PredefinedMenuItem::separator(app)?)?;
     }
     append_commands(app, &edit, EDIT_MENU_COMMANDS)?;
+    let search = find_or_add_submenu(app, menu, "Search")?;
+    for (index, section) in SEARCH_MENU_COMMANDS.iter().enumerate() {
+        if index > 0 {
+            search.append(&PredefinedMenuItem::separator(app)?)?;
+        }
+        append_commands(app, &search, section)?;
+    }
     let format = find_or_add_submenu(app, menu, "Format")?;
     for (index, section) in FORMAT_MENU_COMMANDS.iter().enumerate() {
         if index > 0 {

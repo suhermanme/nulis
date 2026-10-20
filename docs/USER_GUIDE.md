@@ -298,9 +298,24 @@ For a folder, nothing changes until you confirm:
 
 Changing the text, the replacement, the options, or the folder after a preview makes it out of date; preview again before replacing. One Replace in Files changes at most 1,000 files.
 
+### Moving around
+
+The **Search** menu collects Find and Replace with the commands below; each is also in the command palette.
+
+| Action | How |
+| --- | --- |
+| Find next / previous without opening the window | **F3** / **Shift F3** repeat the last search; with no earlier search, F3 opens Find. |
+| Go to the matching bracket | **Ctrl/⌘ Shift \**. Next to a bracket, the caret goes to its partner; elsewhere, to the closing bracket around it. |
+| Go back / forward | **Ctrl/⌘ [** / **Ctrl/⌘ ]** return to where the caret was before a jump (Go to Line, find, bookmarks, brackets, symbols, changes). |
+| Next / previous change | **Alt F5** / **Alt Shift F5** move between lines with line change indicators. |
+| List bookmarks | **Search ▸ List Bookmarks…** opens the bookmarked lines in the results window; click one to go there. |
+| Delete bookmarked lines | **Search ▸ Delete Bookmarked Lines** removes every bookmarked line in one undo step and clears the bookmarks. |
+
+The status bar also shows the number of words and lines (for documents up to 64 MiB) and the Unicode code point of the character after the caret, such as `U+00E9`.
+
 ### Go to a line
 
-Press **Ctrl/⌘ G**, type a line number, and press Enter. This also works in very large files.
+Press **Ctrl/⌘ G**, type a line number, or a line and column such as `120:8`, and press Enter. This also works in very large files.
 
 ## Languages and Encodings
 
@@ -457,6 +472,10 @@ These are the defaults. Shortcuts for commands can be changed under **Settings �
 | Alt ↑ / Alt ↓ | Move line up / down |
 | Ctrl/⌘ Enter | Open a new line below |
 | Ctrl/⌘ / | Toggle line comment |
+| F3 / Shift F3 | Find next / previous |
+| Ctrl/⌘ Shift \ | Go to matching bracket |
+| Ctrl/⌘ [ / Ctrl/⌘ ] | Go back / forward |
+| Alt F5 / Alt Shift F5 | Next / previous change |
 | Tab / Shift Tab | Indent a multi-line selection / outdent |
 | Home / End | Line start (first non-blank, then column 1) / line end |
 | Ctrl/⌘ Home / End | Document start / end |

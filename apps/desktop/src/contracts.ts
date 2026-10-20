@@ -1,5 +1,5 @@
 /** Versioned JSON-compatible values mirrored from nulis-core's public IPC DTOs. */
-export const IPC_PROTOCOL_VERSION = 31 as const;
+export const IPC_PROTOCOL_VERSION = 32 as const;
 
 export interface ThemeRecord {
   schema?: string;
@@ -173,6 +173,8 @@ export interface PluginRunOutcome {
 export interface CharacterCount {
   revision: string;
   characters?: string;
+  words?: string;
+  lines?: string;
 }
 
 /** Where the caret of the focused editor is, for the status bar. */
@@ -185,6 +187,8 @@ export interface CaretPosition {
   selectedBytes: string;
   /** The primary selection as a range, unless it is rectangular. */
   selection?: ByteRange;
+  /** Unicode code point of the character after the caret, if any. */
+  codePoint?: number;
 }
 
 export interface DocumentSummary {
