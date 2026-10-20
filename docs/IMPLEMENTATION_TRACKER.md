@@ -119,6 +119,15 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 
 **Result (completed 2026-10-20, on `main`):** all criteria covered by tests. Verification on macOS: fmt and clippy clean; `cargo test --workspace` passed (nulis-core 108, nulis-desktop 7); lint and typecheck clean; Vitest 124 passed. Details: `handover/M23_HANDOVER.md`.
 
+## Icon redesign (user request, 2026-10-20)
+
+The user asked for a modern, clean icon suited to macOS without the batik ribbon, and for batik to move to the About window instead. Three directions and five variations of the chosen one were presented on a design canvas; the user chose **A, Ink & Caret**: a bold cream N whose last stroke is an ember text caret, on a dark ink tile in the macOS shape (824 px body in a 1024 canvas, continuous corners, soft shadow).
+
+- `apps/desktop/src-tauri/icons/nulis-source.svg` is the new master; every platform icon was regenerated with `npx tauri icon` (`icon.icns`, `icon.ico`, PNG sizes, Windows Store, iOS, Android). `docs/images/nulis-logo.svg` and `.png` and the README text follow it.
+- `BrandMark.tsx` draws the same mark in theme colors: tile = raised surface, N = text color, caret = accent (light themes get a light tile with a dark N).
+- About window: the user's batik artwork (parang and kawung, `apps/desktop/src/assets/about-batik-dark.jpg` and `-light.jpg`, cut from the supplied image) as its background, chosen by the theme's kind, anchored top right and faded from the dialog color; off in forced-colors mode.
+- Checks: renders at 512, 128, 64, 32, and 16 px on light and dark; App tests for the dark and light About backgrounds; full suite passes (Vitest 149).
+
 ## Fix after M29 — secondary windows on Windows (user report, video)
 
 **Problem:** on Windows, Settings and Find and Replace first appeared as an empty white or black window for one to two seconds, and showed the application menu bar, which also came back after saving settings. Causes: the menu was installed with `app.set_menu`, which on Windows and Linux draws it inside every window and reattaches it on every rebuild (M19 removed it only once, at creation); and windows were shown before their web view had drawn. Find, results, and Help were also rebuilt from scratch on every open.

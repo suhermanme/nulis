@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/images/nulis-logo.png" alt="Nulis logo: a paper sheet, a batik ribbon, and a pen forming the letter N" width="160" height="160"></p>
+<p align="center"><img src="docs/images/nulis-logo.png" alt="Nulis logo: a cream letter N whose last stroke is an ember text caret, on a dark tile" width="160" height="160"></p>
 
 # Nulis
 
@@ -6,7 +6,7 @@
 
 Nulis is a desktop editor for text, source code, hexadecimal data, and files larger than memory. It runs on macOS, Windows, and Linux.
 
-*Nulis* is a Javanese word that means "writing" or "to write". The logo draws that idea as the letter N: a sheet of paper, a ribbon of Javanese batik, and a pen.
+*Nulis* is a Javanese word that means "writing" or "to write". The logo draws that idea as the letter N, whose last stroke is the text caret where writing happens.
 
 Nulis is free software under the [GNU General Public License, version 3 or later](LICENSE).
 

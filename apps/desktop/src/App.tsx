@@ -45,6 +45,8 @@ import { WorkTabs } from "./EditorLayout";
 import { FileExplorer, loadExplorerTab, saveExplorerTab, type ExplorerTab } from "./FileExplorer";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { BrandMark } from "./BrandMark";
+import batikDark from "./assets/about-batik-dark.jpg";
+import batikLight from "./assets/about-batik-light.jpg";
 import { ContextMenu, MenuButton, OverflowToolbar, type MenuItem, type ToolbarItem } from "./Toolbar";
 import {
   FIND_EVENTS, FindReplacePanel, ResultsWindow, type FindContext, type FindMessage, type FindTab, type MatchTarget, type ResultList,
@@ -1759,6 +1761,8 @@ export function App() {
     </>;
   };
 
+  const activeTheme = themes.find(({ id }) => id === preferences.theme) ?? BUILT_IN_THEMES[0];
+  const activeThemeKind = activeTheme.kind;
   // Zoom scales only the editor text; Settings keeps the base size.
   const zoomedFontSize = Math.round(preferences.fontSize * viewOptions.zoom) / 100;
   const layoutStyle = {
@@ -2268,7 +2272,7 @@ export function App() {
             label={viewModes[activeDocument.documentId] === "hex" ? "Show text editor" : "Show hexadecimal editor"}
             onClick={() => toggleViewMode(activeDocument.documentId)} /> : null}
         </WorkTabs>
-        {terminalOpen ? <TerminalPanel theme={(themes.find(({ id }) => id === preferences.theme) ?? BUILT_IN_THEMES[0]).colors}
+        {terminalOpen ? <TerminalPanel theme={activeTheme.colors}
           onClose={() => setTerminalOpen(false)} onStatus={setStatus} /> : null}
       </section>
 
@@ -2403,7 +2407,9 @@ export function App() {
       {aboutOpen ? <div className="decision-backdrop" onPointerDown={(event) => {
         if (event.target === event.currentTarget) setAboutOpen(false);
       }}>
-        <section className="decision-dialog about-dialog" role="dialog" aria-modal="true" aria-labelledby="about-title"
+        <section className="decision-dialog about-dialog batik" role="dialog" aria-modal="true" aria-labelledby="about-title"
+          style={{ "--about-batik": `url(${activeThemeKind === "light" ? batikLight : batikDark})` } as CSSProperties}
+          data-batik={activeThemeKind === "light" ? "light" : "dark"}
           onKeyDown={(event) => {
             keepFocusInDialog(event);
             if (event.key === "Escape") setAboutOpen(false);

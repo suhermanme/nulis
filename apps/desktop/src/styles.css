@@ -84,26 +84,18 @@ button { color: inherit; font: inherit; }
   padding: 0 18px; background: var(--bg); border-bottom: 1px solid var(--border);
   user-select: none;
 }
-/* The in-window mark follows the theme: paper in the accent, nib and rim in
-   the theme's warm (warning) tone, the ribbon a tint over the editor ground. */
+/* The in-window mark follows the theme: the tile is the raised surface, the
+   N the text color, and the caret the accent. */
 .brand-mark { display: block; flex: 0 0 28px; width: 28px; height: 28px; aspect-ratio: 1; }
 .brand-mark .mark-tile { fill: var(--raised); }
 .brand-mark .mark-tile-edge { fill: none; stroke: var(--border); stroke-width: 6; }
-.brand-mark .mark-rim, .brand-mark .mark-nib { fill: var(--warning); }
-.brand-mark .mark-ribbon { fill: var(--editor-bg); }
-.brand-mark .mark-ribbon-tint { fill: var(--accent); opacity: .2; }
-.brand-mark .mark-flowers { fill: var(--accent); }
-.brand-mark .mark-flower-center { fill: var(--warning); }
-.brand-mark .mark-paper { fill: var(--accent); }
-.brand-mark .mark-shade { fill: #000; opacity: .22; }
-.brand-mark .mark-lines { fill: var(--accent-fg); opacity: .6; }
-.brand-mark .mark-slit { stroke: var(--editor-bg); stroke-width: 8; stroke-linecap: round; }
-.brand-mark .mark-hole { fill: var(--editor-bg); }
+.brand-mark .mark-letter { fill: var(--ui-text); stroke: var(--ui-text); stroke-width: 10; stroke-linejoin: round; }
+.brand-mark .mark-caret { fill: var(--accent); }
 @media (forced-colors: active) {
   .brand-mark .mark-tile { fill: Canvas; }
-  .brand-mark .mark-tile-edge, .brand-mark .mark-slit { stroke: CanvasText; }
-  .brand-mark .mark-paper, .brand-mark .mark-nib, .brand-mark .mark-rim, .brand-mark .mark-flowers { fill: CanvasText; }
-  .brand-mark .mark-ribbon, .brand-mark .mark-hole, .brand-mark .mark-lines, .brand-mark .mark-flower-center { fill: Canvas; }
+  .brand-mark .mark-tile-edge { stroke: CanvasText; }
+  .brand-mark .mark-letter { fill: CanvasText; stroke: CanvasText; }
+  .brand-mark .mark-caret { fill: Highlight; }
 }
 .brand { display: flex; flex: none; align-items: center; gap: 10px; padding: 0; border: 0; color: inherit; background: transparent; font: inherit; cursor: pointer; }
 .brand:focus-visible { outline: 2px solid var(--focus); outline-offset: 4px; border-radius: 8px; }
@@ -326,6 +318,14 @@ kbd { padding: 2px 6px; border: 1px solid #373e48; border-radius: 4px; color: #b
 .welcome-startup input { accent-color: var(--accent); }
 .no-documents { display: grid; flex: 1; place-items: center; color: var(--muted); font-size: 12px; }
 .decision-dialog.about-dialog { width: min(620px, calc(100vw - 48px)); padding: 32px 36px 24px; }
+/* A batik ground (parang and kawung) for the theme's kind, from the top-right
+   corner, faded from the dialog's own color so the text stays readable. It
+   stays put while the license text scrolls. */
+.about-dialog.batik {
+  background-image: linear-gradient(100deg, var(--panel) 18%, transparent 88%), var(--about-batik);
+  background-size: cover, cover; background-position: right top, right top; background-repeat: no-repeat;
+}
+@media (forced-colors: active) { .about-dialog.batik { background-image: none; } }
 .about-identity { display: flex; align-items: center; gap: 16px; margin-bottom: 30px; }
 .about-identity .brand-mark { flex-basis: 64px; width: 64px; height: 64px; }
 .about-identity h2 { margin: 0 0 3px; font-size: 22px; }

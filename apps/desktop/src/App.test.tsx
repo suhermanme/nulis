@@ -1114,7 +1114,10 @@ test("the Help menu opens sectioned help and the About page", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Close" }));
 
   await chooseMenu("Help", "About Nulis");
-  expect(await screen.findByRole("dialog", { name: "Nulis" })).toBeInTheDocument();
+  const about = await screen.findByRole("dialog", { name: "Nulis" });
+  // The default theme is dark, so the About window uses the dark batik.
+  expect(about).toHaveAttribute("data-batik", "dark");
+  expect(about.style.getPropertyValue("--about-batik")).toMatch(/about-batik-dark/);
 });
 
 test("the status bar shows the caret position, the size in bytes and characters, and the mode", async () => {
@@ -1316,6 +1319,16 @@ test("Paste from History lists this session's copies and pastes the chosen one",
   fireEvent.click(option);
   await waitFor(() => expect(screen.getByText("First editor"))
     .toHaveAttribute("data-inserted", "copied from First\nsecond line"));
+});
+
+test("the About window uses the light batik with a light theme", async () => {
+  storedCustomization.document.appearance.theme = "nulis.paper-light";
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  await chooseMenu("Help", "About Nulis");
+  const about = await screen.findByRole("dialog", { name: "Nulis" });
+  expect(about).toHaveAttribute("data-batik", "light");
+  expect(about.style.getPropertyValue("--about-batik")).toMatch(/about-batik-light/);
 });
 
 test("the tab strip offers scroll arrows only when its tabs overflow", async () => {
