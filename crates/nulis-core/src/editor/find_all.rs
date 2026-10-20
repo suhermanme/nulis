@@ -8,7 +8,10 @@ use super::{
     MAX_BOOKMARKS,
 };
 use nulis_large_file::ReadAt;
-use nulis_search::{search, search_until, CancellationToken, SearchOptions, MAX_PAGE_MATCHES};
+use nulis_search::{
+    count_slice, search, search_until, CancellationToken, CountProgress, SearchOptions,
+    MAX_PAGE_MATCHES,
+};
 use serde::Serialize;
 
 pub const MAX_FIND_ALL_MATCHES: usize = 10_000;
@@ -52,6 +55,10 @@ pub struct FindAllResult {
     /// More matches or lines exist than were returned.
     pub truncated: bool,
 }
+
+/// Bytes one counting step reads while it holds the document; between
+/// steps the editor stays free for scrolling and typing.
+pub const COUNT_SLICE_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Most matches painted for one visible range.
 pub const MAX_RANGE_MATCHES: usize = 2_000;
@@ -129,6 +136,66 @@ impl LineTracker {
 }
 
 impl DocumentManager {
+    /// Counts the next slice (at most [`COUNT_SLICE_BYTES`]) of a count over
+    /// `start..end` of a document, adding to `progress`. The document must
+    /// still be at `revision`, so a count never mixes two versions.
+    ///
+    /// # Errors
+    /// Returns an error for an unknown or changed document, an invalid
+    /// pattern, or a read failure.
+    #[allow(clippy::too_many_arguments)] // One counting step of one request.
+    pub fn count_step(
+        &self,
+        document_id: &DocumentId,
+        revision: u64,
+        query: &str,
+        options: SearchOptions,
+        end: u64,
+        progress: &mut CountProgress,
+        cancellation: &CancellationToken,
+    ) -> Result<(), EditorError> {
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| EditorError::StateUnavailable)?;
+        let session = sessions
+            .get(document_id)
+            .ok_or_else(|| EditorError::UnknownDocument(document_id.clone()))?;
+        let table = session.document.table();
+        if table.revision() != revision {
+            return Err(EditorError::Tool(format!(
+                "{} changed while counting; count again",
+                session.name
+            )));
+        }
+        let pattern = search_pattern(session.encoding, query, options)?;
+        let end = end.min(table.len());
+        let stop = progress.next.saturating_add(COUNT_SLICE_BYTES).min(end);
+        count_slice(table, &pattern, options, progress, stop, cancellation)?;
+        if progress.next >= end {
+            progress.done = true;
+        }
+        Ok(())
+    }
+
+    /// The length and revision of a document, for starting a count.
+    ///
+    /// # Errors
+    /// Returns an error for an unknown document.
+    pub fn length_and_revision(&self, document_id: &DocumentId) -> Result<(u64, u64), EditorError> {
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| EditorError::StateUnavailable)?;
+        let session = sessions
+            .get(document_id)
+            .ok_or_else(|| EditorError::UnknownDocument(document_id.clone()))?;
+        Ok((
+            session.document.table().len(),
+            session.document.table().revision(),
+        ))
+    }
+
     /// The matches that start in `start..end` (the visible lines), at most
     /// [`MAX_RANGE_MATCHES`]. Uses the same search as Find, so what is
     /// painted is what Find Next would select. The cost is proportional to
@@ -324,7 +391,7 @@ pub(super) fn line_preview(
 #[cfg(test)]
 mod tests {
     use super::super::{DocumentManager, SearchMode, Selection};
-    use nulis_search::SearchOptions;
+    use nulis_search::{CancellationToken, SearchOptions};
 
     fn options(mode: SearchMode, whole_word: bool) -> SearchOptions {
         SearchOptions {
@@ -333,6 +400,50 @@ mod tests {
             whole_word,
             columns: None,
         }
+    }
+
+    #[test]
+    fn counting_has_no_match_limit_and_stops_if_the_document_changes() {
+        let manager = DocumentManager::default();
+        // 12,000 lines, two matches each: well past the Find All limit of 10,000.
+        let document = manager
+            .create_untitled("big".into(), "cat dog cat\n".repeat(12_000))
+            .expect("document");
+        let id = &document.document_id;
+        let (len, revision) = manager.length_and_revision(id).expect("length");
+        let mut progress = nulis_search::CountProgress::starting_at(0);
+        while !progress.done {
+            manager
+                .count_step(
+                    id,
+                    revision,
+                    "cat",
+                    options(SearchMode::Literal, false),
+                    len,
+                    &mut progress,
+                    &CancellationToken::default(),
+                )
+                .expect("step");
+        }
+        assert_eq!((progress.matches, progress.lines), (24_000, 12_000));
+
+        manager.replace(id, revision, 0, 3, "cow").expect("edit");
+        let mut progress = nulis_search::CountProgress::starting_at(0);
+        let error = manager
+            .count_step(
+                id,
+                revision,
+                "cat",
+                options(SearchMode::Literal, false),
+                len,
+                &mut progress,
+                &CancellationToken::default(),
+            )
+            .expect_err("changed");
+        assert!(
+            error.to_string().contains("changed while counting"),
+            "{error}"
+        );
     }
 
     #[test]

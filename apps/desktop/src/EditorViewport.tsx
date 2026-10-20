@@ -2799,10 +2799,10 @@ export function EditorViewport({
       {!isMarkdownView && (pageHistory.length > 0 || snapshot.next) ? <div className="viewport-navigation"
         style={{ right: showDocumentMap ? 130 : 18 }}>
         <button type="button" disabled={pageHistory.length === 0} onClick={loadPrevious}>
-          Previous viewport
+          <span aria-hidden="true">↑</span> Previous viewport
         </button>
         <button type="button" disabled={!snapshot.next} onClick={loadNext}>
-          Next viewport
+          Next viewport <span aria-hidden="true">↓</span>
         </button>
       </div> : null}
     </div>

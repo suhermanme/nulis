@@ -341,6 +341,15 @@ export function App() {
   const [folderComparison, setFolderComparison] = useState<FolderCompareResult | null>(null);
   const [secondaryDocumentId, setSecondaryDocumentId] = useState<string | null>(null);
   const [viewModes, setViewModes] = useState<Record<string, "text" | "hex">>({});
+  // A binary document (a binary property list) opens in the hexadecimal view, once;
+  // the user may still switch it to text afterwards.
+  useEffect(() => {
+    const binary = documents.filter((document) => document.binaryFormat && viewModes[document.documentId] === undefined);
+    if (binary.length === 0) return;
+    setViewModes((current) => ({ ...current, ...Object.fromEntries(binary.map((document) => [document.documentId, "hex" as const])) }));
+    const [first] = binary;
+    if (first) setStatus(`${first.name} is a ${first.binaryFormat}: shown read-only in the hexadecimal editor`);
+  }, [documents]);
   const [activePanel, setActivePanel] = useState<"files" | "remote">("files");
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(260);

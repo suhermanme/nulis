@@ -1764,6 +1764,11 @@ test("Count All and the lines list go to the chosen line and can bookmark every 
     ],
   }];
   responses["editor.addBookmarks"] = [["0", "6"]];
+  // Count All counts in the core; the lines list still comes from Find All.
+  responses["search.countStart"] = [{ jobId: 1 }];
+  responses["search.countProgress"] = [{
+    matches: "3", lines: "2", scannedBytes: "20", totalBytes: "20", documents: 1, documentsWithMatches: 1, done: true, cancelled: false,
+  }];
   fireEvent.click(screen.getByRole("button", { name: "Find in Second" }));
   const panel = screen.getByRole("dialog", { name: "Find and Replace" });
   expect(within(panel).getByRole("textbox", { name: "Find what" })).toHaveValue("seeded");
@@ -2015,6 +2020,22 @@ test("YAML Beautify asks before losing comments, and plist has Validate and Beau
   expect(tool("Validate plist")).not.toBeNull();
   expect(tool("Beautify plist")).not.toBeNull();
   expect(tool("Minify JSON")).toBeNull();
+});
+
+test("a binary property list opens in the hexadecimal editor", async () => {
+  responses["file.new"] = [{
+    documentId: "document-1", name: "Preferences.plist", byteLen: "40", revision: "0", encoding: "utf8",
+    languageId: "plist", readOnly: true, binaryFormat: "binary property list",
+  }];
+  vi.mocked(isTauri).mockReturnValue(false);
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  fireEvent.click(screen.getByRole("button", { name: "New text file" }));
+  await waitFor(() => expect(screen.getByRole("status"))
+    .toHaveTextContent("Preferences.plist is a binary property list: shown read-only in the hexadecimal editor"));
+  expect(screen.getByRole("button", { name: "Show text editor" })).toBeInTheDocument();
+  // No text tools for bytes.
+  expect(within(screen.getByRole("toolbar", { name: "Custom toolbar" })).queryByRole("button", { name: "Validate plist" })).toBeNull();
 });
 
 test("an invalid document is not reformatted, and the native Tools menu follows the focused document", async () => {

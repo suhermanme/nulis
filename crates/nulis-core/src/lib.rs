@@ -1,6 +1,7 @@
 //! Headless application core and public command boundary.
 
 mod command;
+mod count_jobs;
 mod editor;
 mod format_tools;
 mod line_changes;
@@ -80,7 +81,7 @@ use nulis_automation::{
     CURRENT_REVISION_ARGUMENT,
 };
 
-pub const IPC_PROTOCOL_VERSION: u32 = 37;
+pub const IPC_PROTOCOL_VERSION: u32 = 39;
 pub const PRODUCT_NAME: &str = "Nulis";
 pub const APPLICATION_ID: &str = "com.nulis.editor";
 const MAX_SCRIPT_MESSAGES: usize = 100;
@@ -2776,6 +2777,7 @@ fn register_editor_commands(commands: &mut CommandRegistry, documents: &Arc<Docu
     register_navigation_commands(commands, documents);
     register_transform_and_bookmark_commands(commands, documents);
     register_search_commands(commands, documents);
+    count_jobs::register_count_commands(commands, documents);
     register_rectangular_selection_command(commands, documents);
     register_language_commands(commands, documents);
     register_hex_commands(commands, documents);

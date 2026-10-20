@@ -509,13 +509,20 @@ kbd { padding: 2px 6px; border: 1px solid #373e48; border-radius: 4px; color: #b
 }
 .editor-surface:focus-within .caret { opacity: 1; animation: caret-blink 1.05s step-end infinite; }
 .viewport-navigation {
-  position: absolute; right: 18px; bottom: 16px; display: flex; gap: 6px;
+  position: absolute; right: 18px; bottom: 16px; z-index: 5; display: flex; gap: 8px;
 }
+/* Paging a large file must be easy to spot in any theme: filled with the theme's accent. */
 .viewport-navigation button {
-  padding: 7px 11px; border: 1px solid #444c57;
-  border-radius: 6px; color: #d4d7dc; background: #20252dcc; font-size: 10px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px;
+  border: 1px solid var(--accent); border-radius: 7px; color: var(--accent-fg); background: var(--accent);
+  font-size: 12px; font-weight: 650; cursor: pointer;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 35%), 0 0 0 1px rgb(0 0 0 / 15%);
 }
-.viewport-navigation button:disabled { opacity: .4; cursor: default; }
+.viewport-navigation button:hover:not(:disabled) { filter: brightness(1.08); }
+.viewport-navigation button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.viewport-navigation button:disabled {
+  color: var(--accent); background: var(--editor-bg); opacity: .7; box-shadow: none; cursor: default;
+}
 
 .compare-view { min-width: 0; min-height: 0; height: 100%; display: grid; grid-template-rows: auto auto 1fr auto; background: var(--surface); }
 .compare-header { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto; align-items: center; gap: 16px; padding: 12px 18px; border-bottom: 1px solid var(--border); background: var(--panel); }
@@ -779,7 +786,6 @@ kbd,
 .editor-toolbar button,
 .editor-toolbar select,
 .split-document-picker select,
-.viewport-navigation button,
 .editor-mode,
 .hex-toolbar button,
 .hex-toolbar input {

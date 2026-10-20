@@ -21,6 +21,8 @@ pub(crate) enum Mode {
     Markup,
     /// Selectors and declarations.
     Css,
+    /// Delimiter-separated values (CSV, TSV): each column in its own color.
+    Delimited,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -75,6 +77,12 @@ pub(crate) struct LexerSpec {
     pub key_suffix: Option<u8>,
     /// Markup only: `<script>` and `<style>` bodies are skipped, not tokenized.
     pub raw_text_elements: bool,
+    /// Delimited only: the field separator. A comma means "guess from the
+    /// first line" among comma, semicolon, tab, and bar.
+    pub delimiter: Option<u8>,
+    /// YAML additions to the code scanner: document markers, anchors and
+    /// aliases, tags, block scalars, and quoted keys.
+    pub yaml: bool,
 }
 
 const BASE: LexerSpec = LexerSpec {
@@ -96,6 +104,8 @@ const BASE: LexerSpec = LexerSpec {
     capital_types: false,
     key_suffix: None,
     raw_text_elements: false,
+    delimiter: None,
+    yaml: false,
 };
 
 const C_STRINGS: &[StringRule] = &[
@@ -1694,6 +1704,14 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         ..BASE
     },
     LexerSpec {
+        id: "csv",
+        name: "CSV",
+        extensions: &["csv"],
+        mode: Mode::Delimited,
+        delimiter: Some(b','),
+        ..BASE
+    },
+    LexerSpec {
         id: "dockerfile",
         name: "Dockerfile",
         extensions: &["dockerfile"],
@@ -1974,6 +1992,14 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         ..BASE
     },
     LexerSpec {
+        id: "tsv",
+        name: "TSV",
+        extensions: &["tsv", "tab"],
+        mode: Mode::Delimited,
+        delimiter: Some(b'\t'),
+        ..BASE
+    },
+    LexerSpec {
         id: "typescript",
         name: "TypeScript",
         extensions: &["ts", "tsx", "mts", "cts"],
@@ -2059,6 +2085,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         name: "YAML",
         extensions: &["yaml", "yml"],
         filenames: &[".clang-format"],
+        yaml: true,
         keywords: YAML_KEYWORDS,
         line_comments: HASH,
         strings: C_STRINGS,
@@ -2122,6 +2149,7 @@ pub(crate) fn analyze(
         Mode::Code => scan.code(),
         Mode::Markup => scan.markup(),
         Mode::Css => scan.css(),
+        Mode::Delimited => scan.delimited(),
     }
     scan.out
 }
@@ -2342,6 +2370,10 @@ impl Scan<'_> {
                 continue;
             }
             let at_line_start = std::mem::replace(&mut fresh_line, false);
+            if spec.yaml && self.yaml(previous) {
+                previous = b'a';
+                continue;
+            }
             if self.comment() || self.string() {
                 previous = b'"';
                 continue;
@@ -2408,6 +2440,238 @@ impl Scan<'_> {
             }
             previous = byte;
             self.pos += 1;
+        }
+    }
+
+    /// Indentation (spaces and tabs) of the line holding `at`.
+    fn indent_of_line(&self, at: usize) -> usize {
+        let start = self.src[..at]
+            .iter()
+            .rposition(|byte| *byte == b'\n')
+            .map_or(0, |index| index + 1);
+        self.src[start..]
+            .iter()
+            .take_while(|byte| matches!(byte, b' ' | b'\t'))
+            .count()
+    }
+
+    /// YAML forms the generic code scanner does not know. `previous` is the
+    /// last significant byte, which tells where a value may start.
+    fn yaml(&mut self, previous: u8) -> bool {
+        let Some(byte) = self.at(0) else { return false };
+        let line_start = self.pos == 0 || self.src[self.pos - 1] == b'\n';
+        let ends_word =
+            |next: Option<u8>| matches!(next, None | Some(b' ' | b'\t' | b'\n' | b'\r'));
+        // Document start and end markers.
+        if line_start
+            && (self.starts_with("---") || self.starts_with("..."))
+            && ends_word(self.at(3))
+        {
+            self.take(self.pos + 3, SyntaxToken::Keyword);
+            return true;
+        }
+        let value_position = matches!(previous, b':' | b'-' | b'[' | b'{' | b',' | b'?' | b'\n');
+        let word_end = |src: &[u8], from: usize| {
+            src[from..]
+                .iter()
+                .position(|byte| byte.is_ascii_whitespace() || matches!(byte, b',' | b']' | b'}'))
+                .map_or(src.len(), |index| from + index)
+        };
+        match byte {
+            // &anchor and *alias.
+            b'&' | b'*' if value_position && !ends_word(self.at(1)) => {
+                self.take(word_end(self.src, self.pos + 1), SyntaxToken::Function);
+                true
+            }
+            // !tag, !!str, !<verbatim>.
+            b'!' if value_position => {
+                self.take(word_end(self.src, self.pos + 1), SyntaxToken::Type);
+                true
+            }
+            // Block scalars: the indicator, then the indented lines below it as text.
+            b'|' | b'>' if matches!(previous, b':' | b'-') => self.yaml_block_scalar(),
+            // A quoted key: "key": or 'key':
+            b'"' | b'\'' => self.yaml_quoted_key(byte),
+            _ => false,
+        }
+    }
+
+    /// A block scalar indicator (`|`, `>-`, `|2`) at the end of its line,
+    /// and the lines indented deeper than that line, colored as text.
+    fn yaml_block_scalar(&mut self) -> bool {
+        let mut end = self.pos + 1;
+        while self
+            .src
+            .get(end)
+            .is_some_and(|next| matches!(next, b'-' | b'+' | b'0'..=b'9'))
+        {
+            end += 1;
+        }
+        let line_end = self.line_end(end);
+        let rest = &self.src[end..line_end];
+        let rest_blank = rest.iter().all(u8::is_ascii_whitespace);
+        let rest_comment = rest.iter().find(|byte| !matches!(byte, b' ' | b'\t')) == Some(&b'#');
+        if !rest_blank && !rest_comment {
+            return false;
+        }
+        let parent = self.indent_of_line(self.pos);
+        self.take(end, SyntaxToken::Keyword);
+        if rest_comment {
+            let start = end + rest.iter().position(|byte| *byte == b'#').unwrap_or(0);
+            self.span(start, line_end, SyntaxToken::Comment);
+        }
+        self.skip_to(line_end);
+        // Blank lines belong to the block; it ends at the last deeper-indented line.
+        let body_start = (line_end + 1).min(self.src.len());
+        let mut body_end = body_start;
+        let mut cursor = body_start;
+        while cursor < self.src.len() {
+            let next_end = self.line_end(cursor);
+            let line = &self.src[cursor..next_end];
+            let blank = line.iter().all(u8::is_ascii_whitespace);
+            let indent = line
+                .iter()
+                .take_while(|byte| matches!(byte, b' ' | b'\t'))
+                .count();
+            if !blank && indent <= parent {
+                break;
+            }
+            if !blank {
+                body_end = next_end;
+            }
+            cursor = next_end + 1;
+        }
+        if body_end > body_start {
+            self.skip_to(body_start);
+            self.take(body_end, SyntaxToken::String);
+        }
+        true
+    }
+
+    /// A quoted mapping key (`"key":`, `'key':`), colored as a key; any other
+    /// quoted text is left to the string rules.
+    fn yaml_quoted_key(&mut self, quote: u8) -> bool {
+        let mut end = self.pos + 1;
+        while let Some(next) = self.src.get(end) {
+            match next {
+                b'\n' => return false,
+                b'\\' if quote == b'"' => end += 2,
+                b'\'' if quote == b'\'' && self.src.get(end + 1) == Some(&b'\'') => end += 2,
+                _ if *next == quote => {
+                    end += 1;
+                    break;
+                }
+                _ => end += 1,
+            }
+        }
+        let end = end.min(self.src.len());
+        let colon = self.src[end..]
+            .iter()
+            .position(|next| !matches!(next, b' ' | b'\t'));
+        let is_key = colon.is_some_and(|offset| {
+            self.src[end + offset] == b':'
+                && matches!(
+                    self.src.get(end + offset + 1),
+                    None | Some(b' ' | b'\t' | b'\n' | b'\r')
+                )
+        });
+        if is_key {
+            self.take(end, SyntaxToken::Property);
+        }
+        is_key
+    }
+
+    /// The separator a delimited file uses: the spec's, or for CSV the most
+    /// frequent of comma, semicolon, tab, and bar on the first line, outside quotes.
+    fn delimiter(&self) -> u8 {
+        let fixed = self.spec.delimiter.unwrap_or(b',');
+        if fixed != b',' {
+            return fixed;
+        }
+        let mut counts = [0_usize; 4];
+        let candidates = *b",;\t|";
+        let mut quoted = false;
+        for &byte in self.src {
+            if byte == b'\n' && !quoted {
+                break;
+            }
+            if byte == b'"' {
+                quoted = !quoted;
+            } else if !quoted {
+                if let Some(index) = candidates.iter().position(|candidate| *candidate == byte) {
+                    counts[index] += 1;
+                }
+            }
+        }
+        // Ties go to the comma.
+        let best = (0..4)
+            .max_by_key(|index| (counts[*index], usize::from(*index == 0)))
+            .unwrap_or(0);
+        if counts[best] == 0 {
+            b','
+        } else {
+            candidates[best]
+        }
+    }
+
+    /// CSV and TSV: every column takes the next color of a fixed cycle, so a
+    /// column keeps its color down the file. A quoted field may hold the
+    /// separator, doubled quotes, and line breaks; text after its closing
+    /// quote is marked invalid up to the next separator.
+    fn delimited(&mut self) {
+        const COLUMN_COLORS: [SyntaxToken; 6] = [
+            SyntaxToken::Keyword,
+            SyntaxToken::String,
+            SyntaxToken::Number,
+            SyntaxToken::Function,
+            SyntaxToken::Type,
+            SyntaxToken::Property,
+        ];
+        let separator = self.delimiter();
+        let field_end = |src: &[u8], from: usize| {
+            src[from..]
+                .iter()
+                .position(|byte| *byte == separator || matches!(byte, b'\n' | b'\r'))
+                .map_or(src.len(), |index| from + index)
+        };
+        let mut column = 0_usize;
+        while let Some(byte) = self.at(0) {
+            let color = COLUMN_COLORS[column % COLUMN_COLORS.len()];
+            match byte {
+                b'\n' => {
+                    self.row += 1;
+                    self.pos += 1;
+                    column = 0;
+                }
+                b'\r' => self.pos += 1,
+                _ if byte == separator => {
+                    self.pos += 1;
+                    column += 1;
+                }
+                b'"' => {
+                    let mut end = self.pos + 1;
+                    loop {
+                        match self.src.get(end) {
+                            None => break,
+                            Some(b'"') if self.src.get(end + 1) == Some(&b'"') => end += 2,
+                            Some(b'"') => {
+                                end += 1;
+                                break;
+                            }
+                            Some(_) => end += 1,
+                        }
+                    }
+                    self.take(end, color);
+                    let junk = field_end(self.src, self.pos);
+                    if junk > self.pos {
+                        self.take(junk, SyntaxToken::Invalid);
+                    }
+                }
+                _ => {
+                    let end = field_end(self.src, self.pos);
+                    self.take(end, color);
+                }
+            }
         }
     }
 

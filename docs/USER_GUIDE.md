@@ -110,7 +110,8 @@ Nulis is built to open files larger than memory, tens of gigabytes included.
 - Opening is immediate, because the file is not read into memory. Only the part on screen is read.
 - Scrolling, Go To, and the hexadecimal view work anywhere in the file.
 - Edits are stored separately from the original file and merged when you save, so typing in the middle of a huge file is as fast as in a small one.
-- Find and Replace All read the file in small pieces.
+- The editor shows a large file one stretch at a time. The **↑ Previous viewport** and **Next viewport ↓** buttons at the bottom right of the editor, filled in the theme's accent color, move to the stretch before or after.
+- Find and Replace All read the file in small pieces. **Count All** counts every match in the whole file, with progress and a **Cancel** button.
 
 A few features that need the whole document at once — the JSON, XML, YAML, and plist tools, for example — have size limits and tell you when a file is too large for them.
 
@@ -311,7 +312,7 @@ The window has four tabs: **Find**, **Find in Files**, **Replace**, and **Replac
 - **Find where** / **Replace where**: **Current document**, **Selected text** (the selection at the moment you press the button), or **All open files**.
 - **Options**: **Match case**, **Match whole word** (the text is not part of a longer word), **Use regular expressions** (see [Regular expressions](#regular-expressions); **Regex help** next to it opens that section), and on the Find and Replace tabs **Search in column** (see [Search in column](#search-in-column)). On the Find tab also **Highlight all items found**, **List lines containing find string**, and **Close after find**; on the Replace tabs **Close after replace all**. Nulis remembers the options the next time the window opens.
 - A mistake in a regular expression or in the column numbers is shown in red under **Find what**, and the buttons wait until it is fixed.
-- **Find** tab buttons: **Count All** reports the number of matches and lines; **Previous** and **Next** move between matches. In the current document they start at the caret and wrap around; in a selection or across open files they step through the matches found.
+- **Find** tab buttons: **Count All** reports the number of matches and of lines that hold them, with no limit, even in a file of many gigabytes. While it counts, the status line shows how far it has got (for example *Counting… 41% (13.0 GB of 31.8 GB) · 1,234,567 matches so far*) and the button becomes **Cancel**; you can keep scrolling and editing other files meanwhile. If the document is changed during the count, the count stops and says so. **Previous** and **Next** move between matches. In the current document they start at the caret and wrap around; in a selection or across open files they step through the matches found.
 - **Replace** tab buttons: **Next**, **Replace** (the current match, in the current document), and **Replace All**. Replace All is one undo step per document. Across open files, read-only documents are skipped and named in the result.
 
 ### Regular expressions
@@ -391,7 +392,11 @@ Nulis picks a language from the file name and extension. For names that say noth
 
 To override the choice, use the **View As** list in the editor toolbar. This also switches which tools are offered: choosing JSON, XML, YAML, or Property List turns on that language's tools for a file with any extension.
 
-Supported languages: AppleScript, Bash and other shells, Batch, C, C++, C#, CSS, Dockerfile, Go, HTML, INI, Java, JavaScript, JSON, Kotlin, Lua, Makefile, Markdown, MySQL / MariaDB, Objective-C / Objective-C++, Oracle PL/SQL, Perl, PHP, PowerShell, Property List (`.plist`), Python, Ruby, Rust, SQL, Swift, TOML, TypeScript, VBScript / ASP, Visual Basic, XML, XSL, YAML, and Zig. Anything else is shown as plain text.
+Supported languages: AppleScript, Bash and other shells, Batch, C, C++, C#, CSS, CSV, Dockerfile, Go, HTML, INI, Java, JavaScript, JSON, Kotlin, Lua, Makefile, Markdown, MySQL / MariaDB, Objective-C / Objective-C++, Oracle PL/SQL, Perl, PHP, PowerShell, Property List (`.plist`), Python, Ruby, Rust, SQL, Swift, TOML, TSV, TypeScript, VBScript / ASP, Visual Basic, XML, XSL, YAML, and Zig. Anything else is shown as plain text.
+
+- **CSV and TSV** files color each column differently, so a column keeps its color all the way down. Quoted fields may hold the separator, doubled quotes (`""`), and line breaks; text after a closing quote is marked as an error. For `.csv` files Nulis takes the separator from the first line: comma, semicolon, tab, or `|`. TSV (`.tsv`, `.tab`) always uses tabs.
+- **YAML** also marks document separators (`---`, `...`), anchors and aliases (`&name`, `*name`), tags (`!Ref`, `!!str`), block text after `|` or `>`, and quoted keys.
+- A **binary property list** (a `.plist` file in Apple's binary format) is not text: it opens read-only in the hexadecimal editor, and the status bar says why. XML property lists open as text as usual.
 
 #### Text encoding
 
@@ -586,7 +591,7 @@ Nulis keeps every operation bounded so that it stays responsive. The limits you 
 | Bookmarks per document | 1,024 |
 | Rows of a column block (and Insert Number Sequence) | 100,000 |
 | Copy, cut, and Sum Selected Numbers | 8 MiB of selected text |
-| Lines containing the text | 5,000 lines (10,000 matches) |
+| Lines containing the text | 5,000 lines (10,000 matches); Count All itself has no limit |
 | Find in Files | 2,000 results from up to 10,000 files |
 | Replace in Files | 1,000 files at a time |
 | Character, word, and line counts | Documents up to 64 MiB |

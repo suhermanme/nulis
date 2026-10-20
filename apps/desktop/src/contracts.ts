@@ -1,5 +1,5 @@
 /** Versioned JSON-compatible values mirrored from nulis-core's public IPC DTOs. */
-export const IPC_PROTOCOL_VERSION = 37 as const;
+export const IPC_PROTOCOL_VERSION = 39 as const;
 
 export interface ThemeRecord {
   schema?: string;
@@ -220,6 +220,8 @@ export interface DocumentSummary {
   readOnly?: boolean;
   /** The built-in tools its language has (Validate, Beautify, and for JSON Minify). */
   tool?: ToolKind;
+  /** A binary format such as "binary property list": shown in the hexadecimal view. */
+  binaryFormat?: string;
 }
 
 /** The built-in tool set a document's language has, if any. */

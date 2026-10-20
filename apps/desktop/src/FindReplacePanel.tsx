@@ -91,6 +91,52 @@ function Frame({ framed, title, label, initial, width, onClose, className, child
   </main>;
 }
 
+/** How often Count All asks the core how far it has got. */
+const COUNT_POLL_MS = 200;
+
+/** A Count All report from the core; byte and match counts are decimal strings. */
+export interface CountReport {
+  matches: string;
+  lines: string;
+  scannedBytes: string;
+  totalBytes: string;
+  documents: number;
+  documentsWithMatches: number;
+  done: boolean;
+  cancelled: boolean;
+  error?: string;
+}
+
+const grouped = (value: string | number) => Number(value).toLocaleString("en-US");
+const plural = (count: string | number, word: string) => `${grouped(count)} ${word}${Number(count) === 1 ? "" : word.endsWith("ch") ? "es" : "s"}`;
+
+/** Bytes as KB, MB, or GB with one decimal. */
+export function sizeText(bytes: string | number): string {
+  const value = Number(bytes);
+  const units = ["bytes", "KB", "MB", "GB", "TB"];
+  let index = 0;
+  let scaled = value;
+  while (scaled >= 1024 && index < units.length - 1) { scaled /= 1024; index += 1; }
+  return index === 0 ? `${value} bytes` : `${scaled.toFixed(1)} ${units[index]}`;
+}
+
+function percent(report: CountReport): number {
+  const total = Number(report.totalBytes);
+  return total === 0 ? 100 : Math.floor((Number(report.scannedBytes) / total) * 100);
+}
+
+/** "Counting… 41% (13.0 GB of 31.8 GB) · 1,234,567 matches so far" */
+export function countingText(report: CountReport): string {
+  return `Counting… ${percent(report)}% (${sizeText(report.scannedBytes)} of ${sizeText(report.totalBytes)}) · ${plural(report.matches, "match")} so far`;
+}
+
+/** The final Count All result, or where a cancelled count stopped. */
+export function countResultText(report: CountReport): string {
+  const found = `${plural(report.matches, "match")} on ${plural(report.lines, "line")}`;
+  const files = report.documents > 1 ? ` in ${plural(report.documentsWithMatches, "file")}` : "";
+  return report.cancelled ? `Stopped at ${percent(report)}%: ${found} so far${files}` : `${found}${files}`;
+}
+
 const HISTORY_LIMIT = 20;
 const HISTORY_KEYS = { find: "nulis.find.history", replace: "nulis.replace.history" } as const;
 const TABS: Array<{ id: FindTab; label: string }> = [
@@ -426,17 +472,54 @@ export function FindReplacePanel(props: FindReplacePanelProps) {
     try { await action(); } catch (error: unknown) { onStatus(errorText(error, "Search failed")); } finally { setBusy(false); }
   };
 
+  // Count All runs as a background job in the core: every match is counted,
+  // however many, with progress and a Cancel button.
+  const [countJob, setCountJob] = useState<number | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => () => { mounted.current = false; }, []);
+  const cancelCount = () => {
+    if (countJob === null) return;
+    void executeCommand({ id: "search.countCancel", context: { windowId: "main" }, arguments: { jobId: countJob } })
+      .catch(() => undefined);
+  };
   const countAll = () => run(async () => {
     rememberQuery();
-    const found = await collect();
-    const matches = found.reduce((total, { result }) => total + result.matches.length, 0);
-    const lines = found.reduce((total, { result }) => total + result.lines.length, 0);
-    const limited = found.some(({ result }) => result.truncated) ? " (limit reached)" : "";
-    const files = found.length > 1 ? ` in ${found.filter(({ result }) => result.matches.length > 0).length} files` : "";
-    const message = `${matches} match${matches === 1 ? "" : "es"} on ${lines} line${lines === 1 ? "" : "s"}${files}${limited}`;
+    let targets: Array<{ documentId: string; within?: ByteRange }>;
+    if (documentScope === "openFiles") {
+      targets = textDocuments.map((document) => ({ documentId: document.documentId }));
+    } else {
+      if (!activeDocument) throw new Error("Open a text document to search in");
+      if (documentScope === "selection" && (!selection || selection.startByte === selection.endByte)) {
+        throw new Error("Select the text to search in first");
+      }
+      targets = [{ documentId: activeDocument.documentId, ...(documentScope === "selection" && selection ? { within: selection } : {}) }];
+    }
+    if (targets.length === 0) throw new Error("Open a text document to search in");
+    const { jobId } = await executeCommand<{ jobId: number }>({
+      id: "search.countStart", context: { windowId: "main" }, arguments: { query, options, targets },
+    });
+    setCountJob(jobId);
+    let report: CountReport;
+    try {
+      for (;;) {
+        await new Promise((resolve) => setTimeout(resolve, COUNT_POLL_MS));
+        if (!mounted.current) {
+          void executeCommand({ id: "search.countCancel", context: { windowId: "main" }, arguments: { jobId } }).catch(() => undefined);
+          return;
+        }
+        report = await executeCommand<CountReport>({ id: "search.countProgress", context: { windowId: "main" }, arguments: { jobId } });
+        if (report.done) break;
+        setSummary(countingText(report));
+      }
+    } finally {
+      if (mounted.current) setCountJob(null);
+    }
+    if (report.error) throw new Error(report.error);
+    const message = countResultText(report);
     setSummary(message);
     onStatus(message);
-    if (listLines) showLines(found);
+    if (report.cancelled) return;
+    if (listLines) showLines(await collect());
     if (closeAfter) onClose();
   });
 
@@ -722,7 +805,9 @@ export function FindReplacePanel(props: FindReplacePanelProps) {
         </div> : null}
         {statusLine}
         {tab === "find" ? <div className="find-actions">
-          <button type="button" disabled={busy || inputError !== null} onClick={() => void countAll()}>Count All</button>
+          {countJob !== null
+            ? <button type="button" onClick={cancelCount}>Cancel</button>
+            : <button type="button" disabled={busy || inputError !== null} onClick={() => void countAll()}>Count All</button>}
           <span />
           <button type="button" disabled={busy || inputError !== null} onClick={() => void step("previous")}>Previous</button>
           <button type="button" className="primary" disabled={busy || inputError !== null} onClick={() => void step("next")}>Next</button>

@@ -1108,6 +1108,8 @@ mod tests {
             ("pom.xml", "xml"),
             ("icon.svg", "xml"),
             ("Info.plist", "plist"),
+            ("export.csv", "csv"),
+            ("table.tsv", "tsv"),
             ("report.xsl", "xsl"),
             ("build.zig", "zig"),
             ("main.go", "go"),
@@ -1293,6 +1295,62 @@ mod tests {
         assert!(has(&yaml, "name", SyntaxToken::Property));
         assert!(has(&yaml, "true", SyntaxToken::Keyword));
         assert!(has(&yaml, "# ci", SyntaxToken::Comment));
+    }
+
+    #[test]
+    fn yaml_markers_anchors_tags_block_text_and_quoted_keys() {
+        let yaml = tokens(
+            "yaml",
+            "---\ndefaults: &base\n  retries: 3\n\"quoted key\": 1\nservice:\n  <<: *base\n  ref: !Ref Bucket\n  script: |\n    echo one\n\n    echo two\n  after: x\n...\n",
+        );
+        assert!(has(&yaml, "---", SyntaxToken::Keyword));
+        assert!(has(&yaml, "...", SyntaxToken::Keyword));
+        assert!(has(&yaml, "&base", SyntaxToken::Function));
+        assert!(has(&yaml, "*base", SyntaxToken::Function));
+        assert!(has(&yaml, "!Ref", SyntaxToken::Type));
+        assert!(has(&yaml, "\"quoted key\"", SyntaxToken::Property));
+        assert!(has(&yaml, "|", SyntaxToken::Keyword));
+        assert!(has(
+            &yaml,
+            "    echo one\n\n    echo two",
+            SyntaxToken::String
+        ));
+        // The key after the block is a key again.
+        assert!(has(&yaml, "after", SyntaxToken::Property));
+        // A quoted value stays a string; a dash in a value is not a marker.
+        let values = tokens("yaml", "a: \"text\"\nb: x---y\n");
+        assert!(has(&values, "\"text\"", SyntaxToken::String));
+        assert!(!values.iter().any(|(_, kind)| *kind == SyntaxToken::Keyword));
+    }
+
+    #[test]
+    fn csv_columns_keep_their_color_down_the_file() {
+        let csv = tokens("csv", "id,name,note\n1,\"Doe, Jane\",\"said \"\"hi\"\"\"\n2,Bob,\"two\nlines\"\n3,\"x\"junk,z\n");
+        let column = |text: &str| {
+            csv.iter()
+                .find(|(item, _)| item == text)
+                .map(|(_, kind)| *kind)
+        };
+        assert_eq!(column("id"), column("1"));
+        assert_eq!(column("name"), column("\"Doe, Jane\""));
+        assert_eq!(column("note"), column("\"said \"\"hi\"\"\""));
+        assert_eq!(column("note"), column("\"two\nlines\""));
+        assert_ne!(column("id"), column("name"));
+        assert!(has(&csv, "junk", SyntaxToken::Invalid));
+        // Semicolons are recognized when the first line uses them.
+        let semicolons = tokens("csv", "a;b;c\n1;2,5;3\n");
+        assert!(has(
+            &semicolons,
+            "2,5",
+            semicolons
+                .iter()
+                .find(|(item, _)| item == "b")
+                .expect("b")
+                .1
+        ));
+        let tsv = tokens("tsv", "a\tb\n1\t2\n");
+        assert_eq!(tsv.len(), 4);
+        assert_ne!(tsv[0].1, tsv[1].1);
     }
 
     #[test]

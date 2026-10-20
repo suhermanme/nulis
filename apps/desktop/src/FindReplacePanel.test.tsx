@@ -136,3 +136,42 @@ it("reads column fields as whole numbers from 1", () => {
   expect(columnRange("1.5", "")).toEqual({ error: "Columns are whole numbers from 1" });
   expect(columnRange("", "")).toEqual({ error: "Enter a From or To column" });
 });
+
+it("counts every match in the background, shows progress, and can be cancelled", async () => {
+  const reports = [
+    { matches: "1234567", lines: "900000", scannedBytes: String(13 * 1024 ** 3), totalBytes: String(31.8 * 1024 ** 3), documents: 1, documentsWithMatches: 0, done: false, cancelled: false },
+    { matches: "2500000", lines: "1800000", scannedBytes: String(31.8 * 1024 ** 3), totalBytes: String(31.8 * 1024 ** 3), documents: 1, documentsWithMatches: 1, done: true, cancelled: false },
+  ];
+  vi.mocked(executeCommand).mockImplementation(async (request) => {
+    if (request.id === "search.countStart") return { jobId: 7 };
+    if (request.id === "search.countProgress") return reports.shift();
+    return null;
+  });
+  panel("find");
+  fireEvent.change(screen.getByRole("textbox", { name: "Find what" }), { target: { value: "aadmin1" } });
+  fireEvent.click(screen.getByRole("button", { name: "Count All" }));
+  expect(await screen.findByRole("button", { name: "Cancel" })).toBeEnabled();
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Counting… 40% (13.0 GB of 31.8 GB) · 1,234,567 matches so far"));
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("2,500,000 matches on 1,800,000 lines"));
+  expect(screen.getByRole("status")).not.toHaveTextContent("limit");
+  expect(screen.getByRole("button", { name: "Count All" })).toBeEnabled();
+  expect(executeCommand).toHaveBeenCalledWith({
+    id: "search.countStart", context: { windowId: "main" },
+    arguments: { query: "aadmin1", options: { mode: "literal", caseSensitive: false, wholeWord: false }, targets: [{ documentId: "document-1" }] },
+  });
+
+  // Cancel asks the core to stop; the result says where it stopped.
+  let cancelled = false;
+  vi.mocked(executeCommand).mockImplementation(async (request) => {
+    if (request.id === "search.countStart") return { jobId: 8 };
+    if (request.id === "search.countCancel") { cancelled = true; return null; }
+    if (request.id === "search.countProgress") {
+      return { matches: "10", lines: "4", scannedBytes: "500", totalBytes: "1000", documents: 1, documentsWithMatches: 1, done: cancelled, cancelled };
+    }
+    return null;
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Count All" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+  await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Stopped at 50%: 10 matches on 4 lines so far"));
+  expect(executeCommand).toHaveBeenCalledWith({ id: "search.countCancel", context: { windowId: "main" }, arguments: { jobId: 8 } });
+});

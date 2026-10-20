@@ -185,6 +185,147 @@ pub fn search_until(
     }
 }
 
+/// How far a count has got. Counting a large document goes slice by slice
+/// (see [`count_slice`]); this carries everything one slice needs from the
+/// one before, so matches and lines are counted exactly once.
+#[derive(Clone, Copy, Debug)]
+pub struct CountProgress {
+    /// Matches counted so far.
+    pub matches: u64,
+    /// Distinct lines holding at least one match (where a match starts).
+    pub lines: u64,
+    /// Where the next slice starts.
+    pub next: u64,
+    /// The whole range has been counted.
+    pub done: bool,
+    /// Where the next match may start: after the end of the last one.
+    resume: u64,
+    line_state: LineState,
+}
+
+impl CountProgress {
+    /// A count that starts at `start`.
+    #[must_use]
+    pub fn starting_at(start: u64) -> Self {
+        Self {
+            matches: 0,
+            lines: 0,
+            next: start,
+            done: false,
+            resume: start,
+            line_state: LineState::at(start),
+        }
+    }
+}
+
+/// Counts the matches that start between `progress.next` and `stop` (or the
+/// end of `source`), adding to `progress`. Call again with a later `stop`
+/// until `progress.done`. Memory stays bounded however many matches there are.
+///
+/// # Errors
+/// Returns a typed error for an invalid pattern or column range, a match
+/// above the size cap, or a source read failure.
+pub fn count_slice(
+    source: &dyn ReadAt,
+    pattern: &[u8],
+    options: SearchOptions,
+    progress: &mut CountProgress,
+    stop: u64,
+    cancellation: &CancellationToken,
+) -> Result<(), SearchError> {
+    if pattern.is_empty() {
+        return Err(SearchError::EmptyPattern);
+    }
+    if pattern.len() > MAX_PATTERN_BYTES {
+        return Err(SearchError::PatternTooLarge(pattern.len()));
+    }
+    let matcher = Matcher::new(pattern, options)?;
+    let stop = stop.min(source.len());
+    let mut window = Vec::new();
+    if let Some(columns) = options
+        .columns
+        .map(ColumnRange::validate)
+        .transpose()?
+        .flatten()
+    {
+        // Each line's columns are searched on their own; a line counts once.
+        let mut blocks = Blocks::new(source);
+        let mut line = line_start(source, progress.next)?;
+        while line < stop {
+            if cancellation.is_cancelled() {
+                progress.next = line;
+                return Ok(());
+            }
+            let segment = scan_line(&mut blocks, line, columns)?;
+            if segment.end > segment.start {
+                let slice = Slice {
+                    source,
+                    start: segment.start,
+                    end: segment.end,
+                };
+                let mut found = 0_u64;
+                let mut lines = LineState::at(0);
+                scan(
+                    &slice,
+                    &matcher,
+                    0,
+                    0,
+                    slice.len(),
+                    &mut lines,
+                    cancellation,
+                    &mut window,
+                    &mut |_, _, _| {
+                        found += 1;
+                        true
+                    },
+                )?;
+                progress.matches += found;
+                progress.lines += u64::from(found > 0);
+            }
+            match segment.next_line {
+                Some(next) if next < source.len() => line = next,
+                _ => {
+                    progress.next = source.len();
+                    progress.done = true;
+                    return Ok(());
+                }
+            }
+        }
+        progress.next = line;
+        progress.done = line >= source.len();
+        return Ok(());
+    }
+    let (mut counted, mut new_lines) = (0_u64, 0_u64);
+    let mut resume = progress.resume;
+    let end = scan(
+        source,
+        &matcher,
+        progress.next,
+        progress.resume,
+        stop,
+        &mut progress.line_state,
+        cancellation,
+        &mut window,
+        &mut |start, end, new_line| {
+            counted += 1;
+            new_lines += u64::from(new_line);
+            resume = end.max(start + 1);
+            true
+        },
+    )?;
+    progress.matches += counted;
+    progress.lines += new_lines;
+    progress.resume = resume.max(progress.resume);
+    match end {
+        ScanEnd::Cancelled(at) => progress.next = at,
+        ScanEnd::Finished | ScanEnd::Stopped(_) => {
+            progress.next = stop;
+            progress.done = stop >= source.len();
+        }
+    }
+    Ok(())
+}
+
 /// Where a search starts, and the offset matches must start before.
 #[derive(Clone, Copy, Debug)]
 struct Range {
@@ -508,10 +649,10 @@ pub fn plan_replacements_each(
 
 #[derive(Debug)]
 enum Matcher {
-    Literal {
-        pattern: Vec<u8>,
-        case_sensitive: bool,
-    },
+    /// Exact bytes; letters may match either ASCII case. Searched with the
+    /// regex engine's literal finder, which is many times faster than a
+    /// byte-by-byte comparison on large files.
+    Literal { pattern: Vec<u8>, finder: Regex },
     Regex {
         regex: Regex,
         maximum_len: usize,
@@ -525,7 +666,7 @@ impl Matcher {
         match options.mode {
             SearchMode::Literal if !options.whole_word => Ok(Self::Literal {
                 pattern: pattern.to_vec(),
-                case_sensitive: options.case_sensitive,
+                finder: literal_finder(pattern, options.case_sensitive)?,
             }),
             SearchMode::Literal | SearchMode::Regex => {
                 let text =
@@ -620,10 +761,9 @@ impl Matcher {
     /// before `from` still counts as context for anchors and word boundaries.
     fn find_at(&self, haystack: &[u8], from: usize) -> Option<(usize, usize)> {
         match self {
-            Self::Literal {
-                pattern,
-                case_sensitive,
-            } => literal_find(haystack, pattern, *case_sensitive, from),
+            Self::Literal { finder, .. } => finder
+                .find_at(haystack, from)
+                .map(|found| (found.start(), found.end())),
             Self::Regex { regex, .. } => regex
                 .find_at(haystack, from)
                 .map(|found| (found.start(), found.end())),
@@ -631,49 +771,68 @@ impl Matcher {
     }
 }
 
-fn search_with_matcher(
+/// Where line counting stands while matches are visited: whether a line
+/// break has been seen since the start of the last visited match.
+#[derive(Clone, Copy, Debug)]
+struct LineState {
+    /// Start of the last visited match, or the scan start before any.
+    scan_from: u64,
+    seen_break: bool,
+    first: bool,
+}
+
+impl LineState {
+    fn at(start: u64) -> Self {
+        Self {
+            scan_from: start,
+            seen_break: false,
+            first: true,
+        }
+    }
+}
+
+/// How a scan ended: at the stop or the end of the source, at the match
+/// where the visitor stopped it (its end), or cancelled at an offset.
+enum ScanEnd {
+    Finished,
+    Stopped(u64),
+    Cancelled(u64),
+}
+
+/// Visits every match that starts in `window_start..stop` (none starting
+/// before `resume_at`), telling the visitor whether the match begins a new
+/// line, that is, a line break lies between it and the previous match (the
+/// first match always does). The visitor returns `false` to stop.
+#[allow(clippy::too_many_arguments)] // One scan's position, state, and output.
+fn scan(
     source: &dyn ReadAt,
     matcher: &Matcher,
-    range: Range,
-    max_matches: usize,
+    mut window_start: u64,
+    mut resume_at: u64,
+    stop: u64,
+    lines: &mut LineState,
     cancellation: &CancellationToken,
     window: &mut Vec<u8>,
-) -> Result<SearchPage, SearchError> {
+    visit: &mut dyn FnMut(u64, u64, bool) -> bool,
+) -> Result<ScanEnd, SearchError> {
+    let overflow = |_| SearchError::OffsetOverflow;
     let source_len = source.len();
-    let Range {
-        start: start_offset,
-        stop,
-    } = range;
     let boundary_context = matcher.boundary_context();
     let (chunk, window_capacity) = matcher.window_sizes()?;
     if window.len() < window_capacity {
         window.resize(window_capacity, 0);
     }
-    let mut window_start = start_offset;
-    // Where the next match may start: never inside one already reported.
-    let mut resume_at = start_offset;
-    let mut found_matches = Vec::new();
-
     while window_start < source_len.min(stop) {
         if cancellation.is_cancelled() {
-            return Ok(SearchPage {
-                matches: found_matches,
-                next_offset: Some(window_start),
-                scanned_through: window_start,
-                complete: false,
-                cancelled: true,
-            });
+            return Ok(ScanEnd::Cancelled(window_start));
         }
-        let read_start = window_start.saturating_sub(
-            u64::try_from(boundary_context).map_err(|_| SearchError::OffsetOverflow)?,
-        );
-        let prefix_len =
-            usize::try_from(window_start - read_start).map_err(|_| SearchError::OffsetOverflow)?;
+        let read_start =
+            window_start.saturating_sub(u64::try_from(boundary_context).map_err(overflow)?);
+        let prefix_len = usize::try_from(window_start - read_start).map_err(overflow)?;
         let remaining = source_len - read_start;
-        let request_len = usize::try_from(
-            remaining.min(u64::try_from(window_capacity).map_err(|_| SearchError::OffsetOverflow)?),
-        )
-        .map_err(|_| SearchError::OffsetOverflow)?;
+        let request_len =
+            usize::try_from(remaining.min(u64::try_from(window_capacity).map_err(overflow)?))
+                .map_err(overflow)?;
         let read = source.read_at(read_start, &mut window[..request_len])?;
         if read == 0 {
             break;
@@ -686,12 +845,14 @@ fn search_with_matcher(
             .checked_add(primary_len)
             .ok_or(SearchError::OffsetOverflow)?;
         let window_end = read_start
-            .checked_add(u64::try_from(read).map_err(|_| SearchError::OffsetOverflow)?)
+            .checked_add(u64::try_from(read).map_err(overflow)?)
             .ok_or(SearchError::OffsetOverflow)?;
         let haystack = &window[..read];
-        let mut at = usize::try_from(resume_at.saturating_sub(read_start))
-            .map_err(|_| SearchError::OffsetOverflow)?
-            .max(prefix_len);
+        // Line breaks are looked for from here on in this window.
+        let local =
+            |offset: u64| usize::try_from(offset.saturating_sub(read_start)).unwrap_or(usize::MAX);
+        let mut break_from = local(lines.scan_from).max(prefix_len);
+        let mut at = local(resume_at).max(prefix_len);
         while at <= read {
             let Some((local_start, local_end)) = matcher.find_at(haystack, at) else {
                 break;
@@ -709,38 +870,93 @@ fn search_with_matcher(
                 local_end
             };
             let start = read_start
-                .checked_add(u64::try_from(local_start).map_err(|_| SearchError::OffsetOverflow)?)
+                .checked_add(u64::try_from(local_start).map_err(overflow)?)
                 .ok_or(SearchError::OffsetOverflow)?;
             let end = read_start
-                .checked_add(u64::try_from(local_end).map_err(|_| SearchError::OffsetOverflow)?)
+                .checked_add(u64::try_from(local_end).map_err(overflow)?)
                 .ok_or(SearchError::OffsetOverflow)?;
+            let gap = haystack
+                .get(break_from.min(local_start)..local_start)
+                .unwrap_or_default();
+            let new_line = lines.first || lines.seen_break || gap.contains(&b'\n');
+            *lines = LineState {
+                scan_from: start,
+                seen_break: false,
+                first: false,
+            };
+            break_from = local_start;
             resume_at = end.max(start + 1);
-            found_matches.push(SearchMatch {
-                range: ByteRange::new(ByteOffset(start), ByteOffset(end))
-                    .map_err(|_| SearchError::OffsetOverflow)?,
-            });
-            if found_matches.len() == max_matches {
-                return Ok(SearchPage {
-                    matches: found_matches,
-                    next_offset: Some(end),
-                    scanned_through: end,
-                    complete: end >= source_len,
-                    cancelled: false,
-                });
+            if !visit(start, end, new_line) {
+                return Ok(ScanEnd::Stopped(end));
             }
         }
-        let advanced = u64::try_from(primary_len).map_err(|_| SearchError::OffsetOverflow)?;
+        let rest = haystack
+            .get(break_from.min(primary_end)..primary_end)
+            .unwrap_or_default();
+        lines.seen_break |= rest.contains(&b'\n');
         window_start = window_start
-            .checked_add(advanced)
+            .checked_add(u64::try_from(primary_len).map_err(overflow)?)
             .ok_or(SearchError::OffsetOverflow)?;
     }
+    Ok(ScanEnd::Finished)
+}
 
-    Ok(SearchPage {
-        matches: found_matches,
-        next_offset: None,
-        scanned_through: source_len,
-        complete: true,
-        cancelled: false,
+fn search_with_matcher(
+    source: &dyn ReadAt,
+    matcher: &Matcher,
+    range: Range,
+    max_matches: usize,
+    cancellation: &CancellationToken,
+    window: &mut Vec<u8>,
+) -> Result<SearchPage, SearchError> {
+    let source_len = source.len();
+    let mut found_matches = Vec::new();
+    let mut lines = LineState::at(range.start);
+    let mut failure = None;
+    let end = scan(
+        source,
+        matcher,
+        range.start,
+        range.start,
+        range.stop,
+        &mut lines,
+        cancellation,
+        window,
+        &mut |start, end, _| {
+            if let Ok(range) = ByteRange::new(ByteOffset(start), ByteOffset(end)) {
+                found_matches.push(SearchMatch { range });
+                found_matches.len() < max_matches
+            } else {
+                failure = Some(SearchError::OffsetOverflow);
+                false
+            }
+        },
+    )?;
+    if let Some(error) = failure {
+        return Err(error);
+    }
+    Ok(match end {
+        ScanEnd::Stopped(end) => SearchPage {
+            matches: found_matches,
+            next_offset: Some(end),
+            scanned_through: end,
+            complete: end >= source_len,
+            cancelled: false,
+        },
+        ScanEnd::Cancelled(at) => SearchPage {
+            matches: found_matches,
+            next_offset: Some(at),
+            scanned_through: at,
+            complete: false,
+            cancelled: true,
+        },
+        ScanEnd::Finished => SearchPage {
+            matches: found_matches,
+            next_offset: None,
+            scanned_through: source_len,
+            complete: true,
+            cancelled: false,
+        },
     })
 }
 
@@ -1032,26 +1248,21 @@ fn readable_regex_error(error: &regex_syntax::Error, pattern: &str, prefix: usiz
     }
 }
 
-fn literal_find(
-    haystack: &[u8],
-    needle: &[u8],
-    case_sensitive: bool,
-    from: usize,
-) -> Option<(usize, usize)> {
-    let mut offset = from;
-    while offset.saturating_add(needle.len()) <= haystack.len() {
-        let candidate = &haystack[offset..offset + needle.len()];
-        let equal = if case_sensitive {
-            candidate == needle
-        } else {
-            candidate.eq_ignore_ascii_case(needle)
-        };
-        if equal {
-            return Some((offset, offset + needle.len()));
-        }
-        offset += 1;
+/// A byte-exact pattern for the regex engine: every byte written as
+/// `\xHH` with Unicode off, so any encoding works, and case folding (when
+/// asked) is ASCII-only, matching the plain-text search's rules.
+fn literal_finder(pattern: &[u8], case_sensitive: bool) -> Result<Regex, SearchError> {
+    use std::fmt::Write as _;
+    let mut expression = String::with_capacity(pattern.len() * 4);
+    for byte in pattern {
+        let _ = write!(expression, "\\x{byte:02X}");
     }
-    None
+    RegexBuilder::new(&expression)
+        .unicode(false)
+        .case_insensitive(!case_sensitive)
+        .size_limit(64 * 1024 * 1024)
+        .build()
+        .map_err(|error| SearchError::InvalidRegex(last_line(&error.to_string())))
 }
 
 fn validate_request(
@@ -1117,9 +1328,9 @@ pub enum SearchError {
 #[cfg(test)]
 mod tests {
     use super::{
-        expand_replacements, plan_replacements, plan_replacements_each, search, search_until,
-        CancellationToken, ColumnRange, SearchError, SearchMode, SearchOptions, MAX_PAGE_MATCHES,
-        MAX_REGEX_MATCH_BYTES, SEARCH_CHUNK_BYTES,
+        count_slice, expand_replacements, plan_replacements, plan_replacements_each, search,
+        search_until, CancellationToken, ColumnRange, CountProgress, SearchError, SearchMode,
+        SearchOptions, MAX_PAGE_MATCHES, MAX_REGEX_MATCH_BYTES, SEARCH_CHUNK_BYTES,
     };
     use nulis_large_file::MemorySource;
 
@@ -1630,6 +1841,124 @@ mod tests {
         )
         .expect("column search");
         assert_eq!(page.matches.len(), 2);
+    }
+
+    fn count_in_slices(
+        text: &[u8],
+        pattern: &[u8],
+        options: SearchOptions,
+        slice: u64,
+    ) -> (u64, u64) {
+        let source = MemorySource::new(text.to_vec());
+        let mut progress = CountProgress::starting_at(0);
+        while !progress.done {
+            let stop = progress.next + slice;
+            count_slice(
+                &source,
+                pattern,
+                options,
+                &mut progress,
+                stop,
+                &CancellationToken::default(),
+            )
+            .expect("count");
+        }
+        (progress.matches, progress.lines)
+    }
+
+    #[test]
+    fn counting_has_no_match_limit_and_is_the_same_in_any_slice_size() {
+        // 3,000 matches on 1,000 lines: three per line.
+        let text = b"ab ab ab\n".repeat(1_000);
+        for slice in [7, 64, 1_000, 1 << 20] {
+            assert_eq!(
+                count_in_slices(&text, b"ab", SearchOptions::default(), slice),
+                (3_000, 1_000),
+                "{slice}"
+            );
+            assert_eq!(
+                count_in_slices(&text, br"a\w", regex(), slice),
+                (3_000, 1_000),
+                "{slice}"
+            );
+        }
+        // A match that runs across a line counts on the line where it starts.
+        assert_eq!(
+            count_in_slices(b"x a\nb x\nzz\nq", br"a\nb", regex(), 3),
+            (1, 1)
+        );
+        assert_eq!(
+            count_in_slices(b"one\ntwo\n", b"o", SearchOptions::default(), 2),
+            (2, 2)
+        );
+        // Columns: each line's columns on their own.
+        let columns = SearchOptions {
+            columns: Some(ColumnRange {
+                from: Some(1),
+                to: Some(2),
+            }),
+            ..SearchOptions::default()
+        };
+        assert_eq!(count_in_slices(&text, b"ab", columns, 50), (1_000, 1_000));
+    }
+
+    #[test]
+    fn counting_stops_when_cancelled_and_can_resume() {
+        let text = b"ab\n".repeat(1_000);
+        let source = MemorySource::new(text.clone());
+        let mut progress = CountProgress::starting_at(0);
+        let cancelled = CancellationToken::default();
+        cancelled.cancel();
+        count_slice(
+            &source,
+            b"ab",
+            SearchOptions::default(),
+            &mut progress,
+            3_000,
+            &cancelled,
+        )
+        .expect("count");
+        assert!(!progress.done);
+        assert_eq!(progress.matches, 0);
+        count_slice(
+            &source,
+            b"ab",
+            SearchOptions::default(),
+            &mut progress,
+            3_000,
+            &CancellationToken::default(),
+        )
+        .expect("resume");
+        assert!(progress.done);
+        assert_eq!((progress.matches, progress.lines), (1_000, 1_000));
+    }
+
+    #[test]
+    fn plain_text_search_folds_ascii_case_only_and_handles_any_bytes() {
+        let any_case = SearchOptions {
+            case_sensitive: false,
+            ..SearchOptions::default()
+        };
+        let found = |text: &[u8], pattern: &[u8], options| {
+            search(
+                &MemorySource::new(text.to_vec()),
+                pattern,
+                options,
+                0,
+                10,
+                &CancellationToken::default(),
+            )
+            .expect("search")
+            .matches
+            .len()
+        };
+        assert_eq!(found(b"Abc aBC abc", b"abc", any_case), 3);
+        assert_eq!(found(b"Abc aBC abc", b"abc", SearchOptions::default()), 1);
+        // Windows-1252 é (0xE9) and É (0xC9) are different bytes; only ASCII letters fold.
+        assert_eq!(found(b"\xE9t\xC9", b"\xE9", any_case), 1);
+        // Characters that mean something in a pattern are plain text here.
+        assert_eq!(found(b"a.c abc (x)", b"a.c", SearchOptions::default()), 1);
+        assert_eq!(found(b"a.c abc (x)", b"(x)", SearchOptions::default()), 1);
     }
 
     #[test]

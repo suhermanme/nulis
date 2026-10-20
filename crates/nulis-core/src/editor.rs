@@ -155,6 +155,10 @@ pub struct DocumentSummary {
     /// The built-in tools the document's language has, if any.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool: Option<ToolKind>,
+    /// A binary format the document is in, such as "binary property list":
+    /// it is not text, so the editor shows it in the hexadecimal view.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub binary_format: Option<String>,
 }
 
 /// The number of characters in a document, when it is small enough to count.
@@ -883,6 +887,7 @@ impl DocumentManager {
             language_id: language_id.as_str().to_owned(),
             read_only: false,
             tool: ToolKind::for_language(language_id.as_str()),
+            binary_format: None,
         };
         self.sessions
             .lock()
@@ -1026,7 +1031,7 @@ impl DocumentManager {
     /// Returns an error if the source or persistent session storage cannot be opened.
     pub fn open_file(&self, path: &Path) -> Result<DocumentSummary, EditorError> {
         let external_changes::OpenedSource {
-            document,
+            mut document,
             fingerprint: source_fingerprint,
             additions_path,
         } = self.open_source(path)?;
@@ -1036,6 +1041,13 @@ impl DocumentManager {
             || path.display().to_string(),
             |name| name.to_string_lossy().into_owned(),
         );
+        // A binary property list is not text: it opens read-only, for viewing as bytes.
+        let head = document
+            .table()
+            .read_vec(0, document.table().len().min(8))?;
+        if head.starts_with(b"bplist") {
+            document.set_read_only(true);
+        }
         let mut language_id = self.languages.detect_path(path);
         if language_id.as_str() == "plaintext" {
             // A name that says nothing: look for a `#!` line or a markup prolog.
@@ -4075,8 +4087,20 @@ fn summary(document_id: &DocumentId, session: &EditorSession) -> DocumentSummary
         recovery_id: session.recovery_id.clone(),
         language_id: session.language_id.as_str().to_owned(),
         read_only: session.document.is_read_only(),
-        tool: ToolKind::for_language(session.language_id.as_str()),
+        tool: binary_format(session)
+            .is_none()
+            .then(|| ToolKind::for_language(session.language_id.as_str()))
+            .flatten(),
+        binary_format: binary_format(session).map(str::to_owned),
     }
+}
+
+/// Binary formats recognized by their first bytes.
+fn binary_format(session: &EditorSession) -> Option<&'static str> {
+    let table = session.document.table();
+    let head = table.read_vec(0, table.len().min(8)).ok()?;
+    head.starts_with(b"bplist")
+        .then_some("binary property list")
 }
 
 fn syntax_snapshot(analysis: SyntaxAnalysis) -> SyntaxSnapshot {
@@ -7692,6 +7716,27 @@ mod tests {
         assert!(manager
             .format_document(&opened.document_id, opened.revision, false, true)
             .is_err());
+    }
+
+    #[test]
+    fn a_binary_property_list_opens_read_only_without_text_tools() {
+        let root = tempfile::tempdir().expect("temporary root");
+        let path = root.path().join("Preferences.plist");
+        fs::write(&path, b"bplist00\xd1\x01\x02Q").expect("fixture");
+        let manager = DocumentManager::new(root.path().join("sessions"));
+        let document = manager.open_file(&path).expect("open");
+        assert_eq!(
+            document.binary_format.as_deref(),
+            Some("binary property list")
+        );
+        assert!(document.read_only);
+        assert_eq!(document.tool, None);
+        // An XML property list is ordinary text.
+        let xml = root.path().join("Info.plist");
+        fs::write(&xml, "<plist><dict/></plist>\n").expect("fixture");
+        let document = manager.open_file(&xml).expect("open");
+        assert_eq!(document.binary_format, None);
+        assert!(!document.read_only);
     }
 
     #[test]

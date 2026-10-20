@@ -4,8 +4,8 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 
 ## Current state
 
-- **Current milestone:** M35 CSV/TSV, YAML and plist highlighting (next). M31–M34 are done on `main`, not released yet.
-- **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 4 of 5 milestones completed (M31–M34)
+- **Current milestone:** none — plan 2 (M31–M35) is complete on `main`, not released yet.
+- **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 5 of 5 milestones completed (M31–M35)
 - **Baseline before M19 (commit `66853e1`):** `cargo test -p nulis-core` 86 passed; desktop Vitest 11 files, 115 tests passed.
 
 | Milestone | Status | Handover |
@@ -26,7 +26,7 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 | M32 Regular expressions and column search | Completed (checked on macOS; Windows/Linux pending) | `handover/M31_M32_HANDOVER.md` |
 | M33 Theme contrast | Completed (verified by the user on macOS; Windows/Linux pending) | this tracker, M33 section |
 | M34 YAML and plist Validate | Completed (awaiting the user's check on macOS; Windows/Linux pending) | this tracker, M34 section |
-| M35 CSV/TSV, YAML and plist highlighting | Not started | – |
+| M35 CSV/TSV, YAML and plist highlighting | Completed (awaiting the user's check on macOS; Windows/Linux pending) | this tracker, M35 section |
 
 ## M19 — Audit and foundation
 
@@ -153,6 +153,20 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 **Delivered:** `yaml_tools.rs`: YAML Validate over every document in the stream with line and column, plus repeated keys in one mapping; YAML Beautify (user decision: Validate plus Beautify) re-writes from values with two-space indentation, keeps key order and line endings, asks first when the file has comments or anchors (`acceptLoss` on `tools.beautify`; the core refuses without it), and refuses files with tags. `plist_tools.rs`: plist Validate on the XML tokens — root `<plist>` with one value, key/value pairs in `<dict>` with no repeated key, only plist elements, integer (64-bit, hex), real, ISO date, Base64 data, empty true/false; plist Beautify is the XML formatter. plist is its own language (`.plist`, XML highlighting). Document summaries carry `tool`, so the desktop no longer repeats the language-to-tool mapping; the native Tools menu names YAML and plist. Dependency: `yaml-rust2` 0.13 (MIT/Apache-2.0). IPC protocol 37.
 
 **Result (completed 2026-10-20):** fmt and clippy clean; `cargo test --workspace` passed (nulis-core 150); lint and typecheck clean; Vitest 171 passed.
+
+## M35 — CSV/TSV, YAML, and binary plist
+
+**Delivered:** a delimited lexer mode: CSV (`.csv`, separator guessed from the first line among comma, semicolon, tab, bar) and TSV (`.tsv`, `.tab`), each column in the next of six syntax colors, quoted fields with separators, doubled quotes, and line breaks, and text after a closing quote marked invalid. YAML additions to the code scanner: `---`/`...` markers, `&anchor`/`*alias`, tags, block scalars with their indented body as text, quoted keys. Binary property lists (`bplist` header) open read-only, report `binaryFormat` in the document summary, have no text tools, and are shown in the hex editor with a status message (user decision). Samples for CSV, TSV, and a binary plist. IPC protocol 38.
+
+**Result (completed 2026-10-20):** syntax tests 15 passed (YAML forms, CSV columns, quoting, separator guess, TSV); core and Vitest suites pass (see the commit).
+
+## Count All on huge files (user request after M35, 2026-10-20)
+
+**Reported:** Count All on a 31.8 GB log stopped at "10000 matches on 4732 lines (limit reached)": it was built on Find All, which keeps every match with a line preview.
+
+**Delivered:** `count_slice` in `nulis-search` counts matches and matching lines with no limit and bounded memory, in the same pass over the bytes (the scan loop now visits matches through a callback that knows whether a line break came before each one). `count_jobs.rs` in the core runs Count All as a background job over 64 MiB slices per document lock (`search.countStart`, `search.countProgress`, `search.countCancel`), stops if a document changes, and covers selections and all open files. The Find window shows progress and turns Count All into Cancel. Plain-text search now uses the regex engine's literal finder (byte-exact, ASCII-only case folding): 285 → 2,400 MB/s case-sensitive, 380 → 4,800 MB/s ignoring case. Also: the Previous/Next viewport buttons are filled with the theme accent (user request). IPC protocol 39.
+
+**Result:** 4 GB test file counted in about 1 s, longest lock 18 ms; nulis-core 152 tests, Vitest 174 passed; verified by the user on the 31.8 GB file ("working and performance is fast").
 
 ## Icon redesign (user request, 2026-10-20)
 
