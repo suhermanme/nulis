@@ -1,5 +1,5 @@
 /** Versioned JSON-compatible values mirrored from nulis-core's public IPC DTOs. */
-export const IPC_PROTOCOL_VERSION = 35 as const;
+export const IPC_PROTOCOL_VERSION = 36 as const;
 
 export interface ThemeRecord {
   schema?: string;
@@ -293,6 +293,21 @@ export interface SearchOptions {
   caseSensitive: boolean;
   /** Only where the text is not part of a longer word. */
   wholeWord?: boolean;
+  /** Searches each line only between these columns (from 1; both included). */
+  columns?: ColumnRange;
+}
+
+/** Columns as the status bar counts them; a missing end means the line's start or end. */
+export interface ColumnRange {
+  from?: number;
+  to?: number;
+}
+
+/** Matches that start in a visible range, for "highlight all". */
+export interface RangeMatches {
+  revision: string;
+  matches: Array<{ startByte: string; endByte: string }>;
+  truncated: boolean;
 }
 
 export interface ByteRange {
@@ -471,6 +486,8 @@ export interface SearchRequest {
   regex: boolean;
   caseSensitive: boolean;
   wholeWord?: boolean;
+  /** Searches each line only between these columns. */
+  columns?: ColumnRange;
   /** Turns highlighting of every match on or off. */
   highlight?: boolean;
   /** Limits Replace All to this range (the selection). */

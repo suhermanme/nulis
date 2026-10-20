@@ -44,6 +44,7 @@ const FIND_COMMANDS: &[&str] = &[
     "customization.state",
     "theme.list",
     "search.findAll",
+    "search.validatePattern",
     "search.replaceAll",
     "search.findInFiles",
     "search.previewReplaceInFiles",
@@ -53,6 +54,8 @@ const FIND_COMMANDS: &[&str] = &[
 const RESULTS_COMMANDS: &[&str] = &["customization.state", "theme.list", "editor.addBookmarks"];
 /// Messages from the Find and results windows to the editor window.
 const FIND_MESSAGE_EVENT: &str = "nulis://find-message";
+/// Asks an open Help window to show a topic.
+const HELP_TOPIC_EVENT: &str = "nulis://help-topic";
 const FIND_MESSAGE_KINDS: &[&str] = &[
     "ready",
     "search",
@@ -1020,16 +1023,22 @@ fn handle_run_event(app: &tauri::AppHandle, event: tauri::RunEvent) {
 }
 
 /// Opens the singleton Help window or brings the existing one forward.
-fn show_help_window(app: &tauri::AppHandle) -> tauri::Result<()> {
+fn show_help_window(app: &tauri::AppHandle, topic: Option<&HelpTopic>) -> tauri::Result<()> {
     if let Some(window) = app.get_webview_window(HELP_WINDOW_LABEL) {
+        if let Some(topic) = topic {
+            let _ = app.emit_to(HELP_WINDOW_LABEL, HELP_TOPIC_EVENT, topic);
+        }
         window.unminimize()?;
         window.show()?;
         return window.set_focus();
     }
+    let query = topic.map_or_else(String::new, |topic| {
+        format!("&section={}&heading={}", topic.section, topic.heading)
+    });
     let window = tauri::WebviewWindowBuilder::new(
         app,
         HELP_WINDOW_LABEL,
-        tauri::WebviewUrl::App("index.html?window=help".into()),
+        tauri::WebviewUrl::App(format!("index.html?window=help{query}").into()),
     )
     .title("Nulis Help")
     .inner_size(980.0, 700.0)
@@ -1130,7 +1139,7 @@ async fn open_find_window(app: tauri::AppHandle) -> Result<(), String> {
         &app,
         FIND_WINDOW_LABEL,
         "Find and Replace",
-        (480.0, 620.0),
+        (480.0, 460.0),
         FIND_MIN_SIZE,
     )
     .map_err(|error| error.to_string())
@@ -1155,6 +1164,58 @@ async fn open_results_window(app: tauri::AppHandle) -> Result<(), String> {
 fn close_find_window(window: tauri::WebviewWindow) -> Result<(), String> {
     require_find_window(&window)?;
     window.hide().map_err(|error| error.to_string())
+}
+
+/// Room kept free above and below the Find window when it grows to fit, for
+/// its title bar and so it never touches the screen edges.
+const FIND_FIT_MARGIN: f64 = 64.0;
+
+/// The height the Find window takes for content `requested` points tall:
+/// at least its minimum, at most `max` (the screen's usable height).
+fn fitted_find_height(requested: f64, max: f64) -> Option<f64> {
+    if !requested.is_finite() || requested <= 0.0 {
+        return None;
+    }
+    let min = f64::from(FIND_MIN_SIZE.1);
+    Some(requested.ceil().clamp(min, max.max(min)))
+}
+
+/// Sets the Find window's height so its page shows `content` points, keeping
+/// its width. The page reports what it currently shows as `viewport`; the
+/// window grows or shrinks by the difference, so the result is right whatever
+/// the platform counts as the window's own height (a title bar or not).
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri extracts WebviewWindow by value.
+fn fit_find_window(
+    window: tauri::WebviewWindow,
+    content: f64,
+    viewport: f64,
+) -> Result<(), String> {
+    if window.label() != FIND_WINDOW_LABEL {
+        return Err("only the Find window may do this".into());
+    }
+    if !viewport.is_finite() || viewport <= 0.0 {
+        return Err("the viewport height must be a positive number".into());
+    }
+    let scale = window.scale_factor().map_err(|error| error.to_string())?;
+    let size = window
+        .inner_size()
+        .map_err(|error| error.to_string())?
+        .to_logical::<f64>(scale);
+    let max = window
+        .current_monitor()
+        .map_err(|error| error.to_string())?
+        .map_or(f64::MAX, |monitor| {
+            f64::from(monitor.work_area().size.height) / monitor.scale_factor() - FIND_FIT_MARGIN
+        });
+    let height = fitted_find_height(size.height + (content - viewport), max)
+        .ok_or("the content height must be a positive number")?;
+    if (height - size.height).abs() < 1.0 {
+        return Ok(());
+    }
+    window
+        .set_size(tauri::LogicalSize::new(size.width, height))
+        .map_err(|error| error.to_string())
 }
 
 /// Relays a message from the Find or results window to the editor window,
@@ -1226,8 +1287,36 @@ fn close_settings_window(app: tauri::AppHandle) -> Result<(), String> {
 // the window stays blank, when a window is built in a synchronous command.
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)] // Tauri extracts AppHandle by value.
-async fn open_help_window(app: tauri::AppHandle) -> Result<(), String> {
-    show_help_window(&app).map_err(|error| error.to_string())
+async fn open_help_window(app: tauri::AppHandle, topic: Option<HelpTopic>) -> Result<(), String> {
+    if let Some(topic) = &topic {
+        topic.validate()?;
+    }
+    show_help_window(&app, topic.as_ref()).map_err(|error| error.to_string())
+}
+
+/// A place in Nulis Help: a section and a heading in it, by their slugs.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct HelpTopic {
+    section: String,
+    #[serde(default)]
+    heading: String,
+}
+
+impl HelpTopic {
+    fn validate(&self) -> Result<(), String> {
+        let slug = |text: &str| {
+            text.len() <= 64
+                && text
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        };
+        if !self.section.is_empty() && slug(&self.section) && slug(&self.heading) {
+            Ok(())
+        } else {
+            Err("a help topic is a section and a heading written as slugs".into())
+        }
+    }
 }
 
 #[tauri::command]
@@ -1426,7 +1515,7 @@ pub fn run() {
             HELP_MENU_ID => {
                 let app = app.clone();
                 tauri::async_runtime::spawn(async move {
-                    let _ = show_help_window(&app);
+                    let _ = show_help_window(&app, None);
                 });
             }
             // The About page lives in the main window, which may be behind another one.
@@ -1473,6 +1562,7 @@ pub fn run() {
             open_find_window,
             open_results_window,
             close_find_window,
+            fit_find_window,
             window_ready,
             find_message,
             take_launch_paths,
@@ -1488,10 +1578,35 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::{
-        authorize_window_command, portable_accelerator, validate_native_menu, validate_request,
-        visible_frame, CommandContext, ExecuteCommandRequest, NativeMenuEntry, WindowFrame,
+        authorize_window_command, fitted_find_height, portable_accelerator, validate_native_menu,
+        validate_request, visible_frame, CommandContext, ExecuteCommandRequest, HelpTopic,
+        NativeMenuEntry, WindowFrame,
     };
     use serde_json::{json, Value};
+
+    #[test]
+    fn help_topics_are_slugs_only() {
+        let topic = |section: &str, heading: &str| HelpTopic {
+            section: section.into(),
+            heading: heading.into(),
+        };
+        assert!(topic("search", "regular-expressions").validate().is_ok());
+        assert!(topic("search", "").validate().is_ok());
+        assert!(topic("", "x").validate().is_err());
+        assert!(topic("search&x=1", "").validate().is_err());
+        assert!(topic("search", "a b").validate().is_err());
+    }
+
+    #[test]
+    fn find_window_height_stays_between_its_minimum_and_the_screen() {
+        assert_eq!(fitted_find_height(431.2, 900.0), Some(432.0));
+        assert_eq!(fitted_find_height(120.0, 900.0), Some(360.0));
+        assert_eq!(fitted_find_height(2_000.0, 900.0), Some(900.0));
+        // A screen shorter than the minimum still gets the minimum.
+        assert_eq!(fitted_find_height(500.0, 200.0), Some(360.0));
+        assert_eq!(fitted_find_height(f64::NAN, 900.0), None);
+        assert_eq!(fitted_find_height(0.0, 900.0), None);
+    }
 
     #[test]
     fn rejects_oversized_command_ids() {
@@ -1551,6 +1666,7 @@ mod tests {
     fn find_windows_may_search_but_not_open_save_or_edit_directly() {
         for id in [
             "search.findAll",
+            "search.validatePattern",
             "search.replaceAll",
             "search.findInFiles",
             "search.previewReplaceInFiles",

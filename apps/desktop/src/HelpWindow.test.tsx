@@ -3,6 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, expect, test } from "vitest";
 import userGuide from "../../../docs/USER_GUIDE.md?raw";
 import { HELP_SECTIONS, HelpWindow } from "./HelpWindow";
+import { REGEX_HELP } from "./FindReplacePanel";
 
 afterEach(cleanup);
 
@@ -26,4 +27,13 @@ test("Help search finds the features added in M27–M30", () => {
   expect(sections("Convert Line Endings")).toEqual(["Languages and Encodings"]);
   expect(sections("Show in Places")).toEqual(expect.arrayContaining(["Files", "File View and Remote"]));
   expect(sections("batik")).toEqual(expect.arrayContaining(["About and License"]));
+});
+
+test("Help opens at a topic, such as the regex section the Find window links to", () => {
+  const scrolled: string[] = [];
+  HTMLElement.prototype.scrollIntoView = function scrollIntoView(this: HTMLElement) { scrolled.push(this.textContent ?? ""); };
+  render(<HelpWindow mode="inline" onClose={() => undefined}
+    topic={{ id: 1, section: REGEX_HELP.section, heading: REGEX_HELP.heading }} />);
+  expect(screen.getByRole("tab", { name: "Search" })).toHaveAttribute("aria-selected", "true");
+  expect(scrolled).toEqual(["Regular expressions"]);
 });

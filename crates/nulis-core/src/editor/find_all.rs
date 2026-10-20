@@ -8,7 +8,7 @@ use super::{
     MAX_BOOKMARKS,
 };
 use nulis_large_file::ReadAt;
-use nulis_search::{search, CancellationToken, SearchOptions, MAX_PAGE_MATCHES};
+use nulis_search::{search, search_until, CancellationToken, SearchOptions, MAX_PAGE_MATCHES};
 use serde::Serialize;
 
 pub const MAX_FIND_ALL_MATCHES: usize = 10_000;
@@ -51,6 +51,29 @@ pub struct FindAllResult {
     pub lines: Vec<FoundLine>,
     /// More matches or lines exist than were returned.
     pub truncated: bool,
+}
+
+/// Most matches painted for one visible range.
+pub const MAX_RANGE_MATCHES: usize = 2_000;
+
+/// Where matches are in a range: enough to paint "highlight all".
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RangeMatches {
+    #[serde(with = "super::decimal_u64")]
+    pub revision: u64,
+    pub matches: Vec<RangeMatch>,
+    /// More matches start in the range than were returned.
+    pub truncated: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RangeMatch {
+    #[serde(with = "super::decimal_u64")]
+    pub start_byte: u64,
+    #[serde(with = "super::decimal_u64")]
+    pub end_byte: u64,
 }
 
 /// Counts lines while moving forward through a document.
@@ -106,6 +129,54 @@ impl LineTracker {
 }
 
 impl DocumentManager {
+    /// The matches that start in `start..end` (the visible lines), at most
+    /// [`MAX_RANGE_MATCHES`]. Uses the same search as Find, so what is
+    /// painted is what Find Next would select. The cost is proportional to
+    /// the range, not the document.
+    ///
+    /// # Errors
+    /// Returns an error for an unknown document or an invalid pattern.
+    pub fn matches_in_range(
+        &self,
+        document_id: &DocumentId,
+        query: &str,
+        options: SearchOptions,
+        start: u64,
+        end: u64,
+    ) -> Result<RangeMatches, EditorError> {
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| EditorError::StateUnavailable)?;
+        let session = sessions
+            .get(document_id)
+            .ok_or_else(|| EditorError::UnknownDocument(document_id.clone()))?;
+        let table = session.document.table();
+        let pattern = search_pattern(session.encoding, query, options)?;
+        let start = start.min(table.len());
+        let page = search_until(
+            table,
+            &pattern,
+            options,
+            start,
+            end.min(table.len()).max(start),
+            MAX_RANGE_MATCHES,
+            &CancellationToken::default(),
+        )?;
+        Ok(RangeMatches {
+            revision: table.revision(),
+            truncated: page.matches.len() == MAX_RANGE_MATCHES && !page.complete,
+            matches: page
+                .matches
+                .iter()
+                .map(|found| RangeMatch {
+                    start_byte: found.range.start.0,
+                    end_byte: found.range.end.0,
+                })
+                .collect(),
+        })
+    }
+
     /// Finds every match in the document, or in `within` (a byte range), up
     /// to `max_matches` (at most [`MAX_FIND_ALL_MATCHES`]).
     ///
@@ -260,7 +331,40 @@ mod tests {
             mode,
             case_sensitive: true,
             whole_word,
+            columns: None,
         }
+    }
+
+    #[test]
+    fn matches_in_range_returns_what_starts_in_the_visible_range() {
+        let manager = DocumentManager::default();
+        let document = manager
+            .create_untitled("test".into(), "cat cat\ncat catalog\ncat".into())
+            .expect("document");
+        // Bytes 4..15 cover "cat\ncat ca": matches at 4 and 8, and the
+        // "cat" of "catalog" at 12, which runs past the end of the range.
+        let found = manager
+            .matches_in_range(
+                &document.document_id,
+                "cat",
+                options(SearchMode::Literal, false),
+                4,
+                15,
+            )
+            .expect("range");
+        let starts: Vec<_> = found.matches.iter().map(|found| found.start_byte).collect();
+        assert_eq!(starts, vec![4, 8, 12]);
+        assert!(!found.truncated);
+        let words = manager
+            .matches_in_range(
+                &document.document_id,
+                "cat",
+                options(SearchMode::Regex, true),
+                0,
+                30,
+            )
+            .expect("whole words");
+        assert_eq!(words.matches.len(), 4);
     }
 
     #[test]

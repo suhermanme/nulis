@@ -78,7 +78,7 @@ use nulis_automation::{
     CURRENT_REVISION_ARGUMENT,
 };
 
-pub const IPC_PROTOCOL_VERSION: u32 = 35;
+pub const IPC_PROTOCOL_VERSION: u32 = 36;
 pub const PRODUCT_NAME: &str = "Nulis";
 pub const APPLICATION_ID: &str = "com.nulis.editor";
 const MAX_SCRIPT_MESSAGES: usize = 100;
@@ -1675,6 +1675,21 @@ struct ReplaceAllArguments {
     within: Option<ByteRangeArguments>,
 }
 
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ReplaceMatchArguments {
+    #[serde(with = "editor::decimal_u64")]
+    expected_revision: u64,
+    query: String,
+    replacement: String,
+    #[serde(default)]
+    options: SearchOptions,
+    #[serde(with = "editor::decimal_u64")]
+    start_byte: u64,
+    #[serde(with = "editor::decimal_u64")]
+    end_byte: u64,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ByteRangeArguments {
@@ -1700,6 +1715,26 @@ struct FindAllArguments {
     within: Option<ByteRangeArguments>,
     #[serde(default = "default_find_all_limit")]
     max_matches: usize,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ValidatePatternArguments {
+    query: String,
+    #[serde(default)]
+    options: SearchOptions,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct MatchesInRangeArguments {
+    query: String,
+    #[serde(default)]
+    options: SearchOptions,
+    #[serde(with = "editor::decimal_u64")]
+    start_byte: u64,
+    #[serde(with = "editor::decimal_u64")]
+    end_byte: u64,
 }
 
 fn default_find_all_limit() -> usize {
@@ -1977,6 +2012,7 @@ fn is_recordable_command(id: &str) -> bool {
             | "hex.deleteBackward"
             | "language.set"
             | "search.replaceAll"
+            | "search.replaceMatch"
     )
 }
 
@@ -3012,6 +3048,30 @@ fn register_search_commands(commands: &mut CommandRegistry, documents: &Arc<Docu
     let manager = Arc::clone(documents);
     commands
         .register(
+            CommandDescriptor::new("search.replaceMatch", "Replace Match", "Search")
+                .expect("built-in command ID is valid"),
+            move |context, arguments| {
+                let document_id = context_document(&context)?;
+                let arguments: ReplaceMatchArguments = parse_arguments(arguments)?;
+                let result = manager
+                    .replace_match(
+                        &document_id,
+                        arguments.expected_revision,
+                        &arguments.query,
+                        &arguments.replacement,
+                        arguments.options,
+                        arguments.start_byte,
+                        arguments.end_byte,
+                    )
+                    .map_err(|error| editor_command_error(&error))?;
+                serde_json::to_value(result).map_err(|error| serialization_command_error(&error))
+            },
+        )
+        .expect("built-in command is unique");
+
+    let manager = Arc::clone(documents);
+    commands
+        .register(
             CommandDescriptor::new("search.findInFiles", "Find in Files", "Search")
                 .expect("built-in command ID is valid"),
             move |_context, arguments| {
@@ -3212,6 +3272,42 @@ fn register_find_all_commands(commands: &mut CommandRegistry, documents: &Arc<Do
                         arguments.options,
                         arguments.within.map(ByteRangeArguments::pair),
                         arguments.max_matches,
+                    )
+                    .map_err(|error| editor_command_error(&error))?;
+                serde_json::to_value(result).map_err(|error| serialization_command_error(&error))
+            },
+        )
+        .expect("built-in command is unique");
+
+    commands
+        .register(
+            CommandDescriptor::new("search.validatePattern", "Check Search Pattern", "Search")
+                .expect("built-in command ID is valid"),
+            move |_context, arguments| {
+                let arguments: ValidatePatternArguments = parse_arguments(arguments)?;
+                // The search error alone reads best next to the pattern it describes.
+                nulis_search::validate_pattern(arguments.query.as_bytes(), arguments.options)
+                    .map_err(|error| CommandError::Failed(error.to_string()))?;
+                Ok(Value::Null)
+            },
+        )
+        .expect("built-in command is unique");
+
+    let manager = Arc::clone(documents);
+    commands
+        .register(
+            CommandDescriptor::new("search.matchesInRange", "Matches in Range", "Search")
+                .expect("built-in command ID is valid"),
+            move |context, arguments| {
+                let document_id = context_document(&context)?;
+                let arguments: MatchesInRangeArguments = parse_arguments(arguments)?;
+                let result = manager
+                    .matches_in_range(
+                        &document_id,
+                        &arguments.query,
+                        arguments.options,
+                        arguments.start_byte,
+                        arguments.end_byte,
                     )
                     .map_err(|error| editor_command_error(&error))?;
                 serde_json::to_value(result).map_err(|error| serialization_command_error(&error))

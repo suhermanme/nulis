@@ -1,11 +1,11 @@
-# Implementation tracker (M19–M30)
+# Implementation tracker (M19–M35)
 
-Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in step with the repository; never mark work complete without the verification listed.
+Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30) and `IMPROVEMENT_PLAN_2.md` (M31–M35). Keep it in step with the repository; never mark work complete without the verification listed.
 
 ## Current state
 
-- **Current milestone:** none — the M19–M30 plan is complete. M19–M29 shipped in Nulis 0.2.0; the M30 fixes are on `main`, after that release.
-- **Overall:** 12 of 12 milestones completed (M19–M30)
+- **Current milestone:** M33 Theme contrast (next). M31 and M32 are done on `main`, not committed or released yet.
+- **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 2 of 5 milestones completed (M31–M32)
 - **Baseline before M19 (commit `66853e1`):** `cargo test -p nulis-core` 86 passed; desktop Vitest 11 files, 115 tests passed.
 
 | Milestone | Status | Handover |
@@ -22,6 +22,11 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 | M28 File conveniences (split from "View and file") | Completed (manual and Windows/Linux checks pending) | `handover/M28_HANDOVER.md` |
 | M29 Column and clipboard tools | Completed (manual and Windows/Linux checks pending) | `handover/M29_HANDOVER.md` |
 | M30 Integration and quality | Completed (manual screen-reader and Linux checks pending) | `handover/M30_HANDOVER.md` |
+| M31 Find window fits its content | Completed (checked on macOS; Windows/Linux pending) | `handover/M31_M32_HANDOVER.md` |
+| M32 Regular expressions and column search | Completed (checked on macOS; Windows/Linux pending) | `handover/M31_M32_HANDOVER.md` |
+| M33 Theme contrast | Not started | – |
+| M34 YAML and plist Validate | Not started | – |
+| M35 CSV/TSV, YAML and plist highlighting | Not started | – |
 
 ## M19 — Audit and foundation
 
@@ -124,6 +129,18 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 **Delivered:** `commands.test.ts` checks that the core, the desktop, and the native menus list the same commands and that every presentation command has a handler (it found none missing from M20–M29); fixed a double undo and redo (the window's shortcuts re-ran keys the editor had handled); Ctrl Y redo on Windows and Linux; dialogs keep Tab inside (fields included) and pickers and the Rename dialog return focus when closed; the user guide, `FEATURE_PARITY.md`, and the new `PLATFORM_MATRIX.md` brought up to date. Also during M30 (user requests): the new icon, the batik About window, release 0.2.0, and the Homebrew cask.
 
 **Result (completed 2026-10-20, on `main`):** fmt and clippy clean; `cargo test --workspace` passed (nulis-core 137); lint and typecheck clean; Vitest 15 files, 155 passed. Details: `handover/M30_HANDOVER.md`.
+
+## M31 — Find window fits its content
+
+**Delivered:** the Find and Replace window sizes its height to its content when it opens and whenever the content changes (tab, Options, a preview list, a status message); a manual resize is kept until then. `fit_find_window` (Find window only) grows the window by the difference between what the page needs and what it shows, so the title bar is accounted for on every platform; height stays between the minimum and the screen's usable height.
+
+**Result (completed 2026-10-20):** see M32.
+
+## M32 — Regular expressions and column search
+
+**Delivered:** one regex style on the linear-time `regex` engine; unbounded patterns (`\w+`, `a.*b`) allowed with a 1 MiB match cap that is reported, never cut; matches across chunk edges found once; capture groups in Replace (`$1`, `${name}`, `$0`/`$&`, `\1`, `\n`, `\t`), checked before anything changes, for Replace, Replace All and Replace in Files (`search.replaceMatch` checks the range is still a match); Search in column (From/To, status-bar columns, `^`/`$` at the column edges) for every single-document action and highlighting; "Highlight all" painted from core matches of the visible lines (`search.matchesInRange`) and kept in step with the query and options; one-sentence pattern errors with a position (`search.validatePattern`), shown in the status line above the buttons; options remembered between sessions; a "Regex help" button that opens Nulis Help at the new Regular expressions section (`open_help_window` takes a topic). Also fixed: every command failure reached the UI as a generic message because the core's `{ kind, detail }` was never turned into an `Error`; `executeCommand` now does that. IPC protocol 36.
+
+**Result (completed 2026-10-20, on `main`, not committed):** fmt and clippy clean; `cargo test --workspace` passed (nulis-core 140, nulis-search 22, nulis-desktop 9); lint and typecheck clean; Vitest 19 files, 170 passed. Checked in a debug build on macOS: window fit per tab, `id=\d+` with highlights, column 1–4 search, `$2:$1` Replace All and one-step undo, lookbehind message. Details: `handover/M31_M32_HANDOVER.md`.
 
 ## Icon redesign (user request, 2026-10-20)
 

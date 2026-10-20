@@ -309,11 +309,38 @@ The window has four tabs: **Find**, **Find in Files**, **Replace**, and **Replac
 
 - **Find what** and **Replace with** accept several lines. Enter runs the main action (Shift Enter finds the previous match); Ctrl/⌘ Enter adds a line break. The clock button next to each field lists your last 20 entries.
 - **Find where** / **Replace where**: **Current document**, **Selected text** (the selection at the moment you press the button), or **All open files**.
-- **Options**: **Match case**, **Match whole word** (the text is not part of a longer word), **Use regular expressions**. On the Find tab also **Highlight all items found**, **List lines containing find string**, and **Close after find**; on the Replace tab **Close after replace all**.
+- **Options**: **Match case**, **Match whole word** (the text is not part of a longer word), **Use regular expressions** (see [Regular expressions](#regular-expressions); **Regex help** next to it opens that section), and on the Find and Replace tabs **Search in column** (see [Search in column](#search-in-column)). On the Find tab also **Highlight all items found**, **List lines containing find string**, and **Close after find**; on the Replace tabs **Close after replace all**. Nulis remembers the options the next time the window opens.
+- A mistake in a regular expression or in the column numbers is shown in red under **Find what**, and the buttons wait until it is fixed.
 - **Find** tab buttons: **Count All** reports the number of matches and lines; **Previous** and **Next** move between matches. In the current document they start at the caret and wrap around; in a selection or across open files they step through the matches found.
 - **Replace** tab buttons: **Next**, **Replace** (the current match, in the current document), and **Replace All**. Replace All is one undo step per document. Across open files, read-only documents are skipped and named in the result.
 
-Regular expressions may match across lines. An expression that could match an unbounded amount of text is refused with a message rather than run.
+### Regular expressions
+
+With **Use regular expressions** checked, **Find what** is a pattern. Nulis uses one regular-expression style, the one most editors and programming languages share, and an engine that always runs in time proportional to the text: no pattern can make Nulis hang, even on a file of several gigabytes.
+
+| Pattern | Matches |
+| --- | --- |
+| `.` | any character except a line break (`(?s)` at the start makes it match line breaks too) |
+| `\d` `\w` `\s` | a digit, a word character (letter, digit, `_`), white space (including line breaks); `\D` `\W` `\S` are the opposites |
+| `[abc]` `[^abc]` `[a-z]` | one of, none of, a range; `[[:alpha:]]`, `[[:digit:]]` and the other POSIX classes work inside brackets |
+| `\p{L}` `\p{Greek}` | a Unicode letter, a Greek character, and other Unicode classes |
+| `*` `+` `?` `{2,5}` | repeat 0 or more, 1 or more, 0 or 1, 2 to 5 times; add `?` (`*?`, `+?`) to match as little as possible |
+| `a\|b` | `a` or `b` |
+| `(…)` `(?<name>…)` `(?:…)` | a group you can refer to in the replacement, a named group, a group that is not numbered |
+| `^` `$` | the start and end of a line |
+| `\b` | the edge of a word |
+| `(?i)` | ignore case from here on |
+| `\.` `\(` `\\` | a character that otherwise has a meaning: a dot, a parenthesis, a backslash |
+
+Examples: `\d{4}-\d{2}-\d{2}` finds dates such as 2026-10-20; `^[ \t]+$` finds lines with only spaces and tabs; `TODO|FIXME` finds either word; `"[^"]*"` finds text in double quotes.
+
+**Replacing.** In **Replace with**, `$1` (or `\1`) puts back what the first group matched, `${name}` a named group, and `$0` or `$&` the whole match; `$$` is a dollar sign. `\n`, `\t`, and `\\` are a line break, a tab, and a backslash. For example, find `(\w+)=(\d+)` and replace with `$2 = $1` to swap the two sides. A reference to a group the pattern does not have is reported before anything changes. Without regular expressions the replacement is inserted exactly as typed.
+
+**Not supported.** Lookahead and lookbehind (`(?=…)`, `(?!…)`, `(?<=…)`, `(?<!…)`) and backreferences inside the pattern (`(\w)\1`) are left out on purpose: they are what can make other engines run for minutes. Nulis names them in the message if you use one. A single match may be at most 1 MiB; a pattern such as `(?s).*` that would match more says so instead of stopping somewhere in the middle.
+
+### Search in column
+
+On the Find and Replace tabs, check **Search in column** and fill in **From** and **To** to search each line only between those columns. Columns are counted the way the status bar shows **Col**: characters from 1, a tab being one character. Both columns are included; leave **From** empty to start at the beginning of each line, or **To** empty to go to its end. A match must lie entirely inside the columns, and with regular expressions `^` and `$` match at the edges of the columns, so `^\d+$` finds columns that hold only digits. Count All, Next, Previous, Replace, Replace All, and highlighting all respect the columns.
 
 ### Lines containing the text
 

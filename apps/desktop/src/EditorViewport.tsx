@@ -22,6 +22,7 @@ import type {
   DocumentSummary,
   FindResult,
   HorizontalDirection,
+  ColumnRange,
   LanguageDescriptor,
   LineChange,
   FoundLine,
@@ -34,6 +35,7 @@ import type {
   LineOperation,
   TextTransformName,
   MarkdownPreviewSource,
+  RangeMatches,
   RectangularSelection,
   ReplaceAllResult,
   SearchOptions,
@@ -357,33 +359,20 @@ function renderLineText(
   return output;
 }
 
-/** UTF-16 ranges of every visible occurrence of the find query in one rendered line. */
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function findHighlights(
-  text: string, query: string, regex: boolean, caseSensitive: boolean, wholeWord = false,
+/** UTF-16 ranges, in one rendered line, of the matches the core found for the visible lines. */
+function lineHighlights(
+  text: string, sourceByteWidths: number[], lineStart: bigint, lineEnd: bigint,
+  matches: ReadonlyArray<{ start: bigint; end: bigint }>,
 ): Array<{ start: number; end: number }> {
-  if (!query || !text) return [];
   const ranges: Array<{ start: number; end: number }> = [];
-  if (regex || wholeWord) {
-    const source = regex ? query : escapeRegExp(query);
-    const bounded = wholeWord ? `(?<![\\p{L}\\p{N}_])(?:${source})(?![\\p{L}\\p{N}_])` : source;
-    let pattern: RegExp;
-    try { pattern = new RegExp(bounded, caseSensitive ? "gu" : "giu"); } catch { return []; }
-    for (const match of text.matchAll(pattern)) {
-      if (match[0].length > 0) ranges.push({ start: match.index, end: match.index + match[0].length });
-      if (ranges.length >= MAX_HIGHLIGHTS_PER_LINE) break;
-    }
-    return ranges;
-  }
-  const haystack = caseSensitive ? text : text.toLocaleLowerCase();
-  const needle = caseSensitive ? query : query.toLocaleLowerCase();
-  if (haystack.length !== text.length) return [];
-  for (let from = haystack.indexOf(needle); from >= 0 && ranges.length < MAX_HIGHLIGHTS_PER_LINE;
-    from = haystack.indexOf(needle, from + needle.length)) {
-    ranges.push({ start: from, end: from + needle.length });
+  for (const match of matches) {
+    if (match.end <= lineStart || match.start >= lineEnd) continue;
+    const from = match.start > lineStart ? Number(match.start - lineStart) : 0;
+    const to = Number((match.end < lineEnd ? match.end : lineEnd) - lineStart);
+    const start = utf16IndexForByte(text, sourceByteWidths, from);
+    const end = utf16IndexForByte(text, sourceByteWidths, to);
+    if (end > start) ranges.push({ start, end });
+    if (ranges.length >= MAX_HIGHLIGHTS_PER_LINE) break;
   }
   return ranges;
 }
@@ -511,6 +500,8 @@ export function EditorViewport({
   const [regexSearch, setRegexSearch] = useState(false);
   const [caseSensitive, setCaseSensitive] = useState(true);
   const [wholeWord, setWholeWord] = useState(false);
+  const [searchColumns, setSearchColumns] = useState<ColumnRange | undefined>(undefined);
+  const [rangeMatches, setRangeMatches] = useState<Array<{ start: bigint; end: bigint }>>([]);
   const [collapsedFolds, setCollapsedFolds] = useState<string[]>([]);
   const [currentFindMatch, setCurrentFindMatch] = useState<Selection | null>(null);
   const [currentCursor, setCurrentCursor] = useState<ViewportCursor>(FIRST_CURSOR);
@@ -1462,7 +1453,33 @@ export function EditorViewport({
     mode: regexSearch ? "regex" : "literal",
     caseSensitive,
     wholeWord,
-  }), [caseSensitive, regexSearch, wholeWord]);
+    ...(searchColumns ? { columns: searchColumns } : {}),
+  }), [caseSensitive, regexSearch, searchColumns, wholeWord]);
+
+  // "Highlight all" paints the matches the core finds in the visible lines,
+  // so highlights always agree with Find Next.
+  const visibleStart = snapshot?.lines[0]?.startByte;
+  const visibleEnd = snapshot?.lines.at(-1)?.endByte;
+  const highlightRequest = useRef(0);
+  useEffect(() => {
+    const request = ++highlightRequest.current;
+    if (!highlightMatches || !findQuery || visibleStart === undefined || visibleEnd === undefined) {
+      setRangeMatches([]);
+      return;
+    }
+    executeCommand<RangeMatches>({
+      id: "search.matchesInRange",
+      context: { windowId: "main", documentId: document.documentId },
+      arguments: { query: findQuery, options: searchOptions(), startByte: visibleStart, endByte: visibleEnd },
+    }).then((result) => {
+      if (request === highlightRequest.current) {
+        setRangeMatches(result.matches.map((match) => ({ start: BigInt(match.startByte), end: BigInt(match.endByte) })));
+      }
+    }).catch(() => {
+      // An unfinished or invalid pattern simply paints nothing; Find reports the error.
+      if (request === highlightRequest.current) setRangeMatches([]);
+    });
+  }, [document.documentId, findQuery, highlightMatches, searchOptions, snapshot?.revision, visibleEnd, visibleStart]);
 
   const runFind = useCallback(async (direction: "previous" | "next") => {
     if (!snapshot || findQuery.length === 0) {
@@ -1520,14 +1537,17 @@ export function EditorViewport({
       ? primary.anchorByte
       : primary.activeByte;
     try {
+      // The core checks the range is still a match and fills in group references ($1, ${name}).
       const updated = await executeCommand<DocumentSummary>({
-        id: "editor.replace",
+        id: "search.replaceMatch",
         context: { windowId: "main", documentId: document.documentId },
         arguments: {
           expectedRevision: snapshot.revision,
+          query: findQuery,
+          replacement,
+          options: searchOptions(),
           startByte: start,
           endByte: end,
-          text: replacement,
         },
       });
       onDocumentChange(updated);
@@ -1537,7 +1557,7 @@ export function EditorViewport({
     } catch (error: unknown) {
       onStatus(error instanceof Error ? error.message : "Replace failed");
     }
-  }, [currentFindMatch, document.documentId, onDocumentChange, onStatus, refresh, replacement, runFind, snapshot]);
+  }, [currentFindMatch, document.documentId, findQuery, onDocumentChange, onStatus, refresh, replacement, runFind, searchOptions, snapshot]);
 
   const replaceAll = useCallback(async (within?: { startByte: string; endByte: string }) => {
     if (!snapshot || findQuery.length === 0) {
@@ -1605,6 +1625,7 @@ export function EditorViewport({
     setRegexSearch(searchRequest.regex);
     setCaseSensitive(searchRequest.caseSensitive);
     setWholeWord(searchRequest.wholeWord ?? false);
+    setSearchColumns(searchRequest.columns);
     if (searchRequest.highlight !== undefined) setHighlightMatches(searchRequest.highlight);
     pendingWithin.current = searchRequest.within;
     pendingSearch.current = searchRequest.action;
@@ -2722,7 +2743,7 @@ export function EditorViewport({
                             Number(BigInt(dropTargetByte) - lineStartByte),
                           )
                         : undefined,
-                      highlightMatches ? findHighlights(line.text, findQuery, regexSearch, caseSensitive, wholeWord) : [],
+                      highlightMatches ? lineHighlights(line.text, line.sourceByteWidths, lineStartByte, textEndByte, rangeMatches) : [],
                       showWhitespace,
                     )}
                     {foldCollapsed ? <span className="fold-placeholder"> … </span> : null}

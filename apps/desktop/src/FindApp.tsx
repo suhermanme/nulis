@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   FIND_EVENTS, FindReplacePanel, type FindContext, type FindMessage, type FindTab,
 } from "./FindReplacePanel";
-import { closeFindWindow, sendFindMessage } from "./ipc";
+import { useFitToContent } from "./fitWindow";
+import { closeFindWindow, fitFindWindow, openHelpWindow, sendFindMessage } from "./ipc";
 import { useWindowTheme } from "./windowTheme";
 
 function send(message: FindMessage) {
@@ -17,6 +18,11 @@ export function FindApp() {
   const [tab, setTab] = useState<FindTab>("find");
   const [seed, setSeed] = useState<{ id: number; text: string } | undefined>();
   const [context, setContext] = useState<FindContext>({ activeDocument: null, textDocuments: [] });
+  const rootRef = useRef<HTMLDivElement>(null);
+  const fit = useCallback((height: number) => {
+    void fitFindWindow(height, window.innerHeight).catch(() => undefined);
+  }, []);
+  useFitToContent(rootRef, ".aux-window", fit);
 
   useEffect(() => {
     document.title = "Find and Replace";
@@ -34,7 +40,7 @@ export function FindApp() {
     return () => { disposed = true; stops.forEach((stop) => stop()); };
   }, []);
 
-  return <div className="aux-root" style={style}>
+  return <div className="aux-root" style={style} ref={rootRef}>
     <FindReplacePanel framed={false} tab={tab} onTab={setTab} seed={seed}
       activeDocument={context.activeDocument} textDocuments={context.textDocuments}
       selection={context.selection} defaultFolder={context.defaultFolder}
@@ -47,6 +53,7 @@ export function FindApp() {
         const selected = await open({ multiple: false, directory: true, title: "Choose a folder to search" });
         return typeof selected === "string" ? selected : null;
       }}
-      onStatus={(message) => send({ kind: "status", message })} />
+      onStatus={(message) => send({ kind: "status", message })}
+      onHelp={(topic) => { void openHelpWindow(topic).catch(() => send({ kind: "status", message: "Could not open Help" })); }} />
   </div>;
 }

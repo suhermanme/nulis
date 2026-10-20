@@ -54,7 +54,7 @@ import {
 import { Icon, IconButton, iconForCommand, type IconName } from "./icons";
 import { EDITOR_ACTIONS, FIND_WINDOW_COMMANDS, LINE_ENDING_LABELS, PALETTE_COMMANDS, shortcutLabel, type EditorActionName } from "./commands";
 import {
-  closeWindowAfterSave, configureNativeMenu, executeCommand, getApplicationInfo, listCommands, openFindWindow, openHelpWindow, openResultsWindow, openSettingsWindow, takeLaunchPaths,
+  closeWindowAfterSave, configureNativeMenu, executeCommand, getApplicationInfo, listCommands, openFindWindow, openHelpWindow, openResultsWindow, openSettingsWindow, takeLaunchPaths, type HelpTopic,
   setToolsMenu,
 } from "./ipc";
 import {
@@ -1516,9 +1516,9 @@ export function App() {
       setSettingsOpen(true);
     }
   };
-  const openHelp = () => {
+  const openHelp = (topic?: HelpTopic) => {
     if (desktopShell) {
-      void openHelpWindow().catch((error: unknown) => setStatus(errorMessage(error, "Could not open Help")));
+      void openHelpWindow(topic).catch((error: unknown) => setStatus(errorMessage(error, "Could not open Help")));
     } else {
       setHelpOpen(true);
     }
@@ -1651,7 +1651,7 @@ export function App() {
     },
     "workbench.closeTab": () => { const tab = currentTab(); if (tab) closeTab(tab.id); },
     "workbench.openSettings": openSettings,
-    "workbench.openHelp": openHelp,
+    "workbench.openHelp": () => openHelp(),
     "workbench.nextTab": () => cycleTab(1),
     "workbench.previousTab": () => cycleTab(-1),
     "workbench.moveTabLeft": () => shiftTab(-1),
@@ -2412,7 +2412,7 @@ export function App() {
         selection={caret && caret.documentId === activeDocument?.documentId ? caret.selection : undefined}
         onEditorSearch={searchInEditor} onOpenMatch={(target) => void openMatch(target)}
         onDocumentChange={upsertDocument} onResults={showSearchResults} onChooseFolder={chooseFolder} defaultFolder={workspace?.root}
-        onStatus={setStatus} /> : null}
+        onStatus={setStatus} onHelp={openHelp} /> : null}
       {searchResults ? <ResultsWindow list={searchResults} onClose={() => setSearchResults(null)}
         onOpenMatch={(target) => void openMatch(target)} onStatus={setStatus}
         openDocumentIds={new Set(documents.map((document) => document.documentId))} /> : null}

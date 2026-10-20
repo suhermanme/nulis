@@ -9,7 +9,8 @@ use nulis_filesystem::{fingerprint, save_atomic, FileFingerprint};
 use nulis_hex::{parse_hex, replace_nibble, HexLayout};
 use nulis_large_file::{DiskAppendStore, FileSource, ReadAt};
 use nulis_search::{
-    plan_replacements, search, validate_pattern, CancellationToken, SearchMatch, MAX_PAGE_MATCHES,
+    expand_replacements, plan_replacements_each, search, validate_pattern, CancellationToken,
+    SearchMatch, MAX_PAGE_MATCHES,
 };
 pub use nulis_search::{SearchMode, SearchOptions};
 use nulis_syntax::{LanguageId, LanguageRegistry, SymbolKind, SyntaxAnalysis, SyntaxToken};
@@ -2241,23 +2242,61 @@ impl DocumentManager {
             });
         }
         let encoded = encode_text(session.encoding, text)?;
-        if encoded.len() > MAX_EDIT_BYTES {
-            return Err(EditorError::EditTooLarge(encoded.len()));
-        }
-        session
-            .document
-            .replace(start_byte, end_byte - start_byte, &encoded)?;
-        let inserted_len = u64::try_from(encoded.len()).map_err(|_| EditorError::OffsetOverflow)?;
-        let caret = start_byte
-            .checked_add(inserted_len)
-            .ok_or(EditorError::OffsetOverflow)?;
-        session.selections = vec![Selection::caret(caret)];
-        session.rectangular_selection = None;
-        let bookmark_edits = vec![(start_byte, end_byte, encoded.len())];
-        relocate_bookmarks(&mut session.bookmarks, &bookmark_edits)?;
-        record_bookmark_edit(session, bookmark_edits);
-        session.preferred_scalar_columns = vec![None];
-        session.navigation_index.reset();
+        replace_range(session, start_byte, end_byte, &encoded)?;
+        Ok(summary(document_id, session))
+    }
+
+    /// Replaces one search match, the way Replace All would: with regular
+    /// expressions, group references in `replacement` are filled in from
+    /// this match. The range must still be exactly a match of `query`.
+    ///
+    /// # Errors
+    /// Returns an error for a stale revision, an invalid pattern or
+    /// replacement, a range that is no longer a match, or an edit too large.
+    #[allow(clippy::too_many_arguments)] // One search request, as the command sends it.
+    pub fn replace_match(
+        &self,
+        document_id: &DocumentId,
+        expected_revision: u64,
+        query: &str,
+        replacement: &str,
+        options: SearchOptions,
+        start_byte: u64,
+        end_byte: u64,
+    ) -> Result<DocumentSummary, EditorError> {
+        let mut sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| EditorError::StateUnavailable)?;
+        let session = sessions
+            .get_mut(document_id)
+            .ok_or_else(|| EditorError::UnknownDocument(document_id.clone()))?;
+        validate_revision(session, expected_revision)?;
+        let pattern = search_pattern(session.encoding, query, options)?;
+        let replacement = encode_text(session.encoding, replacement)?;
+        let page = search(
+            session.document.table(),
+            &pattern,
+            options,
+            start_byte.min(session.document.table().len()),
+            1,
+            &CancellationToken::default(),
+        )?;
+        let found = page
+            .matches
+            .into_iter()
+            .next()
+            .filter(|found| found.range.start.0 == start_byte && found.range.end.0 == end_byte)
+            .ok_or(nulis_search::SearchError::MatchChanged)?;
+        let mut texts = expand_replacements(
+            session.document.table(),
+            &pattern,
+            options,
+            std::slice::from_ref(&found),
+            &replacement,
+        )?;
+        let text = texts.pop().unwrap_or_default();
+        replace_range(session, start_byte, end_byte, &text)?;
         Ok(summary(document_id, session))
     }
 
@@ -3257,12 +3296,20 @@ impl DocumentManager {
                 replacements: 0,
             });
         }
-        let batch = plan_replacements(&page.matches, &replacement)?;
+        let texts = expand_replacements(
+            session.document.table(),
+            &pattern,
+            options,
+            &page.matches,
+            &replacement,
+        )?;
+        let batch = plan_replacements_each(&page.matches, &texts)?;
         session.document.replace_many(&batch)?;
         let bookmark_edits = page
             .matches
             .iter()
-            .map(|found| (found.range.start.0, found.range.end.0, replacement.len()))
+            .zip(&texts)
+            .map(|(found, text)| (found.range.start.0, found.range.end.0, text.len()))
             .collect::<Vec<_>>();
         relocate_bookmarks(&mut session.bookmarks, &bookmark_edits)?;
         record_bookmark_edit(session, bookmark_edits);
@@ -3271,7 +3318,7 @@ impl DocumentManager {
             .range
             .start
             .0
-            .checked_add(u64::try_from(replacement.len()).map_err(|_| EditorError::OffsetOverflow)?)
+            .checked_add(u64::try_from(texts[0].len()).map_err(|_| EditorError::OffsetOverflow)?)
             .ok_or(EditorError::OffsetOverflow)?;
         session.selections = vec![Selection::caret(caret)];
         session.rectangular_selection = None;
@@ -3733,6 +3780,34 @@ fn primary_selection_range(session: &EditorSession) -> (u64, u64) {
             selection.anchor_byte.max(selection.active_byte),
         )
     })
+}
+
+/// Replaces `start..end` with `encoded` as one undo step, leaving the caret
+/// after the new text and moving bookmarks with the edit.
+fn replace_range(
+    session: &mut EditorSession,
+    start_byte: u64,
+    end_byte: u64,
+    encoded: &[u8],
+) -> Result<(), EditorError> {
+    if encoded.len() > MAX_EDIT_BYTES {
+        return Err(EditorError::EditTooLarge(encoded.len()));
+    }
+    session
+        .document
+        .replace(start_byte, end_byte - start_byte, encoded)?;
+    let inserted_len = u64::try_from(encoded.len()).map_err(|_| EditorError::OffsetOverflow)?;
+    let caret = start_byte
+        .checked_add(inserted_len)
+        .ok_or(EditorError::OffsetOverflow)?;
+    session.selections = vec![Selection::caret(caret)];
+    session.rectangular_selection = None;
+    let bookmark_edits = vec![(start_byte, end_byte, encoded.len())];
+    relocate_bookmarks(&mut session.bookmarks, &bookmark_edits)?;
+    record_bookmark_edit(session, bookmark_edits);
+    session.preferred_scalar_columns = vec![None];
+    session.navigation_index.reset();
+    Ok(())
 }
 
 fn apply_hex_replacement(
@@ -6826,6 +6901,7 @@ mod tests {
             mode: super::SearchMode::Literal,
             case_sensitive: false,
             whole_word: false,
+            columns: None,
         };
         let first = manager
             .find(
@@ -6850,6 +6926,98 @@ mod tests {
             .expect("wrapped match");
         assert!(wrapped.wrapped);
         assert_eq!(wrapped.selection.expect("selection").anchor_byte, 3);
+    }
+
+    fn first_line(manager: &DocumentManager, document_id: &super::DocumentId) -> String {
+        manager
+            .viewport(&ViewportRequest {
+                document_id: document_id.clone(),
+                start_byte: 0,
+                start_line: 1,
+                line_continuation: false,
+                max_bytes: 1024,
+            })
+            .expect("viewport")
+            .lines[0]
+            .text
+            .clone()
+    }
+
+    fn regex_options() -> super::SearchOptions {
+        super::SearchOptions {
+            mode: super::SearchMode::Regex,
+            case_sensitive: true,
+            whole_word: false,
+            columns: None,
+        }
+    }
+
+    #[test]
+    fn replace_all_fills_in_capture_groups_per_match() {
+        let manager = DocumentManager::default();
+        let document = manager
+            .create_untitled("test".into(), "width=10 height=200".into())
+            .expect("document");
+        let result = manager
+            .replace_all(
+                &document.document_id,
+                document.revision,
+                r"(?<key>\w+)=(\d+)",
+                "$2 ${key}",
+                regex_options(),
+                None,
+            )
+            .expect("replace all");
+        assert_eq!(result.replacements, 2);
+        assert_eq!(
+            first_line(&manager, &document.document_id),
+            "10 width 200 height"
+        );
+    }
+
+    #[test]
+    fn replacing_one_match_fills_in_its_groups_and_checks_it_is_still_a_match() {
+        let manager = DocumentManager::default();
+        let document = manager
+            .create_untitled("test".into(), "a=1 b=2".into())
+            .expect("document");
+        // "b=2" is bytes 4..7.
+        let updated = manager
+            .replace_match(
+                &document.document_id,
+                document.revision,
+                r"(\w)=(\d)",
+                r"\2:\1",
+                regex_options(),
+                4,
+                7,
+            )
+            .expect("replace match");
+        assert_eq!(first_line(&manager, &document.document_id), "a=1 2:b");
+        // A range that is not exactly a match is refused.
+        let error = manager
+            .replace_match(
+                &document.document_id,
+                updated.revision,
+                r"(\w)=(\d)",
+                "x",
+                regex_options(),
+                1,
+                3,
+            )
+            .expect_err("not a match");
+        assert!(error.to_string().contains("changed"), "{error}");
+        let error = manager
+            .replace_all(
+                &document.document_id,
+                updated.revision,
+                r"(\w)=",
+                "$3",
+                regex_options(),
+                None,
+            )
+            .expect_err("no group 3");
+        assert!(error.to_string().contains("group 3"), "{error}");
     }
 
     #[test]

@@ -1447,7 +1447,7 @@ test("goes to a line through a bounded core query and places the caret there", a
   })));
 });
 
-test("highlights every visible occurrence of the find query when the panel asks", async () => {
+test("highlights the matches the core finds in the visible lines", async () => {
   vi.mocked(getViewport).mockResolvedValueOnce({
     documentId: "document-1", revision: "0", documentByteLen: "22", encoding: "utf8",
     lines: [
@@ -1455,6 +1455,14 @@ test("highlights every visible occurrence of the find query when the panel asks"
       { line: "2", startByte: "12", endByte: "22", text: "none at all", sourceByteWidths: Array(11).fill(1), continuation: false, truncated: false },
     ],
     selections: [{ anchorByte: "21", activeByte: "21" }], bookmarks: [],
+  });
+  const original = vi.mocked(executeCommand).getMockImplementation();
+  vi.mocked(executeCommand).mockImplementation(async (request) => {
+    if (request.id !== "search.matchesInRange") return original?.(request);
+    const { query, options } = request.arguments as { query: string; options: { caseSensitive: boolean; wholeWord?: boolean } };
+    if (query === "(") throw new Error("invalid regular expression");
+    const starts = options.wholeWord ? [0, 4, 8] : options.caseSensitive ? [0, 8, 13] : [0, 4, 8, 13];
+    return { revision: "0", truncated: false, matches: starts.map((start) => ({ startByte: String(start), endByte: String(start + 3) })) };
   });
   const props = { document: untitled, onDocumentChange: () => undefined, onStatus: () => undefined };
   const request = { action: "highlight" as const, replacement: "", regex: false, highlight: true };
@@ -1464,18 +1472,30 @@ test("highlights every visible occurrence of the find query when the panel asks"
   rerender(<EditorViewport {...props} searchRequest={{ id: 1, ...request, query: "one", caseSensitive: true }} />);
   await waitFor(() => expect([...container.querySelectorAll(".find-highlight")].map((item) => item.textContent))
     .toEqual(["one", "one", "one"]));
+  // The visible lines and the search options go to the core.
+  expect(executeCommand).toHaveBeenCalledWith({
+    id: "search.matchesInRange", context: { windowId: "main", documentId: "document-1" },
+    arguments: { query: "one", options: { mode: "literal", caseSensitive: true, wholeWord: false }, startByte: "0", endByte: "22" },
+  });
   expect(screen.getByRole("button", { name: "Highlight matches" })).toHaveAttribute("aria-pressed", "true");
   rerender(<EditorViewport {...props} searchRequest={{ id: 2, ...request, query: "one", caseSensitive: false }} />);
-  await waitFor(() => expect(container.querySelectorAll(".find-highlight")).toHaveLength(4));
-  // Whole words: "none" no longer counts.
-  rerender(<EditorViewport {...props} searchRequest={{ id: 3, ...request, query: "one", caseSensitive: false, wholeWord: true }} />);
+  await waitFor(() => expect([...container.querySelectorAll(".find-highlight")].map((item) => item.textContent))
+    .toEqual(["one", "One", "one", "one"]));
+  rerender(<EditorViewport {...props} searchRequest={{
+    id: 3, ...request, query: "one", caseSensitive: false, wholeWord: true, columns: { from: 1, to: 11 },
+  }} />);
   await waitFor(() => expect(container.querySelectorAll(".find-highlight")).toHaveLength(3));
+  expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
+    id: "search.matchesInRange",
+    arguments: expect.objectContaining({ options: { mode: "literal", caseSensitive: false, wholeWord: true, columns: { from: 1, to: 11 } } }),
+  }));
   // An invalid pattern highlights nothing instead of failing.
   rerender(<EditorViewport {...props} searchRequest={{ id: 4, ...request, query: "(", caseSensitive: true, regex: true }} />);
   await waitFor(() => expect(container.querySelectorAll(".find-highlight")).toHaveLength(0));
   // Turning highlighting off clears it.
   rerender(<EditorViewport {...props} searchRequest={{ id: 5, ...request, query: "one", caseSensitive: true, highlight: false }} />);
   await waitFor(() => expect(container.querySelectorAll(".find-highlight")).toHaveLength(0));
+  if (original) vi.mocked(executeCommand).mockImplementation(original);
 });
 
 test("column editing mode makes a plain drag select a rectangle", async () => {
@@ -1568,7 +1588,11 @@ test("a Search panel request runs find, replace, and replace all with its own op
   vi.mocked(executeCommand).mockResolvedValueOnce({ documentId: "document-1", name: "Untitled", byteLen: "5", revision: "1", encoding: "utf8" });
   rerender(<EditorViewport {...props} searchRequest={{ id: 6, action: "replace", ...request }} />);
   await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
-    id: "editor.replace", arguments: { expectedRevision: "0", startByte: "4", endByte: "7", text: "2" },
+    id: "search.replaceMatch",
+    arguments: {
+      expectedRevision: "0", query: "t.o", replacement: "2",
+      options: { mode: "regex", caseSensitive: false, wholeWord: false }, startByte: "4", endByte: "7",
+    },
   })));
 
   vi.mocked(executeCommand).mockResolvedValueOnce({

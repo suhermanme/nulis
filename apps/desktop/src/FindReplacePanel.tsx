@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, 
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import type {
   ByteRange,
+  ColumnRange,
   DocumentSummary,
   FileSearchScope,
   FindAllResult,
@@ -12,7 +13,7 @@ import type {
   SearchRequest,
   WorkspaceSearchResult,
 } from "./contracts";
-import { executeCommand } from "./ipc";
+import { executeCommand, type HelpTopic } from "./ipc";
 import { IconButton } from "./icons";
 import { ContextMenu } from "./Toolbar";
 
@@ -220,12 +221,71 @@ export interface FindReplacePanelProps {
   onStatus(message: string): void;
   /** False inside its own desktop window, which supplies the title bar. */
   framed?: boolean;
+  /** Opens Nulis Help at a topic; without it the "Regex help" link is not shown. */
+  onHelp?(topic: HelpTopic): void;
+}
+
+/** Where the regular-expression syntax is explained in Nulis Help. */
+export const REGEX_HELP: HelpTopic = { section: "search", heading: "regular-expressions" };
+
+const OPTIONS_KEY = "nulis.find.options.v1";
+
+/** Find options remembered between sessions. */
+interface StoredOptions {
+  caseSensitive: boolean;
+  wholeWord: boolean;
+  regex: boolean;
+  highlight: boolean;
+  listLines: boolean;
+  closeAfter: boolean;
+  optionsOpen: boolean;
+  columnSearch: boolean;
+  columnFrom: string;
+  columnTo: string;
+}
+
+const DEFAULT_OPTIONS: StoredOptions = {
+  caseSensitive: false, wholeWord: false, regex: false, highlight: false, listLines: false, closeAfter: false,
+  optionsOpen: true, columnSearch: false, columnFrom: "", columnTo: "",
+};
+
+function readOptions(): StoredOptions {
+  try {
+    const stored: unknown = JSON.parse(localStorage.getItem(OPTIONS_KEY) ?? "{}");
+    if (!stored || typeof stored !== "object") return DEFAULT_OPTIONS;
+    const merged = { ...DEFAULT_OPTIONS };
+    for (const [key, fallback] of Object.entries(DEFAULT_OPTIONS) as Array<[keyof StoredOptions, boolean | string]>) {
+      const value = (stored as Record<string, unknown>)[key];
+      if (typeof value === typeof fallback) (merged as Record<string, unknown>)[key] = value;
+    }
+    return merged;
+  } catch {
+    return DEFAULT_OPTIONS;
+  }
+}
+
+/** A column field: empty, or a whole number from 1. */
+function columnNumber(text: string): number | undefined | null {
+  const trimmed = text.trim();
+  if (!trimmed) return undefined;
+  return /^\d+$/.test(trimmed) && Number(trimmed) >= 1 ? Number(trimmed) : null;
+}
+
+/** The column range the fields describe, or why they do not describe one. */
+export function columnRange(from: string, to: string): { columns?: ColumnRange; error?: string } {
+  const start = columnNumber(from);
+  const end = columnNumber(to);
+  if (start === null || end === null) return { error: "Columns are whole numbers from 1" };
+  if (start === undefined && end === undefined) return { error: "Enter a From or To column" };
+  if (start !== undefined && end !== undefined && end < start) return { error: `To (${end}) is before From (${start})` };
+  return { columns: { ...(start !== undefined ? { from: start } : {}), ...(end !== undefined ? { to: end } : {}) } };
 }
 
 /** The Find and Replace panel: Find, Find in Files, and Replace tabs. */
 export function FindReplacePanel(props: FindReplacePanelProps) {
   const { tab, onTab, onClose, seed, activeDocument, textDocuments, selection, onEditorSearch, onOpenMatch,
-    onDocumentChange, onResults, onChooseFolder, defaultFolder, onStatus, framed = true } = props;
+    onDocumentChange, onResults, onChooseFolder, defaultFolder, onStatus, onHelp, framed = true } = props;
+  const [stored] = useState(readOptions);
   const [query, setQuery] = useState(seed?.text ?? "");
   const [replacement, setReplacement] = useState("");
   const [findHistory, setFindHistory] = useState(() => readHistory("find"));
@@ -235,13 +295,17 @@ export function FindReplacePanel(props: FindReplacePanelProps) {
   const [include, setInclude] = useState("");
   const [folder, setFolder] = useState(defaultFolder ?? "");
   const [recursive, setRecursive] = useState(true);
-  const [optionsOpen, setOptionsOpen] = useState(true);
-  const [caseSensitive, setCaseSensitive] = useState(false);
-  const [wholeWord, setWholeWord] = useState(false);
-  const [regex, setRegex] = useState(false);
-  const [highlight, setHighlight] = useState(false);
-  const [listLines, setListLines] = useState(false);
-  const [closeAfter, setCloseAfter] = useState(false);
+  const [optionsOpen, setOptionsOpen] = useState(stored.optionsOpen);
+  const [caseSensitive, setCaseSensitive] = useState(stored.caseSensitive);
+  const [wholeWord, setWholeWord] = useState(stored.wholeWord);
+  const [regex, setRegex] = useState(stored.regex);
+  const [highlight, setHighlight] = useState(stored.highlight);
+  const [listLines, setListLines] = useState(stored.listLines);
+  const [closeAfter, setCloseAfter] = useState(stored.closeAfter);
+  const [columnSearch, setColumnSearch] = useState(stored.columnSearch);
+  const [columnFrom, setColumnFrom] = useState(stored.columnFrom);
+  const [columnTo, setColumnTo] = useState(stored.columnTo);
+  const [patternError, setPatternError] = useState<string | null>(null);
   const [summary, setSummary] = useState("");
   const [busy, setBusy] = useState(false);
   // Replace in Files: the preview, what it was made for, and whether it awaits confirmation.
@@ -259,15 +323,51 @@ export function FindReplacePanel(props: FindReplacePanelProps) {
     if (defaultFolder) setFolder((current) => current || defaultFolder);
   }, [defaultFolder]);
 
-  const options: SearchOptions = { mode: regex ? "regex" : "literal", caseSensitive, wholeWord };
+  useEffect(() => {
+    const options: StoredOptions = {
+      caseSensitive, wholeWord, regex, highlight, listLines, closeAfter, optionsOpen, columnSearch, columnFrom, columnTo,
+    };
+    try { localStorage.setItem(OPTIONS_KEY, JSON.stringify(options)); } catch { /* options are a convenience */ }
+  }, [caseSensitive, wholeWord, regex, highlight, listLines, closeAfter, optionsOpen, columnSearch, columnFrom, columnTo]);
+
+  // Column search applies where one document is searched: the Find and Replace tabs.
+  const columnsApply = columnSearch && (tab === "find" || tab === "replace");
+  const column = columnsApply ? columnRange(columnFrom, columnTo) : {};
+  const columns = column.columns;
+  const options: SearchOptions = { mode: regex ? "regex" : "literal", caseSensitive, wholeWord, ...(columns ? { columns } : {}) };
   const editorRequest = (action: SearchRequest["action"], within?: ByteRange): Omit<SearchRequest, "id"> => ({
-    action, query, replacement, regex, caseSensitive, wholeWord, highlight, within,
+    action, query, replacement, regex, caseSensitive, wholeWord, highlight, within, ...(columns ? { columns } : {}),
   });
 
-  // Highlighting follows the checkbox and the current query in the focused editor.
+  // A regular expression is checked as it is typed, by the same engine that searches.
   useEffect(() => {
-    if (query) onEditorSearch(editorRequest("highlight"));
-  }, [highlight]);
+    if (!regex || !query) { setPatternError(null); return; }
+    let current = true;
+    const timer = setTimeout(() => {
+      executeCommand({
+        id: "search.validatePattern", context: { windowId: "main" },
+        arguments: { query, options: { mode: "regex", caseSensitive, wholeWord } },
+      }).then(() => { if (current) setPatternError(null); })
+        .catch((error: unknown) => {
+          const message = errorText(error, "Invalid regular expression");
+          if (current) setPatternError(message.charAt(0).toUpperCase() + message.slice(1));
+        });
+    }, 200);
+    return () => { current = false; clearTimeout(timer); };
+  }, [query, regex, caseSensitive, wholeWord]);
+  const inputError = patternError ?? column.error ?? null;
+
+  // Highlighting follows the checkbox, and while it is on, the query and options as they change.
+  const highlightKey = JSON.stringify([query, regex, caseSensitive, wholeWord, columns ?? null]);
+  const sentHighlight = useRef(false);
+  useEffect(() => {
+    if (!query || inputError || (!highlight && !sentHighlight.current)) return;
+    const timer = setTimeout(() => {
+      sentHighlight.current = highlight;
+      onEditorSearch(editorRequest("highlight"));
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [highlight, highlightKey, inputError]);
 
   const rememberQuery = () => { if (query) setFindHistory(remember("find", query)); };
   const rememberReplacement = () => { if (replacement) setReplaceHistory(remember("replace", replacement)); };
@@ -321,6 +421,7 @@ export function FindReplacePanel(props: FindReplacePanelProps) {
 
   const run = async (action: () => Promise<void>) => {
     if (!query) { onStatus("Enter text to find"); return; }
+    if (inputError) { onStatus(inputError); return; }
     setBusy(true);
     try { await action(); } catch (error: unknown) { onStatus(errorText(error, "Search failed")); } finally { setBusy(false); }
   };
@@ -503,11 +604,19 @@ export function FindReplacePanel(props: FindReplacePanelProps) {
     if (closeAfter) onClose();
   });
 
-  const optionChecks = <>
-    <Check label="Match case" checked={caseSensitive} onChange={setCaseSensitive} />
-    <Check label="Match whole word" checked={wholeWord} onChange={setWholeWord} />
+  const regexCheck = <div className="find-regex">
     <Check label="Use regular expressions" checked={regex} onChange={setRegex} />
-  </>;
+    {onHelp ? <IconButton icon="help" label="Regex help" className="find-help" onClick={() => onHelp(REGEX_HELP)} /> : null}
+  </div>;
+  const columnRow = <div className="find-columns" role="group" aria-label="Search in column">
+    <Check label="Search in column:" checked={columnSearch} onChange={setColumnSearch} />
+    <label>From <input aria-label="From column" inputMode="numeric" value={columnFrom} disabled={!columnSearch}
+      onChange={(event) => setColumnFrom(event.currentTarget.value)} /></label>
+    <label>To <input aria-label="To column" inputMode="numeric" value={columnTo} disabled={!columnSearch}
+      onChange={(event) => setColumnTo(event.currentTarget.value)} /></label>
+  </div>;
+  // Mistakes show in the status line above the buttons, which keeps its place, so nothing moves while typing.
+  const statusLine = <p className={`find-summary${inputError ? " find-error" : ""}`} role="status">{inputError ?? summary}</p>;
   const scopeSelect = (label: string) => <label className="find-where">
     <span className="find-label">{label}</span>
     <select aria-label={label.replace(/:$/, "")} value={documentScope}
@@ -562,10 +671,12 @@ export function FindReplacePanel(props: FindReplacePanelProps) {
         </> : null}
         {optionsToggle("Find options")}
         {optionsOpen ? <div className="find-options">
-          {optionChecks}
+          <Check label="Match case" checked={caseSensitive} onChange={setCaseSensitive} />
+          <Check label="Match whole word" checked={wholeWord} onChange={setWholeWord} />
+          {regexCheck}
           {tab === "replaceInFiles" ? <Check label="Close after replace all" checked={closeAfter} onChange={setCloseAfter} /> : null}
         </div> : null}
-        <p className="find-summary" role="status">{summary}</p>
+        {statusLine}
         {tab === "replaceInFiles" && fileScope === "folder" && preview ? <ul className="replace-preview" aria-label="Files to change">
           {preview.result.files.map((file) => <li key={file.path} title={file.path}>
             <span className="result-source">{fileName(file.path)}</span>
@@ -580,18 +691,18 @@ export function FindReplacePanel(props: FindReplacePanelProps) {
         </ul> : null}
         {tab === "findInFiles" ? <div className="find-actions">
           <span />
-          <button type="button" className="primary" disabled={busy} onClick={() => void findInFiles()}>Find</button>
+          <button type="button" className="primary" disabled={busy || inputError !== null} onClick={() => void findInFiles()}>Find</button>
         </div> : fileScope === "openFiles" ? <div className="find-actions">
           <span />
-          <button type="button" className="primary" disabled={busy} onClick={() => void replaceInFiles()}>Replace All</button>
+          <button type="button" className="primary" disabled={busy || inputError !== null} onClick={() => void replaceInFiles()}>Replace All</button>
         </div> : confirming && previewIsCurrent ? <div className="find-actions find-confirm" role="group" aria-label="Confirm Replace in Files">
           <span>Replace {previewMatches} match{previewMatches === 1 ? "" : "es"} in {preview?.result.files.length} files?
             Closed files are saved right away.</span>
           <button type="button" onClick={() => setConfirming(false)}>Cancel</button>
-          <button type="button" className="primary" disabled={busy} onClick={() => void replaceInFiles()}>Replace</button>
+          <button type="button" className="primary" disabled={busy || inputError !== null} onClick={() => void replaceInFiles()}>Replace</button>
         </div> : <div className="find-actions">
           <span />
-          <button type="button" disabled={busy} onClick={() => void previewReplaceInFiles()}>Preview</button>
+          <button type="button" disabled={busy || inputError !== null} onClick={() => void previewReplaceInFiles()}>Preview</button>
           <button type="button" className="primary" disabled={busy || !previewIsCurrent || previewMatches === 0}
             title={previewIsCurrent ? undefined : "Preview the files first"} onClick={() => setConfirming(true)}>Replace All</button>
         </div>}
@@ -599,25 +710,28 @@ export function FindReplacePanel(props: FindReplacePanelProps) {
         {scopeSelect(tab === "replace" ? "Replace where:" : "Find where:")}
         {optionsToggle("Options")}
         {optionsOpen ? <div className="find-options">
-          {optionChecks}
+          <Check label="Match case" checked={caseSensitive} onChange={setCaseSensitive} />
           {tab === "find" ? <>
             <Check label="Highlight all items found" checked={highlight} onChange={setHighlight} />
+            <Check label="Match whole word" checked={wholeWord} onChange={setWholeWord} />
             <Check label="List lines containing find string" checked={listLines} onChange={setListLines} />
-            <Check label="Close after find" checked={closeAfter} onChange={setCloseAfter} />
-          </> : <Check label="Close after replace all" checked={closeAfter} onChange={setCloseAfter} />}
+          </> : <Check label="Match whole word" checked={wholeWord} onChange={setWholeWord} />}
+          {columnRow}
+          {regexCheck}
+          <Check label={tab === "find" ? "Close after find" : "Close after replace all"} checked={closeAfter} onChange={setCloseAfter} />
         </div> : null}
-        <p className="find-summary" role="status">{summary}</p>
+        {statusLine}
         {tab === "find" ? <div className="find-actions">
-          <button type="button" disabled={busy} onClick={() => void countAll()}>Count All</button>
+          <button type="button" disabled={busy || inputError !== null} onClick={() => void countAll()}>Count All</button>
           <span />
-          <button type="button" disabled={busy} onClick={() => void step("previous")}>Previous</button>
-          <button type="button" className="primary" disabled={busy} onClick={() => void step("next")}>Next</button>
+          <button type="button" disabled={busy || inputError !== null} onClick={() => void step("previous")}>Previous</button>
+          <button type="button" className="primary" disabled={busy || inputError !== null} onClick={() => void step("next")}>Next</button>
         </div> : <div className="find-actions">
           <span />
-          <button type="button" className="primary" disabled={busy} onClick={() => void step("next")}>Next</button>
-          <button type="button" disabled={busy || documentScope !== "document"} title={documentScope !== "document"
+          <button type="button" className="primary" disabled={busy || inputError !== null} onClick={() => void step("next")}>Next</button>
+          <button type="button" disabled={busy || inputError !== null || documentScope !== "document"} title={documentScope !== "document"
             ? "Replace one match works in the current document" : undefined} onClick={() => void replaceOne()}>Replace</button>
-          <button type="button" disabled={busy} onClick={() => void replaceAll()}>Replace All</button>
+          <button type="button" disabled={busy || inputError !== null} onClick={() => void replaceAll()}>Replace All</button>
         </div>}
       </>}
     </div>

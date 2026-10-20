@@ -82,10 +82,12 @@ interface HelpWindowProps {
   /** Theme variables, for the separate window; the inline dialog inherits the workbench's. */
   style?: CSSProperties;
   onClose(): void;
+  /** Shows this section and heading; a new `id` shows it again. */
+  topic?: { id: number; section: string; heading?: string };
 }
 
 /** Sectioned help, laid out like the Settings window. */
-export function HelpWindow({ mode, style, onClose }: HelpWindowProps) {
+export function HelpWindow({ mode, style, onClose, topic }: HelpWindowProps) {
   const [current, setCurrent] = useState(loadSection);
   const [query, setQuery] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -112,6 +114,9 @@ export function HelpWindow({ mode, style, onClose }: HelpWindowProps) {
     if (target.section) { setQuery(""); setCurrent(target.section); }
     if (target.heading) setPendingHeading(target.heading);
   };
+  useEffect(() => {
+    if (topic && HELP_SECTIONS.some((item) => item.id === topic.section)) follow(topic);
+  }, [topic?.id]);
 
   const onNavigationKey = (event: KeyboardEvent<HTMLDivElement>) => {
     const index = visible.findIndex((item) => item.id === current);

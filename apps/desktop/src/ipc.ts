@@ -3,6 +3,7 @@ import {
   IPC_PROTOCOL_VERSION,
   type ApplicationInfo,
   type CommandDescriptor,
+  type CommandFailure,
   type DocumentMapSnapshot,
   type EditorPreferences,
   type MarkdownPreviewSource,
@@ -30,8 +31,24 @@ export function listCommands(): Promise<CommandDescriptor[]> {
   return invoke<CommandDescriptor[]>("list_commands");
 }
 
+const FAILURE_PREFIX: Record<CommandFailure["kind"], string> = {
+  invalidId: "Invalid command", duplicate: "Command already registered", unknown: "Unknown command",
+  unavailable: "Command unavailable", failed: "",
+};
+
+/** A failed command's error as an `Error` with the core's own message, so callers can show it. */
+export function commandError(error: unknown): unknown {
+  if (error instanceof Error || typeof error === "string") return typeof error === "string" ? new Error(error) : error;
+  if (error && typeof error === "object" && "kind" in error && "detail" in error) {
+    const { kind, detail } = error as CommandFailure;
+    const prefix = FAILURE_PREFIX[kind] ?? "";
+    return new Error(prefix ? `${prefix}: ${detail}` : String(detail));
+  }
+  return error;
+}
+
 export function executeCommand<T = unknown>(request: ExecuteCommandRequest): Promise<T> {
-  return invoke<T>("execute_command", { request });
+  return invoke<T>("execute_command", { request }).catch((error: unknown) => { throw commandError(error); });
 }
 
 export interface NativeMenuEntry {
@@ -83,8 +100,15 @@ export function takeLaunchPaths(): Promise<string[]> {
 }
 
 /** Opens the singleton Help window, or brings the existing one forward. */
-export function openHelpWindow(): Promise<void> {
-  return invoke<void>("open_help_window");
+/** A place in Nulis Help: a section and a heading in it, by their slugs. */
+export interface HelpTopic {
+  section: string;
+  heading?: string;
+}
+
+/** Opens Nulis Help, at `topic` when given. */
+export function openHelpWindow(topic?: HelpTopic): Promise<void> {
+  return invoke<void>("open_help_window", { topic: topic ? { section: topic.section, heading: topic.heading ?? "" } : null });
 }
 
 export function closeHelpWindow(): Promise<void> {
@@ -136,6 +160,11 @@ export function openResultsWindow(): Promise<void> {
 /** Closes the calling Find or results window. */
 export function closeFindWindow(): Promise<void> {
   return invoke<void>("close_find_window");
+}
+
+/** Resizes the Find window so its page shows `content` points; it now shows `viewport`. The width is kept. */
+export function fitFindWindow(content: number, viewport: number): Promise<void> {
+  return invoke<void>("fit_find_window", { content, viewport });
 }
 
 /** Sends a message from the Find or results window to the editor window. */

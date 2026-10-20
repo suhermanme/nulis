@@ -35,6 +35,37 @@ pub struct SearchOptions {
     /// Matches only where the text is not part of a longer word.
     #[serde(default)]
     pub whole_word: bool,
+    /// Searches each line only between these columns.
+    #[serde(default)]
+    pub columns: Option<ColumnRange>,
+}
+
+/// Columns to search in each line, counted as the status bar counts them:
+/// characters from 1, a tab being one character. Both ends are included;
+/// a missing end means the start or the end of the line.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ColumnRange {
+    #[serde(default)]
+    pub from: Option<u32>,
+    #[serde(default)]
+    pub to: Option<u32>,
+}
+
+impl ColumnRange {
+    fn validate(self) -> Result<Option<Self>, SearchError> {
+        if self.from == Some(0) || self.to == Some(0) {
+            return Err(SearchError::InvalidColumns("columns start at 1".into()));
+        }
+        if let (Some(from), Some(to)) = (self.from, self.to) {
+            if to < from {
+                return Err(SearchError::InvalidColumns(format!(
+                    "column {to} is before column {from}"
+                )));
+            }
+        }
+        Ok((self.from.is_some() || self.to.is_some()).then_some(self))
+    }
 }
 
 impl Default for SearchOptions {
@@ -43,6 +74,7 @@ impl Default for SearchOptions {
             mode: SearchMode::Literal,
             case_sensitive: true,
             whole_word: false,
+            columns: None,
         }
     }
 }
@@ -85,8 +117,10 @@ impl CancellationToken {
 ///
 /// Literal searches operate on bytes. Case-insensitive literal matching is
 /// ASCII-only, which keeps source coordinates stable for arbitrary encodings.
-/// Regex searches support multiline matches when the expression has a finite
-/// maximum width no larger than [`MAX_REGEX_MATCH_BYTES`].
+/// Regex searches use the linear-time `regex` engine and support multiline
+/// matches. One match is at most [`MAX_REGEX_MATCH_BYTES`]; an expression with
+/// no upper bound (`\w+`, `a.*b`) is searched with that cap and reports
+/// [`SearchError::RegexMatchTooLarge`] if a match would exceed it.
 ///
 /// # Errors
 /// Returns a typed error for invalid bounds, patterns, regexes, or source reads.
@@ -98,9 +132,64 @@ pub fn search(
     max_matches: usize,
     cancellation: &CancellationToken,
 ) -> Result<SearchPage, SearchError> {
+    search_until(
+        source,
+        pattern,
+        options,
+        start_offset,
+        source.len(),
+        max_matches,
+        cancellation,
+    )
+}
+
+/// Like [`search`], but only for matches that start before `stop`. Text
+/// after `stop` is still read as far as a match may reach, so results are
+/// the same as a full search's; this is for the matches in a visible range.
+///
+/// # Errors
+/// Returns a typed error for invalid bounds, patterns, regexes, or source reads.
+pub fn search_until(
+    source: &dyn ReadAt,
+    pattern: &[u8],
+    options: SearchOptions,
+    start_offset: u64,
+    stop: u64,
+    max_matches: usize,
+    cancellation: &CancellationToken,
+) -> Result<SearchPage, SearchError> {
     validate_request(source, pattern, start_offset, max_matches)?;
     let matcher = Matcher::new(pattern, options)?;
-    search_with_matcher(source, &matcher, start_offset, max_matches, cancellation)
+    let mut window = Vec::new();
+    let range = Range {
+        start: start_offset,
+        stop: stop.min(source.len()),
+    };
+    match options
+        .columns
+        .map(ColumnRange::validate)
+        .transpose()?
+        .flatten()
+    {
+        Some(columns) => {
+            search_columns(source, &matcher, columns, range, max_matches, cancellation)
+        }
+        None => search_with_matcher(
+            source,
+            &matcher,
+            range,
+            max_matches,
+            cancellation,
+            &mut window,
+        ),
+    }
+}
+
+/// Where a search starts, and the offset matches must start before.
+#[derive(Clone, Copy, Debug)]
+struct Range {
+    start: u64,
+    stop: u64,
 }
 
 /// Validates and compiles a pattern without reading a source.
@@ -113,6 +202,9 @@ pub fn validate_pattern(pattern: &[u8], options: SearchOptions) -> Result<(), Se
     }
     if pattern.len() > MAX_PATTERN_BYTES {
         return Err(SearchError::PatternTooLarge(pattern.len()));
+    }
+    if let Some(columns) = options.columns {
+        columns.validate()?;
     }
     Matcher::new(pattern, options).map(|_| ())
 }
@@ -157,6 +249,263 @@ pub fn plan_replacements(
         .collect()
 }
 
+/// One piece of a replacement template.
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum Piece {
+    Text(Vec<u8>),
+    Group(usize),
+    Named(String),
+}
+
+/// A replacement as written by the user. With regular expressions it may
+/// refer to the match: `$1`, `${name}`, `$0` or `$&` (the whole match), `$$`
+/// (a dollar), `\1`…`\9`, and the escapes `\n`, `\t`, `\r`, `\\`. Literal
+/// searches insert the text exactly as written.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReplacementTemplate {
+    pieces: Vec<Piece>,
+}
+
+impl ReplacementTemplate {
+    /// Reads `replacement` the way `options` asks for.
+    #[must_use]
+    pub fn parse(replacement: &[u8], options: SearchOptions) -> Self {
+        if options.mode == SearchMode::Literal {
+            return Self {
+                pieces: vec![Piece::Text(replacement.to_vec())],
+            };
+        }
+        let mut pieces = Vec::new();
+        let mut text = Vec::new();
+        let mut index = 0;
+        let flush = |text: &mut Vec<u8>, pieces: &mut Vec<Piece>| {
+            if !text.is_empty() {
+                pieces.push(Piece::Text(std::mem::take(text)));
+            }
+        };
+        while index < replacement.len() {
+            let byte = replacement[index];
+            let next = replacement.get(index + 1).copied();
+            match (byte, next) {
+                (b'$', Some(b'$')) => {
+                    text.push(b'$');
+                    index += 2;
+                }
+                (b'$', Some(b'&')) => {
+                    flush(&mut text, &mut pieces);
+                    pieces.push(Piece::Group(0));
+                    index += 2;
+                }
+                (b'$', Some(digit)) if digit.is_ascii_digit() => {
+                    let digits = replacement[index + 1..]
+                        .iter()
+                        .take_while(|byte| byte.is_ascii_digit())
+                        .count()
+                        .min(3);
+                    let number = std::str::from_utf8(&replacement[index + 1..index + 1 + digits])
+                        .ok()
+                        .and_then(|digits| digits.parse().ok())
+                        .unwrap_or(usize::MAX);
+                    flush(&mut text, &mut pieces);
+                    pieces.push(Piece::Group(number));
+                    index += 1 + digits;
+                }
+                (b'$', Some(b'{')) => {
+                    let close = replacement[index + 2..]
+                        .iter()
+                        .position(|byte| *byte == b'}');
+                    let name = close.and_then(|close| {
+                        std::str::from_utf8(&replacement[index + 2..index + 2 + close]).ok()
+                    });
+                    match (close, name) {
+                        (Some(close), Some(name)) if !name.is_empty() => {
+                            flush(&mut text, &mut pieces);
+                            pieces.push(
+                                name.parse()
+                                    .map_or_else(|_| Piece::Named(name.to_owned()), Piece::Group),
+                            );
+                            index += 3 + close;
+                        }
+                        _ => {
+                            text.push(b'$');
+                            index += 1;
+                        }
+                    }
+                }
+                (b'\\', Some(digit)) if digit.is_ascii_digit() => {
+                    flush(&mut text, &mut pieces);
+                    pieces.push(Piece::Group(usize::from(digit - b'0')));
+                    index += 2;
+                }
+                (b'\\', Some(escape @ (b'n' | b't' | b'r' | b'\\' | b'$'))) => {
+                    text.push(match escape {
+                        b'n' => b'\n',
+                        b't' => b'\t',
+                        b'r' => b'\r',
+                        other => other,
+                    });
+                    index += 2;
+                }
+                _ => {
+                    text.push(byte);
+                    index += 1;
+                }
+            }
+        }
+        flush(&mut text, &mut pieces);
+        Self { pieces }
+    }
+
+    /// The template inserts the same text for every match.
+    #[must_use]
+    pub fn is_constant(&self) -> bool {
+        self.pieces
+            .iter()
+            .all(|piece| matches!(piece, Piece::Text(_)))
+    }
+
+    /// Checks every group the template refers to exists in `regex`.
+    fn check(&self, regex: &Regex) -> Result<(), SearchError> {
+        for piece in &self.pieces {
+            match piece {
+                Piece::Group(number) if *number >= regex.captures_len() => {
+                    return Err(SearchError::UnknownGroup(if *number == usize::MAX {
+                        "a very large number".into()
+                    } else {
+                        number.to_string()
+                    }));
+                }
+                Piece::Named(name) if !regex.capture_names().flatten().any(|item| item == name) => {
+                    return Err(SearchError::UnknownGroup(format!("\"{name}\"")));
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn expand(&self, captures: Option<&regex::bytes::Captures<'_>>, out: &mut Vec<u8>) {
+        for piece in &self.pieces {
+            let group = match piece {
+                Piece::Text(text) => {
+                    out.extend_from_slice(text);
+                    continue;
+                }
+                Piece::Group(number) => captures.and_then(|captures| captures.get(*number)),
+                Piece::Named(name) => captures.and_then(|captures| captures.name(name)),
+            };
+            if let Some(group) = group {
+                out.extend_from_slice(group.as_bytes());
+            }
+        }
+    }
+}
+
+/// The text that replaces each of `matches` (found with `pattern` and
+/// `options` in `source`), with group references filled in per match.
+///
+/// # Errors
+/// Returns an error for an invalid pattern, a reference to a group the
+/// pattern does not have, a match that is no longer there, too many matches,
+/// or more than [`MAX_REPLACEMENT_PLAN_BYTES`] of replacement text.
+pub fn expand_replacements(
+    source: &dyn ReadAt,
+    pattern: &[u8],
+    options: SearchOptions,
+    matches: &[SearchMatch],
+    replacement: &[u8],
+) -> Result<Vec<Vec<u8>>, SearchError> {
+    if matches.len() > MAX_PAGE_MATCHES {
+        return Err(SearchError::TooManyMatches(matches.len()));
+    }
+    let template = ReplacementTemplate::parse(replacement, options);
+    let compiled = Matcher::new(pattern, options)?;
+    let regex = match &compiled {
+        Matcher::Regex { regex, .. } => Some(regex),
+        Matcher::Literal { .. } => None,
+    };
+    if let Some(regex) = regex {
+        template.check(regex)?;
+    }
+    let mut total = 0_usize;
+    let mut buffer = Vec::new();
+    let mut results = Vec::with_capacity(matches.len());
+    for found in matches {
+        let mut text = Vec::new();
+        match regex {
+            Some(regex) if !template.is_constant() => {
+                // One byte either side keeps anchors and word boundaries as in
+                // the search; a column search sees only its columns.
+                let (low, high) = match options
+                    .columns
+                    .and_then(|range| range.validate().ok().flatten())
+                {
+                    Some(range) => {
+                        let segment = segment_at(source, found.range.start.0, range)?;
+                        (segment.start, segment.end)
+                    }
+                    None => (0, source.len()),
+                };
+                let read_start = found.range.start.0.saturating_sub(1).max(low);
+                let read_end = found.range.end.0.saturating_add(1).min(high);
+                let len = usize::try_from(read_end - read_start)
+                    .map_err(|_| SearchError::OffsetOverflow)?;
+                buffer.resize(len, 0);
+                let read = source.read_at(read_start, &mut buffer)?;
+                let local = usize::try_from(found.range.start.0 - read_start)
+                    .map_err(|_| SearchError::OffsetOverflow)?;
+                let expected =
+                    usize::try_from(found.range.len()).map_err(|_| SearchError::OffsetOverflow)?;
+                let captures = regex
+                    .captures_at(&buffer[..read], local)
+                    .filter(|captures| {
+                        captures
+                            .get(0)
+                            .is_some_and(|whole| whole.start() == local && whole.len() == expected)
+                    })
+                    .ok_or(SearchError::MatchChanged)?;
+                template.expand(Some(&captures), &mut text);
+            }
+            _ => template.expand(None, &mut text),
+        }
+        total = total
+            .checked_add(text.len())
+            .ok_or(SearchError::ReplacementTooLarge)?;
+        if total > MAX_REPLACEMENT_PLAN_BYTES {
+            return Err(SearchError::ReplacementTooLarge);
+        }
+        results.push(text);
+    }
+    Ok(results)
+}
+
+/// Like [`plan_replacements`], with its own replacement text for each match.
+///
+/// # Errors
+/// Returns an error when matches overlap, are out of order, do not pair up
+/// with the texts, or exceed limits.
+pub fn plan_replacements_each(
+    matches: &[SearchMatch],
+    replacements: &[Vec<u8>],
+) -> Result<Vec<(u64, u64, Vec<u8>)>, SearchError> {
+    if matches.len() != replacements.len() {
+        return Err(SearchError::OverlappingMatches);
+    }
+    let mut plan = plan_replacements(matches, b"")?;
+    let inserted = replacements
+        .iter()
+        .map(Vec::len)
+        .try_fold(0_usize, usize::checked_add);
+    if inserted.is_none_or(|total| total > MAX_REPLACEMENT_PLAN_BYTES) {
+        return Err(SearchError::ReplacementTooLarge);
+    }
+    // The plan is in descending order; the texts are in match order.
+    for (step, text) in plan.iter_mut().zip(replacements.iter().rev()) {
+        step.2.clone_from(text);
+    }
+    Ok(plan)
+}
+
 #[derive(Debug)]
 enum Matcher {
     Literal {
@@ -166,6 +515,8 @@ enum Matcher {
     Regex {
         regex: Regex,
         maximum_len: usize,
+        /// The expression has no upper bound; `maximum_len` is the cap.
+        unbounded: bool,
     },
 }
 
@@ -194,14 +545,17 @@ impl Matcher {
                 };
                 let mut parser = ParserBuilder::new();
                 parser.case_insensitive(!options.case_sensitive);
-                let hir = parser
-                    .build()
-                    .parse(expression)
-                    .map_err(|error| SearchError::InvalidRegex(error.to_string()))?;
-                let maximum_len = hir
-                    .properties()
-                    .maximum_len()
-                    .ok_or(SearchError::UnboundedRegex)?;
+                let prefix = if options.whole_word {
+                    r"\b(?:".len()
+                } else {
+                    0
+                };
+                let hir = parser.build().parse(expression).map_err(|error| {
+                    SearchError::InvalidRegex(readable_regex_error(&error, text, prefix))
+                })?;
+                let bound = hir.properties().maximum_len();
+                let unbounded = bound.is_none();
+                let maximum_len = bound.unwrap_or(MAX_REGEX_MATCH_BYTES);
                 if maximum_len == 0 {
                     return Err(SearchError::EmptyRegexMatch);
                 }
@@ -212,8 +566,12 @@ impl Matcher {
                     .case_insensitive(!options.case_sensitive)
                     .multi_line(true)
                     .build()
-                    .map_err(|error| SearchError::InvalidRegex(error.to_string()))?;
-                Ok(Self::Regex { regex, maximum_len })
+                    .map_err(|error| SearchError::InvalidRegex(last_line(&error.to_string())))?;
+                Ok(Self::Regex {
+                    regex,
+                    maximum_len,
+                    unbounded,
+                })
             }
         }
     }
@@ -229,16 +587,46 @@ impl Matcher {
         usize::from(matches!(self, Self::Regex { .. }))
     }
 
-    fn matches(&self, haystack: &[u8]) -> Vec<(usize, usize)> {
+    /// How much a chunk scans, and how much is read with it. A long overlap
+    /// is re-read for every chunk, so chunks grow with it to keep that cost
+    /// near a quarter of the scan.
+    fn window_sizes(&self) -> Result<(usize, usize), SearchError> {
+        let overlap = self.overlap();
+        let chunk = SEARCH_CHUNK_BYTES.max(overlap.saturating_mul(4));
+        let capacity = chunk
+            .checked_add(overlap)
+            .and_then(|size| size.checked_add(self.boundary_context().saturating_mul(2)))
+            .ok_or(SearchError::OffsetOverflow)?;
+        Ok((chunk, capacity))
+    }
+
+    /// An unbounded match may be no longer than the cap; one that runs into
+    /// the end of the window (`cut`) may continue past it.
+    fn check_length(&self, len: usize, cut: bool) -> Result<(), SearchError> {
+        let unbounded = matches!(
+            self,
+            Self::Regex {
+                unbounded: true,
+                ..
+            }
+        );
+        if unbounded && (len > MAX_REGEX_MATCH_BYTES || cut) {
+            return Err(SearchError::RegexMatchTooLarge(MAX_REGEX_MATCH_BYTES));
+        }
+        Ok(())
+    }
+
+    /// The first match in `haystack` that starts at or after `from`. Text
+    /// before `from` still counts as context for anchors and word boundaries.
+    fn find_at(&self, haystack: &[u8], from: usize) -> Option<(usize, usize)> {
         match self {
             Self::Literal {
                 pattern,
                 case_sensitive,
-            } => literal_matches(haystack, pattern, *case_sensitive),
+            } => literal_find(haystack, pattern, *case_sensitive, from),
             Self::Regex { regex, .. } => regex
-                .find_iter(haystack)
-                .map(|found| (found.start(), found.end()))
-                .collect(),
+                .find_at(haystack, from)
+                .map(|found| (found.start(), found.end())),
         }
     }
 }
@@ -246,22 +634,27 @@ impl Matcher {
 fn search_with_matcher(
     source: &dyn ReadAt,
     matcher: &Matcher,
-    start_offset: u64,
+    range: Range,
     max_matches: usize,
     cancellation: &CancellationToken,
+    window: &mut Vec<u8>,
 ) -> Result<SearchPage, SearchError> {
     let source_len = source.len();
-    let overlap = matcher.overlap();
+    let Range {
+        start: start_offset,
+        stop,
+    } = range;
     let boundary_context = matcher.boundary_context();
-    let window_capacity = SEARCH_CHUNK_BYTES
-        .checked_add(overlap)
-        .and_then(|size| size.checked_add(boundary_context.saturating_mul(2)))
-        .ok_or(SearchError::OffsetOverflow)?;
-    let mut window = vec![0_u8; window_capacity];
+    let (chunk, window_capacity) = matcher.window_sizes()?;
+    if window.len() < window_capacity {
+        window.resize(window_capacity, 0);
+    }
     let mut window_start = start_offset;
+    // Where the next match may start: never inside one already reported.
+    let mut resume_at = start_offset;
     let mut found_matches = Vec::new();
 
-    while window_start < source_len {
+    while window_start < source_len.min(stop) {
         if cancellation.is_cancelled() {
             return Ok(SearchPage {
                 matches: found_matches,
@@ -285,23 +678,43 @@ fn search_with_matcher(
         if read == 0 {
             break;
         }
-        let primary_len = read.saturating_sub(prefix_len).min(SEARCH_CHUNK_BYTES);
+        let primary_len = read
+            .saturating_sub(prefix_len)
+            .min(chunk)
+            .min(usize::try_from(stop - window_start).unwrap_or(usize::MAX));
         let primary_end = prefix_len
             .checked_add(primary_len)
             .ok_or(SearchError::OffsetOverflow)?;
-        for (local_start, local_end) in matcher.matches(&window[..read]) {
-            if local_start < prefix_len {
-                continue;
-            }
+        let window_end = read_start
+            .checked_add(u64::try_from(read).map_err(|_| SearchError::OffsetOverflow)?)
+            .ok_or(SearchError::OffsetOverflow)?;
+        let haystack = &window[..read];
+        let mut at = usize::try_from(resume_at.saturating_sub(read_start))
+            .map_err(|_| SearchError::OffsetOverflow)?
+            .max(prefix_len);
+        while at <= read {
+            let Some((local_start, local_end)) = matcher.find_at(haystack, at) else {
+                break;
+            };
             if local_start >= primary_end {
                 break;
             }
+            matcher.check_length(
+                local_end - local_start,
+                local_end == read && window_end < source_len,
+            )?;
+            at = if local_end == local_start {
+                local_end + 1
+            } else {
+                local_end
+            };
             let start = read_start
                 .checked_add(u64::try_from(local_start).map_err(|_| SearchError::OffsetOverflow)?)
                 .ok_or(SearchError::OffsetOverflow)?;
             let end = read_start
                 .checked_add(u64::try_from(local_end).map_err(|_| SearchError::OffsetOverflow)?)
                 .ok_or(SearchError::OffsetOverflow)?;
+            resume_at = end.max(start + 1);
             found_matches.push(SearchMatch {
                 range: ByteRange::new(ByteOffset(start), ByteOffset(end))
                     .map_err(|_| SearchError::OffsetOverflow)?,
@@ -331,9 +744,301 @@ fn search_with_matcher(
     })
 }
 
-fn literal_matches(haystack: &[u8], needle: &[u8], case_sensitive: bool) -> Vec<(usize, usize)> {
-    let mut matches = Vec::new();
-    let mut offset = 0_usize;
+/// A part of a source, seen as a source of its own: matching inside it
+/// treats its edges as the start and end of the text.
+struct Slice<'a> {
+    source: &'a dyn ReadAt,
+    start: u64,
+    end: u64,
+}
+
+impl ReadAt for Slice<'_> {
+    fn len(&self) -> u64 {
+        self.end - self.start
+    }
+
+    fn read_at(&self, offset: u64, buffer: &mut [u8]) -> io::Result<usize> {
+        let available = self.len().saturating_sub(offset);
+        let wanted = usize::try_from(available).map_or(buffer.len(), |left| left.min(buffer.len()));
+        let offset = self
+            .start
+            .checked_add(offset)
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "offset overflow"))?;
+        self.source.read_at(offset, &mut buffer[..wanted])
+    }
+}
+
+/// Reads a source forward in blocks, for scanning lines.
+struct Blocks<'a> {
+    source: &'a dyn ReadAt,
+    start: u64,
+    data: Vec<u8>,
+}
+
+impl<'a> Blocks<'a> {
+    fn new(source: &'a dyn ReadAt) -> Self {
+        Self {
+            source,
+            start: 0,
+            data: Vec::new(),
+        }
+    }
+
+    /// The bytes from `offset` to the end of its block; empty at the end.
+    fn at(&mut self, offset: u64) -> io::Result<&[u8]> {
+        let end = self.start + self.data.len() as u64;
+        if offset < self.start || offset >= end {
+            self.data.resize(SEARCH_CHUNK_BYTES, 0);
+            let read = self.source.read_at(offset, &mut self.data)?;
+            self.data.truncate(read);
+            self.start = offset;
+        }
+        let local = usize::try_from(offset - self.start).unwrap_or(usize::MAX);
+        Ok(self.data.get(local..).unwrap_or_default())
+    }
+
+    fn byte(&mut self, offset: u64) -> io::Result<Option<u8>> {
+        Ok(self.at(offset)?.first().copied())
+    }
+}
+
+/// Where the line holding `offset` starts: just after the previous line
+/// break (`\n`, `\r`, or `\r\n`).
+fn line_start(source: &dyn ReadAt, offset: u64) -> io::Result<u64> {
+    let mut end = offset.min(source.len());
+    let mut buffer = vec![0_u8; SEARCH_CHUNK_BYTES];
+    while end > 0 {
+        let start = end.saturating_sub(SEARCH_CHUNK_BYTES as u64);
+        let len = usize::try_from(end - start).unwrap_or(SEARCH_CHUNK_BYTES);
+        let read = source.read_at(start, &mut buffer[..len])?;
+        if let Some(position) = buffer[..read]
+            .iter()
+            .rposition(|byte| matches!(byte, b'\n' | b'\r'))
+        {
+            return Ok(start + position as u64 + 1);
+        }
+        end = start;
+    }
+    Ok(0)
+}
+
+/// One line's searchable part: the bytes of the chosen columns, and where
+/// the next line starts (`None` after the last line).
+struct LineSegment {
+    start: u64,
+    end: u64,
+    next_line: Option<u64>,
+}
+
+fn scan_line(
+    blocks: &mut Blocks<'_>,
+    line_start: u64,
+    columns: ColumnRange,
+) -> io::Result<LineSegment> {
+    // Characters before the range, and the character the range stops before.
+    let skip = u64::from(columns.from.unwrap_or(1) - 1);
+    let stop = columns.to.map(u64::from);
+    let mut characters = 0_u64;
+    let mut start = None;
+    let mut end = None;
+    let mut position = line_start;
+    let (line_end, next_line) = loop {
+        let bytes = blocks.at(position)?;
+        if bytes.is_empty() {
+            break (position, None);
+        }
+        let mut line_break = None;
+        for (index, &byte) in bytes.iter().enumerate() {
+            let here = position + index as u64;
+            if byte == b'\n' || byte == b'\r' {
+                line_break = Some((here, byte));
+                break;
+            }
+            // Count characters by their first byte; a stray byte counts as one.
+            if byte & 0xC0 != 0x80 {
+                if start.is_none() && characters == skip {
+                    start = Some(here);
+                }
+                if end.is_none() && stop == Some(characters) {
+                    end = Some(here);
+                }
+                characters += 1;
+            }
+        }
+        if let Some((here, byte)) = line_break {
+            let after = if byte == b'\r' && blocks.byte(here + 1)? == Some(b'\n') {
+                here + 2
+            } else {
+                here + 1
+            };
+            break (here, Some(after));
+        }
+        position += bytes.len() as u64;
+    };
+    let start = start.unwrap_or(line_end);
+    let end = end.unwrap_or(line_end).max(start);
+    Ok(LineSegment {
+        start,
+        end,
+        next_line,
+    })
+}
+
+/// The searchable part of the line holding `offset`.
+fn segment_at(source: &dyn ReadAt, offset: u64, columns: ColumnRange) -> io::Result<LineSegment> {
+    let mut blocks = Blocks::new(source);
+    scan_line(&mut blocks, line_start(source, offset)?, columns)
+}
+
+/// Searches each line only between the chosen columns. Matches stay inside
+/// one line, and `^` and `$` match at the edges of the columns.
+fn search_columns(
+    source: &dyn ReadAt,
+    matcher: &Matcher,
+    columns: ColumnRange,
+    range: Range,
+    max_matches: usize,
+    cancellation: &CancellationToken,
+) -> Result<SearchPage, SearchError> {
+    let Range {
+        start: start_offset,
+        stop,
+    } = range;
+    let mut blocks = Blocks::new(source);
+    let mut window = Vec::new();
+    let mut found_matches = Vec::new();
+    let mut line = line_start(source, start_offset)?;
+    loop {
+        if cancellation.is_cancelled() {
+            let resume = line.max(start_offset);
+            return Ok(SearchPage {
+                matches: found_matches,
+                next_offset: Some(resume),
+                scanned_through: resume,
+                complete: false,
+                cancelled: true,
+            });
+        }
+        if line >= stop {
+            break;
+        }
+        let segment = scan_line(&mut blocks, line, columns)?;
+        if segment.end > segment.start && segment.end > start_offset && segment.start < stop {
+            let slice = Slice {
+                source,
+                start: segment.start,
+                end: segment.end,
+            };
+            let page = search_with_matcher(
+                &slice,
+                matcher,
+                Range {
+                    start: start_offset.saturating_sub(segment.start),
+                    stop: stop - segment.start,
+                },
+                max_matches - found_matches.len(),
+                cancellation,
+                &mut window,
+            )?;
+            for found in page.matches {
+                let start = found.range.start.0 + segment.start;
+                let end = found.range.end.0 + segment.start;
+                found_matches.push(SearchMatch {
+                    range: ByteRange::new(ByteOffset(start), ByteOffset(end))
+                        .map_err(|_| SearchError::OffsetOverflow)?,
+                });
+            }
+            if found_matches.len() == max_matches {
+                let end = found_matches
+                    .last()
+                    .map_or(segment.end, |found| found.range.end.0);
+                return Ok(SearchPage {
+                    matches: found_matches,
+                    next_offset: Some(end),
+                    scanned_through: end,
+                    complete: end >= source.len(),
+                    cancelled: false,
+                });
+            }
+            if page.cancelled {
+                return Ok(SearchPage {
+                    matches: found_matches,
+                    next_offset: Some(segment.start),
+                    scanned_through: segment.start,
+                    complete: false,
+                    cancelled: true,
+                });
+            }
+        }
+        // After the last line break there is nothing left to search.
+        match segment.next_line {
+            Some(next) if next < source.len() => line = next,
+            _ => break,
+        }
+    }
+    Ok(SearchPage {
+        matches: found_matches,
+        next_offset: None,
+        scanned_through: source.len(),
+        complete: true,
+        cancelled: false,
+    })
+}
+
+/// The last line of a multi-line library message, without its "error:" label.
+fn last_line(message: &str) -> String {
+    let line = message
+        .lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .unwrap_or(message);
+    line.trim().trim_start_matches("error:").trim().to_owned()
+}
+
+/// One sentence for a pattern the parser refused, naming where in `pattern`
+/// (whose regex was written after `prefix` bytes of wrapping) it went wrong.
+fn readable_regex_error(error: &regex_syntax::Error, pattern: &str, prefix: usize) -> String {
+    use regex_syntax::ast::ErrorKind;
+    let (message, offset) = match error {
+        regex_syntax::Error::Parse(error) => {
+            let message = match error.kind() {
+                ErrorKind::UnsupportedLookAround => {
+                    "lookahead and lookbehind ((?=…), (?!…), (?<=…), (?<!…)) are not supported".to_owned()
+                }
+                ErrorKind::UnsupportedBackreference => {
+                    "backreferences like \\1 are not supported in the pattern; use $1 in the replacement".to_owned()
+                }
+                kind => kind.to_string(),
+            };
+            (message, Some(error.span().start.offset))
+        }
+        regex_syntax::Error::Translate(error) => {
+            (error.kind().to_string(), Some(error.span().start.offset))
+        }
+        other => (last_line(&other.to_string()), None),
+    };
+    match offset
+        .and_then(|offset| offset.checked_sub(prefix))
+        .filter(|offset| *offset <= pattern.len())
+    {
+        Some(offset) => {
+            let column = pattern
+                .get(..offset)
+                .map_or(offset, |head| head.chars().count())
+                + 1;
+            format!("{message} (at character {column})")
+        }
+        None => message,
+    }
+}
+
+fn literal_find(
+    haystack: &[u8],
+    needle: &[u8],
+    case_sensitive: bool,
+    from: usize,
+) -> Option<(usize, usize)> {
+    let mut offset = from;
     while offset.saturating_add(needle.len()) <= haystack.len() {
         let candidate = &haystack[offset..offset + needle.len()];
         let equal = if case_sensitive {
@@ -342,13 +1047,11 @@ fn literal_matches(haystack: &[u8], needle: &[u8], case_sensitive: bool) -> Vec<
             candidate.eq_ignore_ascii_case(needle)
         };
         if equal {
-            matches.push((offset, offset + needle.len()));
-            offset += needle.len();
-        } else {
-            offset += 1;
+            return Some((offset, offset + needle.len()));
         }
+        offset += 1;
     }
-    matches
+    None
 }
 
 fn validate_request(
@@ -389,11 +1092,9 @@ pub enum SearchError {
     RegexPatternNotUtf8,
     #[error("invalid regular expression: {0}")]
     InvalidRegex(String),
-    #[error("unbounded regular expressions are not safe for streaming search; use a finite repetition bound")]
-    UnboundedRegex,
     #[error("regular expression can produce an empty match")]
     EmptyRegexMatch,
-    #[error("regular-expression match bound {0} exceeds the 1 MiB streaming limit")]
+    #[error("a match would be longer than {0} bytes (1 MiB), the most one match may span")]
     RegexMatchTooLarge(usize),
     #[error("search coordinates overflowed")]
     OffsetOverflow,
@@ -403,6 +1104,12 @@ pub enum SearchError {
     TooManyMatches(usize),
     #[error("replacement plan exceeds the 8 MiB removed- or inserted-byte limit")]
     ReplacementTooLarge,
+    #[error("the replacement refers to group {0}, which the pattern does not have")]
+    UnknownGroup(String),
+    #[error("the text changed since it was found; search again")]
+    MatchChanged,
+    #[error("invalid column range: {0}")]
+    InvalidColumns(String),
     #[error("search source read failed: {0}")]
     Io(#[from] io::Error),
 }
@@ -410,8 +1117,9 @@ pub enum SearchError {
 #[cfg(test)]
 mod tests {
     use super::{
-        plan_replacements, search, CancellationToken, SearchError, SearchMode, SearchOptions,
-        SEARCH_CHUNK_BYTES,
+        expand_replacements, plan_replacements, plan_replacements_each, search, search_until,
+        CancellationToken, ColumnRange, SearchError, SearchMode, SearchOptions, MAX_PAGE_MATCHES,
+        MAX_REGEX_MATCH_BYTES, SEARCH_CHUNK_BYTES,
     };
     use nulis_large_file::MemorySource;
 
@@ -426,6 +1134,7 @@ mod tests {
                     mode,
                     case_sensitive: true,
                     whole_word: true,
+                    columns: None,
                 },
                 0,
                 10,
@@ -499,6 +1208,7 @@ mod tests {
                 mode: SearchMode::Regex,
                 case_sensitive: true,
                 whole_word: false,
+                columns: None,
             },
             0,
             10,
@@ -515,6 +1225,7 @@ mod tests {
             mode: SearchMode::Regex,
             case_sensitive: true,
             whole_word: false,
+            columns: None,
         };
         let mut false_start = vec![b'x'; SEARCH_CHUNK_BYTES];
         false_start.extend_from_slice(b"foo");
@@ -564,22 +1275,361 @@ mod tests {
         );
     }
 
+    fn regex() -> SearchOptions {
+        SearchOptions {
+            mode: SearchMode::Regex,
+            case_sensitive: true,
+            whole_word: false,
+            columns: None,
+        }
+    }
+
+    fn ranges(source: &[u8], pattern: &[u8]) -> Vec<(u64, u64)> {
+        search(
+            &MemorySource::new(source.to_vec()),
+            pattern,
+            regex(),
+            0,
+            MAX_PAGE_MATCHES,
+            &CancellationToken::default(),
+        )
+        .expect("search")
+        .matches
+        .iter()
+        .map(|found| (found.range.start.0, found.range.end.0))
+        .collect()
+    }
+
     #[test]
-    fn unbounded_regex_is_rejected_explicitly() {
+    fn unbounded_regex_finds_whole_matches() {
+        assert_eq!(ranges(b"abc xabbbc", b"a.*c"), vec![(0, 10)]);
+        assert_eq!(ranges(b"ab\nabbbc", b"ab+"), vec![(0, 2), (3, 7)]);
+        assert_eq!(ranges(b"id 42, id 7", br"\d+"), vec![(3, 5), (10, 11)]);
+    }
+
+    #[test]
+    fn a_word_across_a_chunk_boundary_is_found_once_and_whole() {
+        // Bounded: chunks are SEARCH_CHUNK_BYTES long.
+        let mut text = b".".repeat(SEARCH_CHUNK_BYTES - 3);
+        let start = text.len() as u64;
+        text.extend_from_slice(b"boundary word");
+        assert_eq!(
+            ranges(&text, br"[a-z]{3,8}"),
+            vec![(start, start + 8), (start + 9, start + 13)]
+        );
+        // Unbounded: chunks are four times the 1 MiB cap.
+        let chunk = 4 * (MAX_REGEX_MATCH_BYTES - 1);
+        let mut text = b".".repeat(chunk - 3);
+        let start = text.len() as u64;
+        text.extend_from_slice(b"boundary word");
+        assert_eq!(
+            ranges(&text, br"[a-z]+"),
+            vec![(start, start + 8), (start + 9, start + 13)]
+        );
+    }
+
+    #[test]
+    fn a_match_longer_than_the_cap_is_reported() {
+        let mut text = b"<".to_vec();
+        text.extend(std::iter::repeat_n(b'a', MAX_REGEX_MATCH_BYTES + 10));
+        text.push(b'>');
         let error = search(
-            &MemorySource::new(b"abc".to_vec()),
-            b"a.*c",
-            SearchOptions {
-                mode: SearchMode::Regex,
-                case_sensitive: true,
-                whole_word: false,
-            },
+            &MemorySource::new(text),
+            b"<a+>",
+            regex(),
             0,
             10,
             &CancellationToken::default(),
         )
-        .expect_err("unbounded expression");
-        assert!(matches!(error, SearchError::UnboundedRegex));
+        .expect_err("too long");
+        assert!(matches!(error, SearchError::RegexMatchTooLarge(_)));
+    }
+
+    #[test]
+    fn unsupported_regex_features_name_the_problem() {
+        for pattern in [&br"(?<=id=)\d+"[..], br"(\w)\1"] {
+            let error = search(
+                &MemorySource::new(b"id=1 aa".to_vec()),
+                pattern,
+                regex(),
+                0,
+                10,
+                &CancellationToken::default(),
+            )
+            .expect_err("unsupported");
+            assert!(matches!(error, SearchError::InvalidRegex(_)), "{error}");
+            assert!(!error.to_string().contains('\n'), "{error}");
+        }
+        let lookbehind = search(
+            &MemorySource::new(b"id=1".to_vec()),
+            br"(?<=id=)\d+",
+            regex(),
+            0,
+            10,
+            &CancellationToken::default(),
+        )
+        .expect_err("lookbehind");
+        assert_eq!(
+            lookbehind.to_string(),
+            "invalid regular expression: lookahead and lookbehind ((?=…), (?!…), (?<=…), (?<!…)) are not supported (at character 1)"
+        );
+        let backreference = search(
+            &MemorySource::new(b"aa".to_vec()),
+            br"(\w)\1",
+            regex(),
+            0,
+            10,
+            &CancellationToken::default(),
+        )
+        .expect_err("backreference");
+        assert!(
+            backreference
+                .to_string()
+                .contains("use $1 in the replacement (at character 5)"),
+            "{backreference}"
+        );
+    }
+
+    fn replaced(source: &[u8], pattern: &[u8], replacement: &[u8]) -> Result<Vec<u8>, SearchError> {
+        let source = MemorySource::new(source.to_vec());
+        let page = search(
+            &source,
+            pattern,
+            regex(),
+            0,
+            MAX_PAGE_MATCHES,
+            &CancellationToken::default(),
+        )?;
+        let texts = expand_replacements(&source, pattern, regex(), &page.matches, replacement)?;
+        let mut text = source_bytes(&source);
+        for (start, len, insert) in plan_replacements_each(&page.matches, &texts)? {
+            let start = usize::try_from(start).expect("start");
+            let end = start + usize::try_from(len).expect("len");
+            text.splice(start..end, insert);
+        }
+        Ok(text)
+    }
+
+    fn source_bytes(source: &MemorySource) -> Vec<u8> {
+        let mut bytes =
+            vec![0; usize::try_from(nulis_large_file::ReadAt::len(source)).expect("len")];
+        nulis_large_file::ReadAt::read_at(source, 0, &mut bytes).expect("read");
+        bytes
+    }
+
+    #[test]
+    fn replacements_fill_in_groups() {
+        let swap = |replacement: &[u8]| {
+            replaced(b"x=1, y=22", br"(\w)=(?<n>\d+)", replacement).expect("replace")
+        };
+        assert_eq!(swap(b"$2:$1"), b"1:x, 22:y");
+        assert_eq!(swap(b"${n}<-${1}"), b"1<-x, 22<-y");
+        assert_eq!(swap(br"\2/\1"), b"1/x, 22/y");
+        assert_eq!(swap(b"[$&]"), b"[x=1], [y=22]");
+        assert_eq!(swap(b"[$0]"), b"[x=1], [y=22]");
+        assert_eq!(swap(b"$$1"), b"$1, $1");
+        assert_eq!(swap(br"a\tb\nc\\d\$e"), b"a\tb\nc\\d$e, a\tb\nc\\d$e");
+        // A dollar that starts nothing stays as written; so does `&`.
+        assert_eq!(swap(b"$ & ${}"), b"$ & ${}, $ & ${}");
+    }
+
+    #[test]
+    fn an_optional_group_that_did_not_take_part_inserts_nothing() {
+        assert_eq!(
+            replaced(b"ab b", br"(a)?b", b"<$1>").expect("replace"),
+            b"<a> <>"
+        );
+    }
+
+    #[test]
+    fn a_reference_to_a_missing_group_is_an_error() {
+        for replacement in [&b"$2"[..], br"\3", b"${name}"] {
+            let error = replaced(b"ab", br"(a)b", replacement).expect_err("missing group");
+            assert!(matches!(error, SearchError::UnknownGroup(_)), "{error}");
+        }
+    }
+
+    #[test]
+    fn literal_replacements_are_inserted_as_written() {
+        let source = MemorySource::new(b"a.a".to_vec());
+        let page = search(
+            &source,
+            b".",
+            SearchOptions::default(),
+            0,
+            10,
+            &CancellationToken::default(),
+        )
+        .expect("search");
+        let texts = expand_replacements(
+            &source,
+            b".",
+            SearchOptions::default(),
+            &page.matches,
+            br"$1\n",
+        )
+        .expect("expand");
+        assert_eq!(texts, vec![br"$1\n".to_vec()]);
+    }
+
+    fn in_columns(mode: SearchMode, from: Option<u32>, to: Option<u32>) -> SearchOptions {
+        SearchOptions {
+            mode,
+            case_sensitive: true,
+            whole_word: false,
+            columns: Some(ColumnRange { from, to }),
+        }
+    }
+
+    fn found(source: &[u8], pattern: &[u8], options: SearchOptions, start: u64) -> Vec<(u64, u64)> {
+        search(
+            &MemorySource::new(source.to_vec()),
+            pattern,
+            options,
+            start,
+            MAX_PAGE_MATCHES,
+            &CancellationToken::default(),
+        )
+        .expect("search")
+        .matches
+        .iter()
+        .map(|found| (found.range.start.0, found.range.end.0))
+        .collect()
+    }
+
+    #[test]
+    fn column_search_looks_only_between_the_columns() {
+        // Columns 3..=5 of each line: "cde", "345", none, "xx" (bytes 22..24).
+        let text = b"abcdefg\n1234567\r\nxx\rabxx";
+        let literal = |pattern: &[u8], from, to| {
+            found(text, pattern, in_columns(SearchMode::Literal, from, to), 0)
+        };
+        assert_eq!(literal(b"d", Some(3), Some(5)), vec![(3, 4)]);
+        assert_eq!(literal(b"de", Some(3), Some(5)), vec![(3, 5)]);
+        // A match must lie fully inside the columns.
+        assert_eq!(literal(b"ef", Some(3), Some(5)), Vec::<(u64, u64)>::new());
+        assert_eq!(literal(b"1", Some(3), Some(5)), Vec::<(u64, u64)>::new());
+        assert_eq!(literal(b"x", Some(3), Some(5)), vec![(22, 23), (23, 24)]);
+        // From alone runs to the end of the line; To alone from its start.
+        assert_eq!(literal(b"7", Some(6), None), vec![(14, 15)]);
+        assert_eq!(literal(b"a", None, Some(1)), vec![(0, 1), (20, 21)]);
+    }
+
+    #[test]
+    fn columns_count_characters_and_a_tab_as_one() {
+        let text = "\tédx d".as_bytes();
+        // Column 3 is "d" (after a tab and the two-byte "é").
+        assert_eq!(
+            found(
+                text,
+                b"d",
+                in_columns(SearchMode::Literal, Some(3), Some(3)),
+                0
+            ),
+            vec![(3, 4)]
+        );
+    }
+
+    #[test]
+    fn anchors_match_at_the_edges_of_the_columns() {
+        let text = b"ab12cd\nxy345z";
+        let regex = |pattern: &[u8]| {
+            found(
+                text,
+                pattern,
+                in_columns(SearchMode::Regex, Some(3), Some(4)),
+                0,
+            )
+        };
+        assert_eq!(regex(br"^\d+$"), vec![(2, 4), (9, 11)]);
+        assert_eq!(regex(br"\d+"), vec![(2, 4), (9, 11)]);
+    }
+
+    #[test]
+    fn column_search_resumes_mid_line_and_pages() {
+        let text = b"aaaa\naaaa";
+        let options = in_columns(SearchMode::Literal, Some(2), Some(3));
+        assert_eq!(found(text, b"a", options, 2), vec![(2, 3), (6, 7), (7, 8)]);
+        let page = search(
+            &MemorySource::new(text.to_vec()),
+            b"a",
+            options,
+            0,
+            3,
+            &CancellationToken::default(),
+        )
+        .expect("page");
+        assert_eq!(page.next_offset, Some(7));
+        assert!(!page.complete);
+    }
+
+    #[test]
+    fn bad_column_ranges_are_refused() {
+        for (from, to) in [(Some(0), None), (Some(5), Some(2))] {
+            let error = search(
+                &MemorySource::new(b"abc".to_vec()),
+                b"a",
+                in_columns(SearchMode::Literal, from, to),
+                0,
+                10,
+                &CancellationToken::default(),
+            )
+            .expect_err("bad range");
+            assert!(matches!(error, SearchError::InvalidColumns(_)), "{error}");
+        }
+    }
+
+    #[test]
+    fn column_replacements_see_the_same_edges_as_the_search() {
+        let source = MemorySource::new(b"ab12cd".to_vec());
+        let options = in_columns(SearchMode::Regex, Some(3), Some(4));
+        let page = search(
+            &source,
+            br"^(\d)(\d)$",
+            options,
+            0,
+            10,
+            &CancellationToken::default(),
+        )
+        .expect("search");
+        let texts = expand_replacements(&source, br"^(\d)(\d)$", options, &page.matches, b"$2$1")
+            .expect("expand");
+        assert_eq!(texts, vec![b"21".to_vec()]);
+    }
+
+    #[test]
+    fn search_until_returns_only_matches_that_start_before_the_stop() {
+        let source = MemorySource::new(b"one two three two".to_vec());
+        let page = search_until(
+            &source,
+            br"t\w+",
+            regex(),
+            0,
+            9,
+            10,
+            &CancellationToken::default(),
+        )
+        .expect("search");
+        // "two" (4..7) and "three" (8..13), which runs past the stop but starts before it.
+        let found: Vec<_> = page
+            .matches
+            .iter()
+            .map(|found| (found.range.start.0, found.range.end.0))
+            .collect();
+        assert_eq!(found, vec![(4, 7), (8, 13)]);
+        let columns = in_columns(SearchMode::Literal, Some(1), Some(3));
+        let lines = MemorySource::new(b"two\ntwo\ntwo".to_vec());
+        let page = search_until(
+            &lines,
+            b"two",
+            columns,
+            0,
+            5,
+            10,
+            &CancellationToken::default(),
+        )
+        .expect("column search");
+        assert_eq!(page.matches.len(), 2);
     }
 
     #[test]

@@ -1090,6 +1090,20 @@ kbd,
 .find-options { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; }
 .find-check { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; }
 .find-check input { accent-color: var(--accent); }
+.find-regex { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.find-regex .find-check span { white-space: nowrap; }
+.find-help.icon-button { width: 22px; height: 22px; }
+.find-help.icon-button .icon { width: 15px; height: 15px; }
+.find-columns { grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; font-size: 12px; }
+.find-columns .find-check { flex: 1; }
+.find-columns label:not(.find-check) { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+.find-columns input:not([type="checkbox"]) {
+  width: 52px; padding: 4px 6px; border: 1px solid var(--input-border, var(--border)); border-radius: 5px;
+  color: var(--editor-fg); background: var(--input-bg); font: 12px var(--mono, monospace);
+}
+.find-columns input:disabled { opacity: .5; }
+.find-columns input:focus { border-color: var(--accent); outline: none; }
+.find-summary.find-error { color: var(--danger, #ff7f8d); }
 .find-summary { min-height: 14px; margin: 0; color: var(--muted); font-size: 11px; }
 .find-actions { display: flex; gap: 6px; align-items: center; }
 .find-actions > span { flex: 1; }
