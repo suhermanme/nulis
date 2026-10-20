@@ -125,7 +125,7 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 
 **Fix (`apps/desktop/src-tauri/src/lib.rs`, `windowTheme.ts`, `SettingsWindow.tsx`):** on Windows and Linux the menu is attached to the editor window only (`attach_menu`); macOS keeps its global menu bar. Secondary windows are built hidden and shown when their page reports its first themed paint (`window_ready`, `useShowWhenReady`), or after 1.5 s at the latest. Find, results, and Help hide instead of closing, so reopening is instant and Find keeps its text; Settings still closes to discard unapplied changes.
 
-**Verification:** clippy, workspace tests, lint, typecheck, Vitest 148 passed on macOS; Windows checked only by CI build and install (no GUI access to the test VM).
+**Verification:** clippy, workspace tests, lint, typecheck, Vitest 148 passed on macOS; CI built, installed, and started it on Windows; confirmed by hand on the Windows 11 test VM by the user (2026-10-20, build `191feef`).
 
 ## Fix after M29 — document map on long files (user report, Windows 0.1.1 video)
 
@@ -133,7 +133,7 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md`. Keep it in
 
 **Fix:** the core reads the whole text, with exact line numbers, up to 8 MiB (`DOCUMENT_MAP_FULL_BYTES`); above that each sample starts at a line start and stops at its line end (LF, CRLF, or CR). The desktop scales a document with more lines than fit to the map's height (no map scrolling), sizes the marker by visible lines, and a click opens the proportional line through `getViewportLine`.
 
-**Tests:** core long-file map with CRLF lines and a 9 MiB sampled map (whole lines, increasing offsets, long-line fallback); desktop fit test (row count, no scrolling, click halfway opens line 2,501 and moves the marker there). Not tried on Windows yet.
+**Tests:** core long-file map with CRLF lines and a 9 MiB sampled map (whole lines, increasing offsets, long-line fallback); desktop fit test (row count, no scrolling, click halfway opens line 2,501 and moves the marker there). Confirmed by hand on the Windows 11 test VM by the user (2026-10-20, build `191feef`).
 
 ## M29 — Column and clipboard tools
 
