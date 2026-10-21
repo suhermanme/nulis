@@ -41,5 +41,6 @@ Plan: `IMPROVEMENT_PLAN_3.md` §3.3, §3.4, §3.5, §4 (M38). Status: code and a
 ## Open
 
 - Try in a development build (back up the user data first; see M36): progress and Cancel on a large file, the large-export dialog, Export Selection, the hex dump, a file with CJK text.
+  Test files are in `~/Desktop/nulis-print-tests` on the user's Mac: `big-server.log` (150,000 lines, at least 2,460 pages, so the large-export dialog appears) and `scripts.rs` (mixed scripts; 7 characters should be reported missing). The user postponed this check on 2026-10-21.
 - Windows and Linux: fallback depends on the installed fonts; Linux distributions often have only CFF CJK fonts (Noto Sans CJK), which are not used yet.
 - Rectangular selections print whole lines, not the column block.
