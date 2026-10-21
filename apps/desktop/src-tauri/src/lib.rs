@@ -38,6 +38,7 @@ const SETTINGS_WINDOW_LABEL: &str = "settings";
 const HELP_WINDOW_LABEL: &str = "help";
 const FIND_WINDOW_LABEL: &str = "find";
 const RESULTS_WINDOW_LABEL: &str = "find-results";
+const PRINT_WINDOW_LABEL: &str = "print";
 /// Find and Replace searches and replaces (Replace in Files saves the files it
 /// changes, after a preview); it cannot open, show, or type into documents.
 const FIND_COMMANDS: &[&str] = &[
@@ -77,6 +78,13 @@ const OPEN_PATHS_EVENT: &str = "nulis://open-paths";
 /// Help only reads what it needs to follow the chosen theme and font.
 const HELP_COMMANDS: &[&str] = &["customization.state", "theme.list"];
 const HELP_MIN_SIZE: (u32, u32) = (640, 420);
+/// Print Preview reads the theme and nothing else. It never receives
+/// document bytes through the command boundary.
+const PRINT_COMMANDS: &[&str] = &["customization.state", "theme.list"];
+const PRINT_MIN_SIZE: (u32, u32) = (520, 420);
+/// Print, Page Setup, and Export to PDF stay out of release menus until
+/// they are finished (`IMPROVEMENT_PLAN_3.md`, M39).
+const PRINT_MENU_ENABLED: bool = nulis_core::PRINT_COMMANDS_ENABLED;
 const OPEN_SETTINGS_MENU_ID: &str = "workbench.openSettings";
 const ABOUT_MENU_ID: &str = "app.about";
 const HELP_MENU_ID: &str = "workbench.openHelp";
@@ -379,6 +387,7 @@ async fn execute_command(
             HELP_WINDOW_LABEL,
             FIND_WINDOW_LABEL,
             RESULTS_WINDOW_LABEL,
+            PRINT_WINDOW_LABEL,
         ] {
             if label != window.label() {
                 let _ = app.emit_to(label, CUSTOMIZATION_CHANGED_EVENT, ());
@@ -395,6 +404,7 @@ fn authorize_window_command(label: &str, id: &str) -> Result<(), CommandError> {
         || (label == HELP_WINDOW_LABEL && HELP_COMMANDS.contains(&id))
         || (label == FIND_WINDOW_LABEL && FIND_COMMANDS.contains(&id))
         || (label == RESULTS_WINDOW_LABEL && RESULTS_COMMANDS.contains(&id))
+        || (label == PRINT_WINDOW_LABEL && PRINT_COMMANDS.contains(&id))
     {
         return Ok(());
     }
@@ -586,6 +596,35 @@ fn portable_accelerator(value: &str) -> Option<String> {
     Some(translated.join("+"))
 }
 
+/// Export to PDF, Page Setup, and Print, when this build offers them.
+#[cfg(desktop)]
+fn append_print_menu_items<'a>(
+    app: &'a tauri::AppHandle,
+    mut file_builder: SubmenuBuilder<'a, tauri::Wry, tauri::AppHandle>,
+    entries: &[NativeMenuEntry],
+) -> tauri::Result<SubmenuBuilder<'a, tauri::Wry, tauri::AppHandle>> {
+    if !PRINT_MENU_ENABLED {
+        return Ok(file_builder);
+    }
+    file_builder = file_builder.separator();
+    for (command, title) in [
+        ("file.exportPdf", "Export to PDF…"),
+        ("file.pageSetup", "Page Setup…"),
+        ("file.print", "Print…"),
+    ] {
+        if native_menu_has(entries, command) {
+            continue;
+        }
+        let mut item = MenuItemBuilder::with_id(command, title);
+        if command == "file.print" {
+            // Primary+P stays Quick Open (IMPROVEMENT_PLAN_3.md §7).
+            item = item.accelerator("CmdOrCtrl+Alt+P");
+        }
+        file_builder = file_builder.item(&item.build(app)?);
+    }
+    Ok(file_builder.separator())
+}
+
 #[cfg(desktop)]
 fn install_native_menu(app: &tauri::AppHandle, entries: &[NativeMenuEntry]) -> tauri::Result<()> {
     // Primary+W closes the file, as in other editors; the window takes Shift.
@@ -628,6 +667,7 @@ fn install_native_menu(app: &tauri::AppHandle, entries: &[NativeMenuEntry]) -> t
                 file_builder.item(&MenuItemBuilder::with_id(*command, *title).build(app)?);
         }
     }
+    let mut file_builder = append_print_menu_items(app, file_builder, entries)?;
     if !native_menu_has(entries, CLOSE_FILE_MENU_ID) {
         file_builder = file_builder.item(
             &MenuItemBuilder::with_id(CLOSE_FILE_MENU_ID, "Close File")
@@ -1110,6 +1150,7 @@ const SECONDARY_WINDOW_LABELS: &[&str] = &[
     HELP_WINDOW_LABEL,
     FIND_WINDOW_LABEL,
     RESULTS_WINDOW_LABEL,
+    PRINT_WINDOW_LABEL,
 ];
 
 /// A new window is created hidden, so it never shows as an empty white or
@@ -1166,6 +1207,34 @@ async fn open_results_window(app: tauri::AppHandle) -> Result<(), String> {
         RESULTS_MIN_SIZE,
     )
     .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri extracts AppHandle by value.
+async fn open_print_window(app: tauri::AppHandle) -> Result<(), String> {
+    if !PRINT_MENU_ENABLED {
+        return Err("printing is not available in this build".into());
+    }
+    show_aux_window(
+        &app,
+        PRINT_WINDOW_LABEL,
+        "Print Preview",
+        (900.0, 760.0),
+        PRINT_MIN_SIZE,
+    )
+    .map_err(|error| error.to_string())
+}
+
+/// Opens the system print dialog for the Print Preview window's pages.
+/// On macOS the dialog is a sheet on this window, so the window must be
+/// visible; Windows and Linux show their own dialog.
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri extracts WebviewWindow by value.
+fn print_window_print(window: tauri::WebviewWindow) -> Result<(), String> {
+    if window.label() != PRINT_WINDOW_LABEL {
+        return Err("only the Print Preview window prints".into());
+    }
+    window.print().map_err(|error| error.to_string())
 }
 
 /// Closes the calling Find or results window.
@@ -1362,7 +1431,12 @@ fn settings_preview(
 fn settings_changed(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<(), String> {
     require_settings_window(&window)?;
     // Help follows the theme too; it is simply absent when not open.
-    for label in [HELP_WINDOW_LABEL, FIND_WINDOW_LABEL, RESULTS_WINDOW_LABEL] {
+    for label in [
+        HELP_WINDOW_LABEL,
+        FIND_WINDOW_LABEL,
+        RESULTS_WINDOW_LABEL,
+        PRINT_WINDOW_LABEL,
+    ] {
         let _ = app.emit_to(label, CUSTOMIZATION_CHANGED_EVENT, ());
     }
     app.emit_to(MAIN_WINDOW_LABEL, CUSTOMIZATION_CHANGED_EVENT, ())
@@ -1483,6 +1557,7 @@ fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
                 HELP_WINDOW_LABEL,
                 FIND_WINDOW_LABEL,
                 RESULTS_WINDOW_LABEL,
+                PRINT_WINDOW_LABEL,
             ] {
                 if let Some(secondary) = window.app_handle().get_webview_window(label) {
                     let _ = secondary.destroy();
@@ -1573,6 +1648,8 @@ pub fn run() {
             open_help_window,
             close_help_window,
             open_find_window,
+            open_print_window,
+            print_window_print,
             open_results_window,
             close_find_window,
             fit_find_window,
@@ -1673,6 +1750,13 @@ mod tests {
             assert!(authorize_window_command("help", id).is_err(), "{id}");
         }
         assert!(authorize_window_command("other", "theme.list").is_err());
+        // Print Preview can read the theme and nothing else.
+        for id in ["customization.state", "theme.list"] {
+            assert!(authorize_window_command("print", id).is_ok(), "{id}");
+        }
+        for id in ["file.open", "file.save", "editor.insertText", "plugin.list"] {
+            assert!(authorize_window_command("print", id).is_err(), "{id}");
+        }
     }
 
     #[test]

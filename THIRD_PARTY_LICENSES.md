@@ -38,6 +38,7 @@ Initial direct dependencies:
 | react-markdown / remark-gfm | safe Markdown preview and GitHub-style syntax | MIT |
 | xterm.js / xterm fit addon | integrated terminal rendering and sizing | MIT |
 | Vite | frontend build | MIT |
+| JetBrains Mono 2.304 (Regular, Bold) | font for printed pages and exported PDFs; copy of the license in `apps/desktop/src/assets/fonts/jetbrains-mono/OFL.txt` | OFL-1.1 |
 | TypeScript | frontend type system | Apache-2.0 |
 | Vitest | frontend tests | MIT |
 | ESLint and TypeScript ESLint | frontend linting | MIT |

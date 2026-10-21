@@ -53,9 +53,9 @@ import {
   FIND_EVENTS, FindReplacePanel, ResultsWindow, type FindContext, type FindMessage, type FindTab, type MatchTarget, type ResultList,
 } from "./FindReplacePanel";
 import { Icon, IconButton, iconForCommand, type IconName } from "./icons";
-import { EDITOR_ACTIONS, FIND_WINDOW_COMMANDS, LINE_ENDING_LABELS, PALETTE_COMMANDS, shortcutLabel, type EditorActionName } from "./commands";
+import { EDITOR_ACTIONS, FIND_WINDOW_COMMANDS, LINE_ENDING_LABELS, PALETTE_COMMANDS, PRINT_COMMANDS_ENABLED, shortcutLabel, type EditorActionName } from "./commands";
 import {
-  closeWindowAfterSave, configureNativeMenu, executeCommand, getApplicationInfo, listCommands, openFindWindow, openHelpWindow, openResultsWindow, openSettingsWindow, takeLaunchPaths, type HelpTopic,
+  closeWindowAfterSave, configureNativeMenu, executeCommand, getApplicationInfo, listCommands, openFindWindow, openHelpWindow, openPrintWindow, openResultsWindow, openSettingsWindow, takeLaunchPaths, type HelpTopic,
   setToolsMenu,
 } from "./ipc";
 import {
@@ -1692,6 +1692,11 @@ export function App() {
     "file.rename": requestRenameFile,
     "file.revealInPlaces": revealInPlaces,
     "file.quickOpen": openQuickOpen,
+    "file.print": () => {
+      void openPrintWindow().catch((error: unknown) => setStatus(errorMessage(error, "Could not open Print Preview")));
+    },
+    "file.pageSetup": () => setStatus("Page Setup is not finished yet"),
+    "file.exportPdf": () => setStatus("Export to PDF is not finished yet"),
     "edit.pasteFromHistory": openClipboardHistory,
     "workspace.rename": requestRename,
     "workspace.groupRight": () => groupWithNextTab("right"),
@@ -2045,6 +2050,18 @@ export function App() {
   ] as const).filter(([command]) => !customization.menu.some((entry) => entry.kind === "command" && entry.command === command))
     .map(([command, label, disabled]) => ({ label, disabled, onSelect: () => runById(command) }));
   fileMenu.push({ kind: "separator" }, ...fileExtras);
+  if (PRINT_COMMANDS_ENABLED) {
+    const printItems: MenuItem[] = ([
+      ["file.exportPdf", "Export to PDF…"],
+      ["file.pageSetup", "Page Setup…"],
+      ["file.print", "Print…"],
+    ] as const).filter(([command]) => !customization.menu.some((entry) => entry.kind === "command" && entry.command === command))
+      .map(([command, label]) => ({
+        label, disabled: !activeDocument, onSelect: () => runById(command),
+        ...(command === "file.print" ? { shortcut: shortcutLabel("Primary+Alt+P") } : {}),
+      }));
+    fileMenu.push({ kind: "separator" }, ...printItems);
+  }
   if (!customization.menu.some((entry) => entry.kind === "command" && entry.command === "workbench.closeFile")) {
     fileMenu.push({ kind: "separator" }, {
       label: "Close File", shortcut: shortcutFor("workbench.closeFile"), disabled: !activeDocument,

@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "print",
+  "description": "Narrow capability set for the Print Preview window: events only, to follow theme changes",
+  "windows": ["print"],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten"
+  ]
+}

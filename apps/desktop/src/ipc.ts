@@ -152,6 +152,16 @@ export function openFindWindow(): Promise<void> {
   return invoke<void>("open_find_window");
 }
 
+/** Opens the Print Preview window, or brings it forward. */
+export function openPrintWindow(): Promise<void> {
+  return invoke<void>("open_print_window");
+}
+
+/** Opens the system print dialog for the calling Print Preview window. */
+export function printThisWindow(): Promise<void> {
+  return invoke<void>("print_window_print");
+}
+
 /** Opens the separate list of matching lines, or brings it forward. */
 export function openResultsWindow(): Promise<void> {
   return invoke<void>("open_results_window");

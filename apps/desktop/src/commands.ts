@@ -77,7 +77,7 @@ export const WORKBENCH_ACTIONS = [
   "workbench.nextTab", "workbench.previousTab", "workbench.moveTabLeft", "workbench.moveTabRight",
   "view.toggleLineChangeIndicators",
   "file.saveAll", "file.closeAll", "file.openRecent", "file.clearRecent", "file.rename", "file.revealInPlaces",
-  "file.quickOpen", "edit.pasteFromHistory",
+  "file.quickOpen", "file.print", "file.pageSetup", "file.exportPdf", "edit.pasteFromHistory",
   "view.toggleWordWrap", "view.toggleWhitespace", "view.toggleLineEndings", "view.toggleLineNumbers",
   "view.toggleColumnMarker", "view.zoomIn", "view.zoomOut", "view.zoomReset", "view.toggleAlwaysOnTop",
   "workspace.rename", "workspace.groupRight", "workspace.groupDown", "workspace.ungroup",
@@ -86,6 +86,13 @@ export const WORKBENCH_ACTIONS = [
   ...EDITOR_ACTION_IDS,
   ...(Object.keys(FIND_WINDOW_COMMANDS) as Array<keyof typeof FIND_WINDOW_COMMANDS>),
 ] as const;
+
+/**
+ * Print, Page Setup, and Export to PDF are being built (`IMPROVEMENT_PLAN_3.md`,
+ * M36–M39) and appear only in development builds until M39. Mirrors
+ * `PRINT_COMMANDS_ENABLED` in nulis-core.
+ */
+export const PRINT_COMMANDS_ENABLED: boolean = import.meta.env.DEV;
 
 /** JSON, XML, YAML, and plist tools; offered only while such a document is focused. */
 export const TOOL_COMMANDS = ["tools.validate", "tools.beautify", "tools.minify"] as const;

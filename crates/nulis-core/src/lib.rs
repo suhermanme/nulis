@@ -2465,6 +2465,9 @@ const WORKBENCH_ACTIONS: &[(&str, &str, &str)] = &[
     ("file.clearRecent", "Clear Recent Files", "File"),
     ("file.rename", "Rename File…", "File"),
     ("file.revealInPlaces", "Show in Places", "File"),
+    ("file.print", "Print…", "File"),
+    ("file.pageSetup", "Page Setup…", "File"),
+    ("file.exportPdf", "Export to PDF…", "File"),
     ("workbench.closeTab", "Close Tab", "View"),
     ("workbench.openSettings", "Settings…", "Application"),
     ("workbench.openHelp", "Nulis Help", "Help"),
@@ -2579,8 +2582,16 @@ const WORKBENCH_ACTIONS: &[(&str, &str, &str)] = &[
     ),
 ];
 
+/// Print, Page Setup, and Export to PDF are being built (`IMPROVEMENT_PLAN_3.md`,
+/// M36–M39). Until M39 they exist only in development builds.
+pub const PRINT_COMMANDS_ENABLED: bool = cfg!(debug_assertions);
+const PRINT_COMMAND_IDS: &[&str] = &["file.print", "file.pageSetup", "file.exportPdf"];
+
 fn register_workbench_commands(commands: &mut CommandRegistry) {
     for (id, title, category) in WORKBENCH_ACTIONS {
+        if !PRINT_COMMANDS_ENABLED && PRINT_COMMAND_IDS.contains(id) {
+            continue;
+        }
         let action = id.rsplit('.').next().unwrap_or(id);
         commands
             .register(

@@ -49,7 +49,7 @@ document (piece table) ──► nulis-print layout ──► page model ──�
 
 - **Layout** reads the document in line ranges, runs syntax analysis per window, expands tabs, wraps or cuts lines, and emits pages of styled runs plus header and footer text. It never holds more than a few pages at once.
 - **PDF writer** uses a pure-Rust PDF library (candidate: `pdf-writer`, MIT/Apache-2.0, no `unsafe` in our code) and embeds a subset of the font. Pages are written to a temporary file as they are produced, then the file is moved into place atomically, like Save.
-- **Print** renders the same page model as fixed-size HTML pages (one `<section>` per page, `break-after: page`, `@page { margin: 0 }`) in a hidden print window and calls `Webview::print()`. The OS dialog then handles printer choice, copies, and page ranges. On macOS that dialog also has "Save as PDF", but Export to PDF stays a separate command so it works the same on all three platforms.
+- **Print** renders the same page model as fixed-size HTML pages (one `<section>` per page, `break-after: page`, `@page { margin: 0 }`) in the Print Preview window and calls `Webview::print()`. The window is visible, not hidden: on macOS wry shows the print dialog as a sheet on the webview's own window (found in M36). The OS dialog then handles printer choice, copies, and page ranges. On macOS that dialog also has "Save as PDF", but Export to PDF stays a separate command so it works the same on all three platforms.
 
 Why not simply call `window.print()` on the editor: the editor only has the lines on screen, uses the dark theme, and is virtualized. Why not generate PDF through the webview: no cross-platform API, and it would need `unsafe` platform code.
 
@@ -115,7 +115,7 @@ Print through the webview uses the same bundled font through `@font-face`, so Pr
 
 ### 3.6 Print window and security (M39)
 
-- New window `print`, hidden, with its own capability file `capabilities/print.json` allowing only: read the prepared page model, report progress, close. It cannot run editor or file commands (ADR-0010).
+- New window `print` ("Print Preview", visible; see §3.0), with its own capability file `capabilities/print.json` allowing only: read the prepared page model, report progress, close. It cannot run editor or file commands (ADR-0010).
 - The page HTML is built from text runs and escaped; document text is never parsed as HTML. CSP stays `script-src 'self'`; no inline scripts.
 - Export to PDF writes only to the path chosen in the native Save dialog (`tauri-plugin-dialog`, already used for Save As), through the same atomic-replace code as Save.
 - The PDF contains document text, file name, and date; no other metadata. Producer is "Nulis <version>".
@@ -131,7 +131,7 @@ Print through the webview uses the same bundled font through `@font-face`, so Pr
 
 | Milestone | Scope | Depends on | Cx |
 | --- | --- | --- | --- |
-| **M36** Spike and commands | §3.0, §3.1: prove `Webview::print()` with fixed-size HTML pages on all three OSes (margins, page breaks, page count match); pick the PDF library; add JetBrains Mono; add the three commands and menu items (disabled behind a flag until M39) | – | M |
+| **M36** Spike and commands | §3.0, §3.1: prove `Webview::print()` with fixed-size HTML pages on all three OSes (margins, page breaks, page count match); pick the PDF library (chosen: `pdf-writer`, see `handover/M36_HANDOVER.md`); add JetBrains Mono; add the three commands and menu items (disabled behind a flag until M39) | – | M |
 | **M37** `nulis-print` layout and PDF export | §3.2 settings, §3.5 fonts, §3.7 PDF: page model, wrap/cut, line numbers, header/footer, print theme, streaming PDF writer, Export to PDF end to end for text documents | M36 | L |
 | **M38** Scope, large files, other views | §3.3, §3.4: selection printing, unsaved buffers, hex dump, Markdown preview print, background job with progress, cancel, page-count prompts and caps, windowed syntax | M37 | L |
 | **M39** Print window and Page Setup dialog | §3.2 dialog with live preview, §3.6 print window and capability, Print end to end, flag removed | M37 (M38 for large files) | M |
