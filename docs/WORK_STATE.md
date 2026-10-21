@@ -1,5 +1,9 @@
 # Work state
 
+## Plan 3: print and Export to PDF (M36–M40, in progress)
+
+On branch `m36-print`, not merged. Print Preview, Export to PDF (whole document, selection, hex dump), progress and Cancel, and fallback fonts work in development builds only; Print from real pages, Page Setup, and the release switch are M39. Where to resume, how to run a test build without losing the user's session, and the next tasks: `handover/PLAN3_RESUME.md`.
+
 ## Nulis 0.3.0 (plan 2, M31–M35)
 
 Released 2026-10-20. Scope, decisions, and verification are in `IMPROVEMENT_PLAN_2.md`, `IMPLEMENTATION_TRACKER.md` (M31–M35 and "Count All on huge files"), and `handover/M31_M32_HANDOVER.md`; the user-facing summary is `release-notes/v0.3.0.md`. In short: the Find window fits its content; one linear-time regex style with unbounded patterns, capture groups in Replace, and Search in column; contrast floors for selection, secondary text, and icons in every theme; YAML and plist Validate and Beautify; CSV/TSV and richer YAML highlighting; binary property lists in the hex editor; Count All without a limit as a background job; plain-text search on the regex engine's literal finder (about 8x faster). IPC protocol 39. Windows and Linux were checked only by CI for this release.
