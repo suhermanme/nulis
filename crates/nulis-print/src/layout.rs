@@ -44,6 +44,43 @@ pub struct Run {
     pub column: u32,
     pub text: String,
     pub style: Style,
+    /// Cells the text covers (wide characters take two).
+    pub cells: u32,
+}
+
+/// Cells a character takes: two for East Asian wide and full-width
+/// characters (Chinese, Japanese, Korean, full-width forms, most emoji),
+/// one for everything else.
+#[must_use]
+pub fn cell_width(character: char) -> u32 {
+    let wide = matches!(
+        u32::from(character),
+        0x1100..=0x115F
+            | 0x231A..=0x231B
+            | 0x2329..=0x232A
+            | 0x23E9..=0x23EC
+            | 0x2E80..=0x303E
+            | 0x3041..=0x33FF
+            | 0x3400..=0x4DBF
+            | 0x4E00..=0x9FFF
+            | 0xA000..=0xA4CF
+            | 0xA960..=0xA97F
+            | 0xAC00..=0xD7A3
+            | 0xF900..=0xFAFF
+            | 0xFE10..=0xFE19
+            | 0xFE30..=0xFE6F
+            | 0xFF00..=0xFF60
+            | 0xFFE0..=0xFFE6
+            | 0x1F300..=0x1F64F
+            | 0x1F900..=0x1F9FF
+            | 0x20000..=0x2FFFD
+            | 0x30000..=0x3FFFD
+    );
+    if wide {
+        2
+    } else {
+        1
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -70,10 +107,11 @@ impl Row {
     }
 
     fn push(&mut self, column: u32, character: char, style: Style) {
+        let width = cell_width(character);
         if let Some(last) = self.runs.last_mut() {
-            let end = last.column + u32::try_from(last.text.chars().count()).unwrap_or(u32::MAX);
-            if last.style == style && end == column {
+            if last.style == style && last.column + last.cells == column {
                 last.text.push(character);
+                last.cells += width;
                 return;
             }
         }
@@ -81,7 +119,13 @@ impl Row {
             column,
             text: character.to_string(),
             style,
+            cells: width,
         });
+    }
+
+    /// The column after the last character.
+    fn end(&self) -> u32 {
+        self.runs.last().map_or(0, |run| run.column + run.cells)
     }
 
     /// Removes and returns the cells after the row's last space at or past
@@ -89,11 +133,14 @@ impl Row {
     /// there is no such space (a word longer than the rest of the row).
     fn take_after_last_space(&mut self, min_column: u32) -> Option<Vec<(char, Style)>> {
         let cells = |run: &Run| {
-            let column = run.column;
+            let mut column = run.column;
             run.text
                 .chars()
-                .zip(column..)
-                .map(|(character, column)| (column, character))
+                .map(|character| {
+                    let at = column;
+                    column += cell_width(character);
+                    (at, character)
+                })
                 .collect::<Vec<_>>()
         };
         let space = self
@@ -115,10 +162,12 @@ impl Row {
                 }
             }
             if !head.is_empty() {
+                let cells = head.chars().map(cell_width).sum();
                 kept.push(Run {
                     column: run.column,
                     text: head,
                     style: run.style,
+                    cells,
                 });
             }
         }
@@ -126,15 +175,22 @@ impl Row {
         Some(tail)
     }
 
-    /// Replaces the character in the last cell with `marker`.
-    fn mark_last_cell(&mut self, column: u32, marker: char) {
-        if let Some(last) = self.runs.last_mut() {
-            last.text.pop();
+    /// Ends the row with `marker` in its last cell, removing characters
+    /// from the end until it fits within `columns`.
+    fn mark_end(&mut self, columns: u32, marker: char) {
+        while self.end() + cell_width(marker) > columns {
+            let Some(last) = self.runs.last_mut() else {
+                break;
+            };
+            if let Some(removed) = last.text.pop() {
+                last.cells -= cell_width(removed);
+            }
             if last.text.is_empty() {
                 self.runs.pop();
             }
         }
-        self.push(column, marker, Style::Symbol);
+        let end = self.end();
+        self.push(end, marker, Style::Symbol);
     }
 }
 
@@ -254,7 +310,8 @@ impl Paginator {
         style: Style,
         finished: &mut Vec<Page>,
     ) {
-        if open.column == self.columns {
+        let width = cell_width(character);
+        if open.column + width > self.columns {
             match self.long_lines {
                 LongLines::Wrap => {
                     // Break after the last space in the second half of the
@@ -268,19 +325,19 @@ impl Paginator {
                     open.column = 0;
                     for (moved, moved_style) in tail {
                         open.row.push(open.column, moved, moved_style);
-                        open.column += 1;
+                        open.column += cell_width(moved);
                     }
                 }
                 LongLines::Cut => {
-                    open.row.mark_last_cell(self.columns - 1, CUT_MARKER);
+                    open.row.mark_end(self.columns, CUT_MARKER);
                     open.cut = true;
                     return;
                 }
             }
         }
         open.row.push(open.column, character, style);
-        open.column += 1;
-        open.line_column += 1;
+        open.column += width;
+        open.line_column += u64::from(width);
     }
 
     fn commit(&mut self, row: Row, finished: &mut Vec<Page>) {
@@ -423,6 +480,43 @@ mod tests {
             pages[0].rows[1].runs[0].style,
             Style::Token(SyntaxToken::String)
         );
+    }
+
+    #[test]
+    fn wide_characters_take_two_cells_and_wrap_whole() {
+        // 5 columns: "ab" then 世 (2) fits, 界 (2) does not and wraps whole.
+        let pages = all_pages(
+            Paginator::new(10, 5, LongLines::Wrap, 4),
+            &[line(1, "ab世界c")],
+        );
+        let rows: Vec<_> = pages[0]
+            .rows
+            .iter()
+            .map(|row| {
+                row.runs
+                    .iter()
+                    .map(|run| (run.column, run.text.clone(), run.cells))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                vec![(0, "ab世".to_owned(), 4)],
+                vec![(0, "界c".to_owned(), 3)]
+            ]
+        );
+        // Cut: the marker replaces what no longer fits.
+        let cut = all_pages(
+            Paginator::new(10, 4, LongLines::Cut, 4),
+            &[line(1, "a世界")],
+        );
+        let runs: Vec<_> = cut[0].rows[0]
+            .runs
+            .iter()
+            .map(|run| (run.column, run.text.as_str()))
+            .collect();
+        assert_eq!(runs, [(0, "a世"), (3, "…")]);
     }
 
     #[test]

@@ -6,27 +6,17 @@
 //! cross-reference table are written at the end.
 
 use crate::{
-    layout::{Gutter, Page, Run, Style},
+    fonts::{FontMetrics, FontRefs, FontSet, RefSource, REGULAR_TTF},
+    layout::{cell_width, Gutter, Page, Run, Style},
     palette::{Palette, Rgb},
     setup::Geometry,
     PrintError,
 };
 use pdf_writer::{
-    types::{CidFontType, FontFlags, SystemInfo, UnicodeCmap},
     writers::{Catalog, DocumentInfo},
     Chunk, Content, Filter, Finish, Name, Rect, Ref, Str, TextStr,
 };
-use std::{
-    collections::{BTreeMap, HashMap},
-    fmt::Write as _,
-    io::Write,
-};
-
-const REGULAR_TTF: &[u8] = include_bytes!(
-    "../../../apps/desktop/src/assets/fonts/jetbrains-mono/JetBrainsMono-Regular.ttf"
-);
-const BOLD_TTF: &[u8] =
-    include_bytes!("../../../apps/desktop/src/assets/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf");
+use std::{collections::BTreeSet, fmt::Write as _, io::Write};
 
 /// Pages per outline entry for long documents.
 const PAGES_PER_OUTLINE_ITEM: u64 = 100;
@@ -40,183 +30,39 @@ const REGULAR_REFS: FontRefs = FontRefs::starting_at(4);
 const BOLD_REFS: FontRefs = FontRefs::starting_at(9);
 const FIRST_DYNAMIC_REF: i32 = 14;
 
-const SYSTEM_INFO: SystemInfo = SystemInfo {
-    registry: Str(b"Adobe"),
-    ordering: Str(b"Identity"),
-    supplement: 0,
-};
-
-#[derive(Clone, Copy, Debug)]
-struct FontRefs {
-    type0: Ref,
-    cid: Ref,
-    descriptor: Ref,
-    file: Ref,
-    to_unicode: Ref,
-}
-
-impl FontRefs {
-    const fn starting_at(first: i32) -> Self {
-        Self {
-            type0: Ref::new(first),
-            cid: Ref::new(first + 1),
-            descriptor: Ref::new(first + 2),
-            file: Ref::new(first + 3),
-            to_unicode: Ref::new(first + 4),
-        }
-    }
-}
-
-/// Metrics of the bundled font, in em.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct FontMetrics {
-    pub advance: f32,
-    pub ascender: f32,
-    pub descender: f32,
-}
-
 /// The bundled regular font's metrics, which [`Geometry::new`] needs.
 ///
 /// # Errors
 /// Returns [`PrintError::Font`] if the bundled font cannot be read.
 pub fn bundled_metrics() -> Result<FontMetrics, PrintError> {
-    let font = EmbeddedFont::new(REGULAR_TTF, "JetBrainsMono-Regular", REGULAR_REFS)?;
-    Ok(font.metrics())
+    Ok(crate::fonts::EmbeddedFont::bundled(
+        REGULAR_TTF,
+        "JetBrainsMono-Regular",
+        REGULAR_REFS,
+        "F1",
+    )?
+    .metrics())
 }
 
+/// Object numbers handed out while writing.
 #[derive(Debug)]
-struct EmbeddedFont {
-    face: ttf_parser::Face<'static>,
-    data: &'static [u8],
-    name: &'static str,
-    refs: FontRefs,
-    glyphs: HashMap<char, u16>,
-    /// Glyph to character, for copying text out of the PDF.
-    used: BTreeMap<u16, char>,
+struct RefCounter {
+    next: i32,
 }
 
-impl EmbeddedFont {
-    fn new(data: &'static [u8], name: &'static str, refs: FontRefs) -> Result<Self, PrintError> {
-        let face = ttf_parser::Face::parse(data, 0)
-            .map_err(|error| PrintError::Font(format!("{name}: {error}")))?;
-        Ok(Self {
-            face,
-            data,
-            name,
-            refs,
-            glyphs: HashMap::new(),
-            used: BTreeMap::new(),
-        })
-    }
-
-    fn units(&self) -> f32 {
-        f32::from(self.face.units_per_em())
-    }
-
-    fn metrics(&self) -> FontMetrics {
-        let advance = self
-            .face
-            .glyph_index('0')
-            .and_then(|glyph| self.face.glyph_hor_advance(glyph))
-            .unwrap_or(600);
-        FontMetrics {
-            advance: f32::from(advance) / self.units(),
-            ascender: f32::from(self.face.ascender()) / self.units(),
-            descender: f32::from(self.face.descender()) / self.units(),
-        }
-    }
-
-    /// The glyph for `character`, or `None` when the font lacks it (the cell is left blank).
-    fn glyph(&mut self, character: char) -> Option<u16> {
-        if let Some(glyph) = self.glyphs.get(&character) {
-            return (*glyph != 0).then_some(*glyph);
-        }
-        let glyph = self.face.glyph_index(character).map_or(0, |glyph| glyph.0);
-        self.glyphs.insert(character, glyph);
-        if glyph == 0 {
-            return None;
-        }
-        self.used.entry(glyph).or_insert(character);
-        Some(glyph)
-    }
-
-    /// Writes the font objects: a Type 0 font over a CID TrueType font, the
-    /// whole font file (compressed), and the map from glyphs back to text.
-    fn write(&self, chunks: &mut ObjectSink<'_>) -> Result<(), PrintError> {
-        let units = self.units();
-        let scale = |value: i16| f32::from(value) * 1000.0 / units;
-        let name = Name(self.name.as_bytes());
-        let metrics = self.metrics();
-
-        let mut chunk = Chunk::new();
-        chunk
-            .type0_font(self.refs.type0)
-            .base_font(name)
-            .encoding_predefined(Name(b"Identity-H"))
-            .descendant_font(self.refs.cid)
-            .to_unicode(self.refs.to_unicode);
-        chunks.write(&chunk)?;
-
-        let mut chunk = Chunk::new();
-        chunk
-            .cid_font(self.refs.cid)
-            .subtype(CidFontType::Type2)
-            .base_font(name)
-            .system_info(SYSTEM_INFO)
-            .font_descriptor(self.refs.descriptor)
-            .default_width(metrics.advance * 1000.0)
-            .cid_to_gid_map_predefined(Name(b"Identity"));
-        chunks.write(&chunk)?;
-
-        let bbox = self.face.global_bounding_box();
-        let mut chunk = Chunk::new();
-        chunk
-            .font_descriptor(self.refs.descriptor)
-            .name(name)
-            .flags(FontFlags::FIXED_PITCH | FontFlags::SYMBOLIC)
-            .bbox(Rect::new(
-                scale(bbox.x_min),
-                scale(bbox.y_min),
-                scale(bbox.x_max),
-                scale(bbox.y_max),
-            ))
-            .italic_angle(0.0)
-            .ascent(scale(self.face.ascender()))
-            .descent(scale(self.face.descender()))
-            .cap_height(scale(
-                self.face.capital_height().unwrap_or(self.face.ascender()),
-            ))
-            .stem_v(80.0)
-            .font_file2(self.refs.file);
-        chunks.write(&chunk)?;
-
-        let compressed = miniz_oxide::deflate::compress_to_vec_zlib(self.data, 6);
-        let mut chunk = Chunk::new();
-        chunk
-            .stream(self.refs.file, &compressed)
-            .filter(Filter::FlateDecode)
-            .pair(
-                Name(b"Length1"),
-                i32::try_from(self.data.len())
-                    .map_err(|_| PrintError::Font("font file is too large".into()))?,
-            );
-        chunks.write(&chunk)?;
-
-        let mut cmap = UnicodeCmap::new(Name(b"Nulis-UCS"), SYSTEM_INFO);
-        for (glyph, character) in &self.used {
-            cmap.pair(*glyph, *character);
-        }
-        let cmap = cmap.finish();
-        let mut chunk = Chunk::new();
-        chunk
-            .cmap(self.refs.to_unicode, &cmap)
-            .system_info(SYSTEM_INFO);
-        chunks.write(&chunk)
+impl RefSource for RefCounter {
+    fn allocate(&mut self) -> Result<Ref, PrintError> {
+        let reference = Ref::new(self.next);
+        self.next = self
+            .next
+            .checked_add(1)
+            .ok_or_else(|| PrintError::Setup("too many pages for one PDF".into()))?;
+        Ok(reference)
     }
 }
 
 /// Counts bytes written and records each object's offset.
-struct ObjectSink<'a> {
+pub(crate) struct ObjectSink<'a> {
     out: &'a mut dyn Write,
     position: usize,
     offsets: &'a mut Vec<(i32, usize)>,
@@ -224,7 +70,7 @@ struct ObjectSink<'a> {
 
 impl ObjectSink<'_> {
     /// Writes a chunk holding exactly one object.
-    fn write(&mut self, chunk: &Chunk) -> Result<(), PrintError> {
+    pub(crate) fn write(&mut self, chunk: &Chunk) -> Result<(), PrintError> {
         if let Some(reference) = chunk.refs().next() {
             self.offsets.push((reference.get(), self.position));
         }
@@ -254,11 +100,13 @@ pub struct PdfWriter<W: Write> {
     offsets: Vec<(i32, usize)>,
     geometry: Geometry,
     palette: Palette,
-    regular: EmbeddedFont,
-    bold: EmbeddedFont,
-    bold_used: bool,
+    fonts: FontSet,
+    /// Fonts drawn with on any page (the regular font is always written).
+    fonts_used: BTreeSet<usize>,
+    /// Fonts drawn with on the page being written.
+    page_fonts: BTreeSet<usize>,
     page_refs: Vec<Ref>,
-    next_ref: i32,
+    refs: RefCounter,
     missing_glyphs: u64,
 }
 
@@ -273,22 +121,30 @@ impl<W: Write> std::fmt::Debug for PdfWriter<W> {
 }
 
 impl<W: Write> PdfWriter<W> {
-    /// Starts a PDF on `out`.
+    /// Starts a PDF on `out`. With `fallback_fonts`, characters the bundled
+    /// font lacks are drawn from installed fonts that have them.
     ///
     /// # Errors
     /// Returns an error if the fonts cannot be read or `out` cannot be written.
-    pub fn new(out: W, geometry: Geometry, palette: Palette) -> Result<Self, PrintError> {
+    pub fn new(
+        out: W,
+        geometry: Geometry,
+        palette: Palette,
+        fallback_fonts: bool,
+    ) -> Result<Self, PrintError> {
         let mut writer = Self {
             out,
             position: 0,
             offsets: Vec::new(),
             geometry,
             palette,
-            regular: EmbeddedFont::new(REGULAR_TTF, "JetBrainsMono-Regular", REGULAR_REFS)?,
-            bold: EmbeddedFont::new(BOLD_TTF, "JetBrainsMono-Bold", BOLD_REFS)?,
-            bold_used: false,
+            fonts: FontSet::new(REGULAR_REFS, BOLD_REFS, fallback_fonts)?,
+            fonts_used: BTreeSet::from([0]),
+            page_fonts: BTreeSet::new(),
             page_refs: Vec::new(),
-            next_ref: FIRST_DYNAMIC_REF,
+            refs: RefCounter {
+                next: FIRST_DYNAMIC_REF,
+            },
             missing_glyphs: 0,
         };
         // The second line marks the file as binary for transfer tools.
@@ -314,12 +170,7 @@ impl<W: Write> PdfWriter<W> {
     }
 
     fn allocate(&mut self) -> Result<Ref, PrintError> {
-        let reference = Ref::new(self.next_ref);
-        self.next_ref = self
-            .next_ref
-            .checked_add(1)
-            .ok_or_else(|| PrintError::Setup("too many pages for one PDF".into()))?;
-        Ok(reference)
+        self.refs.allocate()
     }
 
     /// Writes one page with its header and footer (each already filled in:
@@ -335,7 +186,7 @@ impl<W: Write> PdfWriter<W> {
     ) -> Result<(), PrintError> {
         let geometry = self.geometry;
         let mut content = Content::new();
-        let mut page_bold = false;
+        self.page_fonts.clear();
         if let Some(background) = self.palette.background {
             let [r, g, b] = background.unit();
             content
@@ -348,7 +199,7 @@ impl<W: Write> PdfWriter<W> {
         let mut separators = Vec::new();
         if geometry.has_header {
             let band = self.palette.band;
-            self.draw_band(&mut content, &mut pen, header, geometry.top, band);
+            self.draw_band(&mut content, &mut pen, header, geometry.top, band)?;
         }
         let digits = geometry.gutter_columns.saturating_sub(1);
         for (index, row) in page.rows.iter().enumerate() {
@@ -370,11 +221,10 @@ impl<W: Write> PdfWriter<W> {
                     Gutter::Separator => String::new(),
                 };
                 let color = self.palette.line_number;
-                self.draw_text(&mut content, &mut pen, &label, 0, top, color, false);
+                self.draw_text(&mut content, &mut pen, &label, 0, top, color, false)?;
             }
             for run in &row.runs {
                 let (color, bold) = self.run_style(run);
-                page_bold |= bold;
                 self.draw_text(
                     &mut content,
                     &mut pen,
@@ -383,16 +233,16 @@ impl<W: Write> PdfWriter<W> {
                     top,
                     color,
                     bold,
-                );
+                )?;
             }
         }
         if geometry.has_footer {
             let band = self.palette.band;
-            self.draw_band(&mut content, &mut pen, footer, geometry.footer_top(), band);
+            self.draw_band(&mut content, &mut pen, footer, geometry.footer_top(), band)?;
         }
         content.end_text();
         self.draw_rules(&mut content, &separators);
-        self.bold_used |= page_bold;
+        self.fonts_used.extend(self.page_fonts.iter().copied());
 
         let content_ref = self.allocate()?;
         let page_ref = self.allocate()?;
@@ -416,9 +266,9 @@ impl<W: Write> PdfWriter<W> {
             .contents(content_ref);
         let mut resources = page_writer.resources();
         let mut fonts = resources.fonts();
-        fonts.pair(Name(b"F1"), REGULAR_REFS.type0);
-        if page_bold {
-            fonts.pair(Name(b"F2"), BOLD_REFS.type0);
+        for index in &self.page_fonts {
+            let font = self.fonts.font(*index);
+            fonts.pair(Name(font.resource.as_bytes()), font.refs_type0());
         }
         fonts.finish();
         resources.finish();
@@ -464,9 +314,9 @@ impl<W: Write> PdfWriter<W> {
         parts: &[String; 3],
         top: f32,
         color: Rgb,
-    ) {
+    ) -> Result<(), PrintError> {
         let columns = self.geometry.columns;
-        let width = |text: &str| u32::try_from(text.chars().count()).unwrap_or(u32::MAX);
+        let width = |text: &str| text.chars().map(cell_width).sum::<u32>();
         let fit = |text: &str| {
             text.chars()
                 .take(usize::try_from(columns).unwrap_or(0))
@@ -474,18 +324,24 @@ impl<W: Write> PdfWriter<W> {
         };
         let [left, center, right] = parts.each_ref().map(|part| fit(part));
         if !left.is_empty() {
-            self.draw_text(content, pen, &left, 0, top, color, false);
+            self.draw_text(content, pen, &left, 0, top, color, false)?;
         }
         if !center.is_empty() {
             let column = columns.saturating_sub(width(&center)) / 2;
-            self.draw_text(content, pen, &center, column, top, color, false);
+            self.draw_text(content, pen, &center, column, top, color, false)?;
         }
         if !right.is_empty() {
             let column = columns.saturating_sub(width(&right));
-            self.draw_text(content, pen, &right, column, top, color, false);
+            self.draw_text(content, pen, &right, column, top, color, false)?;
         }
+        Ok(())
     }
 
+    /// Draws `text` from `column`, one cell per character (two for wide
+    /// characters), so a missing glyph or a font with other widths never
+    /// shifts the columns after it. Runs of bundled-font glyphs are drawn
+    /// together; fallback and wide glyphs are placed one by one, narrowed if
+    /// they are wider than their cells.
     #[allow(clippy::too_many_arguments)] // Position, color, and weight of one run.
     fn draw_text(
         &mut self,
@@ -496,40 +352,73 @@ impl<W: Write> PdfWriter<W> {
         top: f32,
         color: Rgb,
         bold: bool,
-    ) {
+    ) -> Result<(), PrintError> {
         let geometry = self.geometry;
-        let font = if bold {
-            &mut self.bold
-        } else {
-            &mut self.regular
-        };
-        // Each character is placed in its own cell, so a missing glyph or a
-        // font with odd widths never shifts the columns after it.
-        let mut glyphs = Vec::with_capacity(text.len() * 2);
-        let mut start = column;
-        let flush = |content: &mut Content, pen: &mut Pen, glyphs: &mut Vec<u8>, start: u32| {
-            if glyphs.is_empty() {
-                return;
-            }
-            pen.select(content, bold, geometry.font_size, color);
+        let baseline = top - geometry.baseline;
+        let x_at = |cell: u32| {
             #[allow(clippy::cast_precision_loss)] // Columns are far below 2^24.
-            let x = geometry.left + start as f32 * geometry.advance;
-            content
-                .set_text_matrix([1.0, 0.0, 0.0, 1.0, x, top - geometry.baseline])
-                .show(Str(glyphs));
-            glyphs.clear();
+            let cells = cell as f32;
+            geometry.left + cells * geometry.advance
         };
-        for (cell, character) in (column..).zip(text.chars()) {
-            if let Some(glyph) = font.glyph(character) {
-                glyphs.extend_from_slice(&glyph.to_be_bytes());
-            } else {
-                // Nothing is drawn; the next glyphs start after this cell.
-                self.missing_glyphs += u64::from(!character.is_whitespace());
-                flush(content, pen, &mut glyphs, start);
-                start = cell + 1;
+        let mut batch: Vec<u8> = Vec::with_capacity(text.len() * 2);
+        let mut batch_font = 0;
+        let mut batch_start = column;
+        let mut cell = column;
+        for character in text.chars() {
+            let width = cell_width(character);
+            let placed = self.fonts.place(character, bold, &mut self.refs)?;
+            let joins_batch = placed.is_some_and(|placed| {
+                placed.font < 2 && width == 1 && (batch.is_empty() || placed.font == batch_font)
+            });
+            if !joins_batch && !batch.is_empty() {
+                let font = &self.fonts.font(batch_font).resource;
+                pen.select(content, font, geometry.font_size, color);
+                content
+                    .set_text_matrix([1.0, 0.0, 0.0, 1.0, x_at(batch_start), baseline])
+                    .show(Str(&batch));
+                batch.clear();
             }
+            match placed {
+                Some(placed) if joins_batch => {
+                    if batch.is_empty() {
+                        batch_font = placed.font;
+                        batch_start = cell;
+                    }
+                    batch.extend_from_slice(&placed.glyph.to_be_bytes());
+                    self.page_fonts.insert(placed.font);
+                }
+                Some(placed) => {
+                    #[allow(clippy::cast_precision_loss)] // One or two cells.
+                    let room = width as f32 * geometry.advance;
+                    let natural = placed.advance * geometry.font_size;
+                    let squeeze = if natural > room && natural > 0.0 {
+                        room / natural
+                    } else {
+                        1.0
+                    };
+                    let offset = (room - natural * squeeze) / 2.0;
+                    let font = &self.fonts.font(placed.font).resource;
+                    pen.select(content, font, geometry.font_size, color);
+                    content
+                        .set_text_matrix([squeeze, 0.0, 0.0, 1.0, x_at(cell) + offset, baseline])
+                        .show(Str(&placed.glyph.to_be_bytes()));
+                    self.page_fonts.insert(placed.font);
+                }
+                None => {
+                    // Nothing is drawn; the cell stays blank.
+                    self.missing_glyphs += u64::from(!character.is_whitespace());
+                }
+            }
+            cell += width;
         }
-        flush(content, pen, &mut glyphs, start);
+        if !batch.is_empty() {
+            let font = &self.fonts.font(batch_font).resource;
+            pen.select(content, font, geometry.font_size, color);
+            content
+                .set_text_matrix([1.0, 0.0, 0.0, 1.0, x_at(batch_start), baseline])
+                .show(Str(&batch));
+        }
+        Ok(())
     }
 
     /// Writes the fonts, page tree, outline, document information, and
@@ -543,9 +432,10 @@ impl<W: Write> PdfWriter<W> {
             position: self.position,
             offsets: &mut self.offsets,
         };
-        self.regular.write(&mut sink)?;
-        if self.bold_used {
-            self.bold.write(&mut sink)?;
+        for index in 0..self.fonts.len() {
+            if self.fonts_used.contains(&index) {
+                self.fonts.font(index).write(&mut sink)?;
+            }
         }
         self.position = sink.position;
 
@@ -632,7 +522,7 @@ impl<W: Write> PdfWriter<W> {
     }
 
     fn write_cross_references(&mut self) -> Result<(), PrintError> {
-        let size = self.next_ref;
+        let size = self.refs.next;
         let mut offsets = vec![None; usize::try_from(size).unwrap_or(0)];
         for (reference, offset) in &self.offsets {
             if let Some(slot) = usize::try_from(*reference)
@@ -645,7 +535,7 @@ impl<W: Write> PdfWriter<W> {
         let start = self.position;
         let mut table = format!("xref\n0 {size}\n0000000000 65535 f \n");
         for offset in offsets.iter().skip(1) {
-            // References allocated but never written (unused bold font) are free.
+            // References allocated but never written (an unused font) are free.
             match offset {
                 Some(offset) => {
                     let _ = writeln!(table, "{offset:010} 00000 n ");
@@ -669,15 +559,15 @@ impl<W: Write> PdfWriter<W> {
 /// The text state already set in a content stream, so it is only changed when needed.
 #[derive(Debug, Default)]
 struct Pen {
-    bold: Option<bool>,
+    font: Option<String>,
     color: Option<Rgb>,
 }
 
 impl Pen {
-    fn select(&mut self, content: &mut Content, bold: bool, size: f32, color: Rgb) {
-        if self.bold != Some(bold) {
-            content.set_font(Name(if bold { b"F2" } else { b"F1" }), size);
-            self.bold = Some(bold);
+    fn select(&mut self, content: &mut Content, font: &str, size: f32, color: Rgb) {
+        if self.font.as_deref() != Some(font) {
+            content.set_font(Name(font.as_bytes()), size);
+            self.font = Some(font.to_owned());
         }
         if self.color != Some(color) {
             let [r, g, b] = color.unit();

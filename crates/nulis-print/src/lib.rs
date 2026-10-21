@@ -6,14 +6,16 @@
 //! process, with a first counting pass when a header or footer shows the
 //! number of pages.
 
+mod fonts;
 pub mod layout;
 pub mod palette;
 pub mod pdf;
 pub mod setup;
 
+pub use fonts::FontMetrics;
 pub use layout::{Gutter, Page, Paginator, Row, Run, SourceLine, Span, Style};
 pub use palette::{ColorChoice, Palette, Rgb};
-pub use pdf::{bundled_metrics, FontMetrics, PdfSummary, PdfWriter};
+pub use pdf::{bundled_metrics, PdfSummary, PdfWriter};
 pub use setup::{
     Band, BandFields, Geometry, LongLines, Margins, Orientation, PageSetup, PaperSize,
 };
@@ -83,6 +85,8 @@ pub struct ExportOptions {
     pub title: String,
     /// The document's last line number, which sizes the line-number gutter.
     pub last_line: u64,
+    /// Draw characters the bundled font lacks from installed fonts.
+    pub fallback_fonts: bool,
 }
 
 /// Lays out every line of `source` and writes it as a PDF to `out`.
@@ -127,7 +131,12 @@ pub fn export_pdf<S: LineSource, W: Write>(
 
     source.rewind()?;
     let highlight = options.setup.syntax_highlighting;
-    let mut writer = PdfWriter::new(out, geometry, options.palette.clone())?;
+    let mut writer = PdfWriter::new(
+        out,
+        geometry,
+        options.palette.clone(),
+        options.fallback_fonts,
+    )?;
     let mut layout = paginator();
     let write = |writer: &mut PdfWriter<W>, source: &mut S, page: &Page| {
         let header = fields.resolve(&options.setup.header, page.number);

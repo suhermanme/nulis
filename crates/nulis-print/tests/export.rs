@@ -60,6 +60,11 @@ impl LineSource for MemorySource {
 }
 
 fn export(text: &str, setup: PageSetup) -> (Vec<u8>, PdfSummary) {
+    export_with(text, setup, false)
+}
+
+/// Exports `text`; with `fallback_fonts`, installed fonts fill in missing characters.
+fn export_with(text: &str, setup: PageSetup, fallback_fonts: bool) -> (Vec<u8>, PdfSummary) {
     let mut source = MemorySource::new(text);
     let options = ExportOptions {
         setup,
@@ -72,6 +77,7 @@ fn export(text: &str, setup: PageSetup) -> (Vec<u8>, PdfSummary) {
         },
         title: "sample.rs".into(),
         last_line: u64::try_from(source.lines.len()).expect("small"),
+        fallback_fonts,
     };
     export_pdf(&mut source, Vec::new(), &options).expect("export")
 }
@@ -177,6 +183,25 @@ fn characters_the_font_lacks_are_counted_and_plain_text_skips_the_bold_font() {
     assert_eq!(summary.pages, 1);
     assert!(find(&pdf, b"/JetBrainsMono-Bold").is_none());
     check_cross_references(&pdf);
+}
+
+#[test]
+fn installed_fonts_fill_in_characters_the_bundled_font_lacks() {
+    let setup = PageSetup {
+        syntax_highlighting: false,
+        ..PageSetup::default()
+    };
+    let (pdf, summary) = export_with("hello 世界\nplain", setup, true);
+    check_cross_references(&pdf);
+    // Whether a machine has a TrueType font with these characters varies;
+    // when one is found it is embedded as a subset and nothing is missing.
+    if find(&pdf, b"/NULISA+").is_some() {
+        assert_eq!(summary.missing_glyphs, 0);
+        // The subset is far smaller than any CJK font file.
+        assert!(summary.bytes < 2_000_000, "{} bytes", summary.bytes);
+    } else {
+        assert_eq!(summary.missing_glyphs, 2);
+    }
 }
 
 #[test]

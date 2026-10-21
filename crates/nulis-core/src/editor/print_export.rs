@@ -218,6 +218,7 @@ impl DocumentManager {
             fields: base.fields,
             title: base.title,
             last_line: rows,
+            fallback_fonts: true,
         };
         let mut source = HexLines {
             manager: self,
@@ -270,6 +271,7 @@ impl DocumentManager {
             fields: base.fields,
             title: base.title,
             last_line,
+            fallback_fonts: true,
         };
         let mut source = DocumentLines {
             manager: self,
