@@ -133,8 +133,8 @@ Print through the webview uses the same bundled font through `@font-face`, so Pr
 | --- | --- | --- | --- |
 | **M36** Spike and commands | §3.0, §3.1: prove `Webview::print()` with fixed-size HTML pages on all three OSes (margins, page breaks, page count match); pick the PDF library (chosen: `pdf-writer`, see `handover/M36_HANDOVER.md`); add JetBrains Mono; add the three commands and menu items (disabled behind a flag until M39) | – | M |
 | **M37** `nulis-print` layout and PDF export | §3.2 settings, §3.5 fonts, §3.7 PDF: page model, wrap/cut, line numbers, header/footer, print theme, streaming PDF writer, Export to PDF end to end for text documents | M36 | L |
-| **M38** Scope, large files, other views | §3.3, §3.4: selection printing, unsaved buffers, hex dump, Markdown preview print, background job with progress, cancel, page-count prompts and caps, windowed syntax | M37 | L |
-| **M39** Print window and Page Setup dialog | §3.2 dialog with live preview, §3.6 print window and capability, Print end to end, flag removed | M37 (M38 for large files) | M |
+| **M38** Scope, large files, other views | §3.3, §3.4, §3.5 fallback: selection printing, unsaved buffers, hex dump, background job with progress, cancel, page-count prompts and caps, windowed syntax, installed fonts for missing characters and two cells for wide ones (Markdown preview print moved to M39) | M37 | L |
+| **M39** Print window and Page Setup dialog | §3.2 dialog with live preview and saved `print.*` settings, §3.6 print window and capability, Print end to end (including the Markdown preview), flag removed | M37 (M38 for large files) | M |
 | **M40** Docs and release | `USER_GUIDE.md` section, Help pages, `settings.schema.json`, `FEATURE_PARITY.md` and `IMPROVEMENT_PLAN.md` §4.1 rows updated, ADR-0013 (print layout in the core), release notes | M38, M39 | S |
 
 ## 5. Testing and acceptance
