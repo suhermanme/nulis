@@ -46,7 +46,7 @@ mod print_export;
 mod rename;
 pub use print_export::{
     ExportObserver, ExportPhase, ExportProgress, PdfExportRequest, PdfExportResult, Unobserved,
-    LARGE_EXPORT_PAGES, PRINT_WINDOW_BYTES,
+    HIGHLIGHT_LOOKBACK_BYTES, HIGHLIGHT_WINDOW_BYTES, LARGE_EXPORT_PAGES, PRINT_WINDOW_BYTES,
 };
 pub use rename::MAX_FILE_NAME_BYTES;
 mod replace_in_files;

@@ -21,8 +21,14 @@ use std::{
     path::{Path, PathBuf},
 };
 
-/// Bytes read per window: the most one syntax analysis covers.
+/// Bytes read per window without highlighting.
 pub const PRINT_WINDOW_BYTES: u64 = 256 * 1024;
+/// Bytes read per window with highlighting: small enough that dense code
+/// stays under the analyzer's span limit (`nulis_syntax::MAX_HIGHLIGHT_SPANS`).
+pub const HIGHLIGHT_WINDOW_BYTES: u64 = 64 * 1024;
+/// Text before a window that is analyzed with it, so a comment or string
+/// that began shortly before the window edge keeps its color.
+pub const HIGHLIGHT_LOOKBACK_BYTES: u64 = 16 * 1024;
 /// Bytes scanned per step when counting lines.
 const LINE_COUNT_WINDOW_BYTES: u64 = 4 * 1024 * 1024;
 
@@ -312,7 +318,12 @@ impl DocumentManager {
         check_revision(table.revision(), revision)?;
         let len = table.len();
         let offset = cursor.byte_offset.min(len);
-        let mut bytes = table.read_vec(offset, PRINT_WINDOW_BYTES.min(len - offset))?;
+        let limit = if highlight {
+            HIGHLIGHT_WINDOW_BYTES
+        } else {
+            PRINT_WINDOW_BYTES
+        };
+        let mut bytes = table.read_vec(offset, limit.min(len - offset))?;
         let window_end = offset + u64::try_from(bytes.len()).unwrap_or(u64::MAX);
         if window_end < len {
             cut_at_boundary(&mut bytes, session.encoding);
@@ -326,10 +337,37 @@ impl DocumentManager {
             session.encoding,
         );
         let mut highlights = if highlight {
+            // Start the analysis at a line start up to the lookback earlier.
+            let back = offset.saturating_sub(HIGHLIGHT_LOOKBACK_BYTES);
+            let before = table.read_vec(back, offset - back)?;
+            let skip = if back == 0 {
+                0
+            } else {
+                before
+                    .iter()
+                    .position(|byte| *byte == b'\n')
+                    .map_or(before.len(), |index| index + 1)
+            };
+            let context = &before[skip..];
+            #[allow(clippy::naive_bytecount)] // At most the 16 KiB lookback.
+            let context_lines =
+                u64::try_from(context.iter().filter(|byte| **byte == b'\n').count()).unwrap_or(0);
+            let mut source = Vec::with_capacity(context.len() + bytes.len());
+            source.extend_from_slice(context);
+            source.extend_from_slice(&bytes);
+            let base = offset - u64::try_from(context.len()).unwrap_or(0);
             self.languages
-                .analyze(&session.language_id, &bytes, offset, cursor.line)
+                .analyze(
+                    &session.language_id,
+                    &source,
+                    base,
+                    cursor.line.saturating_sub(context_lines).max(1),
+                )
                 .map(|analysis| analysis.highlights)
                 .unwrap_or_default()
+                .into_iter()
+                .filter(|span| span.end_byte > offset)
+                .collect()
         } else {
             Vec::new()
         };

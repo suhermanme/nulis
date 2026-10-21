@@ -28,13 +28,13 @@ pub use editor::{
     SyntaxBracketPair, SyntaxFold, SyntaxHighlight, SyntaxSnapshot, SyntaxSymbol, TextEncoding,
     TextTransform, Unobserved, VerticalDirection, ViewportAtRequest, ViewportCursor, ViewportLine,
     ViewportLineRequest, ViewportRequest, ViewportSnapshot, WorkspaceSearchMatch,
-    WorkspaceSearchResult, LARGE_EXPORT_PAGES, LINE_ENDING_SAMPLE_BYTES, MAX_BOOKMARKS,
-    MAX_CLIPBOARD_BYTES, MAX_EDIT_BYTES, MAX_FILE_NAME_BYTES, MAX_FIND_ALL_LINES,
-    MAX_FIND_ALL_MATCHES, MAX_HEX_CLIPBOARD_BYTES, MAX_HEX_EDIT_BYTES, MAX_HEX_VIEWPORT_BYTES,
-    MAX_LINE_ENDING_CHANGES, MAX_LINE_ENDING_CONVERSION_BYTES, MAX_LINE_PREVIEW_BYTES,
-    MAX_MARKDOWN_PREVIEW_BYTES, MAX_MERGE_BYTES, MAX_RECTANGULAR_ROWS, MAX_REPLACE_FILES,
-    MAX_SELECTIONS, MAX_VIEWPORT_BYTES, MAX_WORKSPACE_SEARCH_FILES, MAX_WORKSPACE_SEARCH_RESULTS,
-    PRINT_WINDOW_BYTES,
+    WorkspaceSearchResult, HIGHLIGHT_LOOKBACK_BYTES, HIGHLIGHT_WINDOW_BYTES, LARGE_EXPORT_PAGES,
+    LINE_ENDING_SAMPLE_BYTES, MAX_BOOKMARKS, MAX_CLIPBOARD_BYTES, MAX_EDIT_BYTES,
+    MAX_FILE_NAME_BYTES, MAX_FIND_ALL_LINES, MAX_FIND_ALL_MATCHES, MAX_HEX_CLIPBOARD_BYTES,
+    MAX_HEX_EDIT_BYTES, MAX_HEX_VIEWPORT_BYTES, MAX_LINE_ENDING_CHANGES,
+    MAX_LINE_ENDING_CONVERSION_BYTES, MAX_LINE_PREVIEW_BYTES, MAX_MARKDOWN_PREVIEW_BYTES,
+    MAX_MERGE_BYTES, MAX_RECTANGULAR_ROWS, MAX_REPLACE_FILES, MAX_SELECTIONS, MAX_VIEWPORT_BYTES,
+    MAX_WORKSPACE_SEARCH_FILES, MAX_WORKSPACE_SEARCH_RESULTS, PRINT_WINDOW_BYTES,
 };
 pub use format_tools::ToolKind;
 pub use line_changes::{LineChange, LineChangeStatus};
@@ -4111,6 +4111,71 @@ mod tests {
         assert_eq!(done["progress"]["phase"], "writing");
         assert_eq!(done["progress"]["done"], done["progress"]["total"]);
         assert!(pdf.exists());
+    }
+
+    #[test]
+    fn a_comment_across_a_highlight_window_edge_keeps_its_color() {
+        let application_data = tempfile::tempdir().expect("application data");
+        let folder = tempfile::tempdir().expect("folder");
+        let core = NulisCore::with_session_root(application_data.path().into());
+        // Filler up to 300 bytes before the first window edge, then a block
+        // comment that runs well past it.
+        let edge = usize::try_from(crate::HIGHLIGHT_WINDOW_BYTES).expect("small");
+        let mut text = String::new();
+        while text.len() < edge - 300 {
+            text.push_str("int x;\n");
+        }
+        text.push_str("/* a comment that starts before the edge\n");
+        for _ in 0..20 {
+            text.push_str("   still inside the comment\n");
+        }
+        text.push_str("*/\nint after;\n");
+        let source = folder.path().join("edge.c");
+        std::fs::write(&source, &text).expect("write source");
+        let opened = core
+            .execute_command(
+                "file.open",
+                CommandContext::default(),
+                serde_json::json!({ "path": source.display().to_string() }),
+            )
+            .expect("open");
+        let document_id =
+            crate::editor::DocumentId(opened["documentId"].as_str().expect("id").into());
+        let mut cursor = Some(crate::editor::ViewportCursor {
+            byte_offset: 0,
+            line: 1,
+            line_continuation: false,
+        });
+        let mut windows = Vec::new();
+        while let Some(at) = cursor {
+            let (lines, next) = core
+                .documents
+                .print_window(&document_id, 0, &at, true)
+                .expect("window");
+            windows.push(lines);
+            cursor = next;
+        }
+        assert!(windows.len() >= 2, "the comment crosses a window edge");
+        let second = &windows[1];
+        let inside = second
+            .iter()
+            .find(|line| line.text.contains("still inside"))
+            .expect("comment line in the second window");
+        assert!(
+            inside
+                .spans
+                .iter()
+                .any(|span| span.token == nulis_syntax::SyntaxToken::Comment && span.end > 6),
+            "{inside:?}"
+        );
+        let after = second
+            .iter()
+            .find(|line| line.text == "int after;")
+            .expect("code after the comment");
+        assert!(after
+            .spans
+            .iter()
+            .all(|span| span.token != nulis_syntax::SyntaxToken::Comment));
     }
 
     #[test]
