@@ -21,17 +21,18 @@ pub use editor::{
     HexViewportRequest, HexViewportRow, HexViewportSnapshot, HorizontalDirection, Justify,
     LanguageDescriptor, LineEditResult, LineEnding, LineEndingConversion, LineEndingStyle,
     LineFormatOptions, LineOperation, MarkdownPreviewSource, NumberPadding, NumberSequence,
-    NumberSum, RecoveryCandidate, RectangularSelection, ReplaceAllResult, ReplaceFileOutcome,
-    ReplacePreview, ReplacePreviewFile, ReplaceTarget, SearchMode, SearchOptions, Selection,
-    SyntaxBracketPair, SyntaxFold, SyntaxHighlight, SyntaxSnapshot, SyntaxSymbol, TextEncoding,
-    TextTransform, VerticalDirection, ViewportAtRequest, ViewportCursor, ViewportLine,
-    ViewportLineRequest, ViewportRequest, ViewportSnapshot, WorkspaceSearchMatch,
-    WorkspaceSearchResult, LINE_ENDING_SAMPLE_BYTES, MAX_BOOKMARKS, MAX_CLIPBOARD_BYTES,
-    MAX_EDIT_BYTES, MAX_FILE_NAME_BYTES, MAX_FIND_ALL_LINES, MAX_FIND_ALL_MATCHES,
-    MAX_HEX_CLIPBOARD_BYTES, MAX_HEX_EDIT_BYTES, MAX_HEX_VIEWPORT_BYTES, MAX_LINE_ENDING_CHANGES,
-    MAX_LINE_ENDING_CONVERSION_BYTES, MAX_LINE_PREVIEW_BYTES, MAX_MARKDOWN_PREVIEW_BYTES,
-    MAX_MERGE_BYTES, MAX_RECTANGULAR_ROWS, MAX_REPLACE_FILES, MAX_SELECTIONS, MAX_VIEWPORT_BYTES,
-    MAX_WORKSPACE_SEARCH_FILES, MAX_WORKSPACE_SEARCH_RESULTS,
+    NumberSum, PdfExportRequest, PdfExportResult, RecoveryCandidate, RectangularSelection,
+    ReplaceAllResult, ReplaceFileOutcome, ReplacePreview, ReplacePreviewFile, ReplaceTarget,
+    SearchMode, SearchOptions, Selection, SyntaxBracketPair, SyntaxFold, SyntaxHighlight,
+    SyntaxSnapshot, SyntaxSymbol, TextEncoding, TextTransform, VerticalDirection,
+    ViewportAtRequest, ViewportCursor, ViewportLine, ViewportLineRequest, ViewportRequest,
+    ViewportSnapshot, WorkspaceSearchMatch, WorkspaceSearchResult, LINE_ENDING_SAMPLE_BYTES,
+    MAX_BOOKMARKS, MAX_CLIPBOARD_BYTES, MAX_EDIT_BYTES, MAX_FILE_NAME_BYTES, MAX_FIND_ALL_LINES,
+    MAX_FIND_ALL_MATCHES, MAX_HEX_CLIPBOARD_BYTES, MAX_HEX_EDIT_BYTES, MAX_HEX_VIEWPORT_BYTES,
+    MAX_LINE_ENDING_CHANGES, MAX_LINE_ENDING_CONVERSION_BYTES, MAX_LINE_PREVIEW_BYTES,
+    MAX_MARKDOWN_PREVIEW_BYTES, MAX_MERGE_BYTES, MAX_RECTANGULAR_ROWS, MAX_REPLACE_FILES,
+    MAX_SELECTIONS, MAX_VIEWPORT_BYTES, MAX_WORKSPACE_SEARCH_FILES, MAX_WORKSPACE_SEARCH_RESULTS,
+    PRINT_WINDOW_BYTES,
 };
 pub use format_tools::ToolKind;
 pub use line_changes::{LineChange, LineChangeStatus};
@@ -81,7 +82,7 @@ use nulis_automation::{
     CURRENT_REVISION_ARGUMENT,
 };
 
-pub const IPC_PROTOCOL_VERSION: u32 = 39;
+pub const IPC_PROTOCOL_VERSION: u32 = 40;
 pub const PRODUCT_NAME: &str = "Nulis";
 pub const APPLICATION_ID: &str = "com.nulis.editor";
 const MAX_SCRIPT_MESSAGES: usize = 100;
@@ -1434,6 +1435,24 @@ struct SaveAsArguments {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ExportPdfArguments {
+    #[serde(with = "editor::decimal_u64")]
+    expected_revision: u64,
+    path: String,
+    #[serde(default)]
+    setup: nulis_print::PageSetup,
+    #[serde(default)]
+    colors: nulis_print::ColorChoice,
+    /// The date for `{date}`, formatted by the desktop in the user's locale.
+    #[serde(default)]
+    date: String,
+}
+
+/// Longest `{date}` text accepted, in bytes.
+const MAX_EXPORT_DATE_BYTES: usize = 128;
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct RecoveryIdArguments {
     recovery_id: String,
 }
@@ -2783,6 +2802,7 @@ fn register_pointer_commands(commands: &mut CommandRegistry, documents: &Arc<Doc
 
 fn register_editor_commands(commands: &mut CommandRegistry, documents: &Arc<DocumentManager>) {
     register_file_commands(commands, documents);
+    register_print_commands(commands, documents);
     register_recovery_commands(commands, documents);
     register_text_transfer_commands(commands, documents);
     register_navigation_commands(commands, documents);
@@ -3789,6 +3809,38 @@ fn register_file_commands(commands: &mut CommandRegistry, documents: &Arc<Docume
         .expect("built-in command is unique");
 }
 
+/// Export to PDF (`IMPROVEMENT_PLAN_3.md`). The desktop's `file.exportPdf`
+/// asks where to save, then runs this.
+fn register_print_commands(commands: &mut CommandRegistry, documents: &Arc<DocumentManager>) {
+    let manager = Arc::clone(documents);
+    commands
+        .register(
+            CommandDescriptor::new("file.exportPdfTo", "Export to PDF File", "File")
+                .expect("built-in command ID is valid"),
+            move |context, arguments| {
+                let document_id = context_document(&context)?;
+                let arguments: ExportPdfArguments = parse_arguments(arguments)?;
+                if arguments.date.len() > MAX_EXPORT_DATE_BYTES {
+                    return Err(CommandError::Failed("the date is too long".into()));
+                }
+                let result = manager
+                    .export_pdf(
+                        &document_id,
+                        &editor::PdfExportRequest {
+                            path: std::path::PathBuf::from(arguments.path),
+                            expected_revision: arguments.expected_revision,
+                            setup: arguments.setup,
+                            colors: arguments.colors,
+                            date: arguments.date,
+                        },
+                    )
+                    .map_err(|error| editor_command_error(&error))?;
+                serde_json::to_value(result).map_err(|error| serialization_command_error(&error))
+            },
+        )
+        .expect("built-in command is unique");
+}
+
 fn register_recovery_commands(commands: &mut CommandRegistry, documents: &Arc<DocumentManager>) {
     let manager = Arc::clone(documents);
     commands
@@ -3929,6 +3981,100 @@ mod tests {
             .execute_command("app.about", CommandContext::default(), Value::Null)
             .expect("command executes");
         assert_eq!(result["productName"], "Nulis");
+    }
+
+    #[test]
+    fn export_pdf_reads_every_window_and_refuses_unsafe_destinations() {
+        let application_data = tempfile::tempdir().expect("application data");
+        let folder = tempfile::tempdir().expect("folder");
+        let core = NulisCore::with_session_root(application_data.path().into());
+        let open = |name: &str, text: &str| {
+            let path = folder.path().join(name);
+            std::fs::write(&path, text).expect("write source");
+            let opened = core
+                .execute_command(
+                    "file.open",
+                    CommandContext::default(),
+                    serde_json::json!({ "path": path.display().to_string() }),
+                )
+                .expect("open");
+            (
+                path,
+                CommandContext {
+                    window_id: Some("main".into()),
+                    document_id: Some(opened["documentId"].as_str().expect("document ID").into()),
+                },
+            )
+        };
+        let export = |context: &CommandContext, arguments: serde_json::Value| {
+            core.execute_command("file.exportPdfTo", context.clone(), arguments)
+        };
+
+        // 40,000 short lines (about 430 KB) take two reading windows; the
+        // default A4 page holds 61 rows.
+        let mut text = String::new();
+        for line in 1..=40_000 {
+            text.push_str("line ");
+            text.push_str(&line.to_string());
+            text.push('\n');
+        }
+        let (source, context) = open("lines.txt", &text);
+        let pdf = folder.path().join("lines.pdf");
+        let result = export(
+            &context,
+            serde_json::json!({ "expectedRevision": "0", "path": pdf.display().to_string(), "date": "today" }),
+        )
+        .expect("export");
+        // 40,001 lines: the newline at the end starts an empty last line.
+        assert_eq!(result["pages"], "656");
+        assert_eq!(result["missingGlyphs"], "0");
+        let bytes = std::fs::read(&pdf).expect("read PDF");
+        assert!(bytes.starts_with(b"%PDF-1.7"));
+        assert_eq!(result["bytes"], bytes.len().to_string());
+        let leftovers = std::fs::read_dir(folder.path())
+            .expect("list")
+            .filter(|entry| {
+                entry.as_ref().is_ok_and(|entry| {
+                    entry
+                        .file_name()
+                        .to_string_lossy()
+                        .starts_with(".nulis-export-")
+                })
+            })
+            .count();
+        assert_eq!(leftovers, 0, "the temporary file is moved into place");
+
+        // Refusals: the document's own file, a stale revision, a relative path.
+        for (path, revision) in [
+            (source.display().to_string(), "0"),
+            (pdf.display().to_string(), "7"),
+            ("relative.pdf".to_owned(), "0"),
+        ] {
+            assert!(
+                export(
+                    &context,
+                    serde_json::json!({ "expectedRevision": revision, "path": path })
+                )
+                .is_err(),
+                "{path} at {revision}"
+            );
+        }
+        assert_eq!(std::fs::read_to_string(&source).expect("source"), text);
+
+        // One 700 KiB line with no line break is read in three windows that
+        // continue each other: 716,800 characters over 90 columns is 7,965
+        // rows, 131 pages, with no page count in the footer.
+        let (_, long_context) = open("long.txt", &"x".repeat(700 * 1024));
+        let result = export(
+            &long_context,
+            serde_json::json!({
+                "expectedRevision": "0",
+                "path": folder.path().join("long.pdf").display().to_string(),
+                "setup": { "syntaxHighlighting": false, "footer": { "center": "{page}" } },
+            }),
+        )
+        .expect("export long line");
+        assert_eq!(result["pages"], "131");
     }
 
     #[test]

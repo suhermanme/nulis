@@ -1,5 +1,5 @@
 /** Versioned JSON-compatible values mirrored from nulis-core's public IPC DTOs. */
-export const IPC_PROTOCOL_VERSION = 39 as const;
+export const IPC_PROTOCOL_VERSION = 40 as const;
 
 export interface ThemeRecord {
   schema?: string;
@@ -201,6 +201,15 @@ export interface CaretPosition {
   selection?: ByteRange;
   /** Unicode code point of the character after the caret, if any. */
   codePoint?: number;
+}
+
+/** Result of `file.exportPdfTo`; counts are decimal strings like other 64-bit values. */
+export interface PdfExportResult {
+  path: string;
+  pages: string;
+  /** Characters left blank because the print font lacks them. */
+  missingGlyphs: string;
+  bytes: string;
 }
 
 export interface DocumentSummary {

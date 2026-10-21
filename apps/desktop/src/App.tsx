@@ -11,6 +11,7 @@ import type {
   CommandDescriptor,
   CustomizationDocument,
   DocumentSummary,
+  PdfExportResult,
   EditorPreferences,
   FolderCompareResult,
   LanguageDescriptor,
@@ -814,6 +815,39 @@ export function App() {
     } catch (error: unknown) {
       setStatus(errorMessage(error, "Could not save file"));
       return false;
+    }
+  };
+
+  /** Asks where to save, then exports the document as it is now, unsaved edits included. */
+  const exportPdf = async () => {
+    const document = activeDocument;
+    if (!document) return;
+    const stem = document.name.replace(/\.[^.\\/]+$/, "") || "Untitled";
+    const folder = document.sourcePath ? document.sourcePath.slice(0, Math.max(document.sourcePath.lastIndexOf("/"), document.sourcePath.lastIndexOf("\\")) + 1) : "";
+    try {
+      const destination = await saveDialog({
+        title: "Export to PDF",
+        defaultPath: `${folder}${stem}.pdf`,
+        filters: [{ name: "PDF", extensions: ["pdf"] }],
+      });
+      if (!destination) { setStatus("Export cancelled"); return; }
+      setStatus(`Exporting ${document.name} to PDF…`);
+      const result = await executeCommand<PdfExportResult>({
+        id: "file.exportPdfTo",
+        context: { windowId: "main", documentId: document.documentId },
+        arguments: {
+          expectedRevision: document.revision,
+          path: destination,
+          date: new Date().toLocaleDateString(undefined, { dateStyle: "long" }),
+        },
+      });
+      const name = result.path.split(/[\\/]/).pop() ?? result.path;
+      const pages = result.pages === "1" ? "1 page" : `${Number(result.pages).toLocaleString()} pages`;
+      const missing = result.missingGlyphs === "0" ? ""
+        : `; ${Number(result.missingGlyphs).toLocaleString()} characters the print font lacks are left blank`;
+      setStatus(`Exported ${pages} to ${name}${missing}`);
+    } catch (error: unknown) {
+      setStatus(errorMessage(error, "Could not export to PDF"));
     }
   };
 
@@ -1696,7 +1730,7 @@ export function App() {
       void openPrintWindow().catch((error: unknown) => setStatus(errorMessage(error, "Could not open Print Preview")));
     },
     "file.pageSetup": () => setStatus("Page Setup is not finished yet"),
-    "file.exportPdf": () => setStatus("Export to PDF is not finished yet"),
+    "file.exportPdf": () => { void exportPdf(); },
     "edit.pasteFromHistory": openClipboardHistory,
     "workspace.rename": requestRename,
     "workspace.groupRight": () => groupWithNextTab("right"),

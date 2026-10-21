@@ -4,8 +4,8 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 
 ## Current state
 
-- **Current milestone:** M36 (print spike and commands) — code done on branch `m36-print`; print check passed on macOS; Windows and Linux pending.
-- **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 5 of 5 milestones completed (M31–M35); plan 3: 0 of 5 completed (M36 in progress)
+- **Current milestone:** M37 (`nulis-print` layout and PDF export) — code and tests done on branch `m36-print`; checking it in the app is pending. M36: print check passed on macOS; Windows and Linux pending.
+- **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 5 of 5 milestones completed (M31–M35); plan 3: 0 of 5 completed (M36 and M37 in progress)
 - **Baseline before M19 (commit `66853e1`):** `cargo test -p nulis-core` 86 passed; desktop Vitest 11 files, 115 tests passed.
 
 | Milestone | Status | Handover |
@@ -28,7 +28,7 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 | M34 YAML and plist Validate | Completed (awaiting the user's check on macOS; Windows/Linux pending) | this tracker, M34 section |
 | M35 CSV/TSV, YAML and plist highlighting | Completed (awaiting the user's check on macOS; Windows/Linux pending) | this tracker, M35 section |
 | M36 Print spike and commands | In progress: code and tests done; print check passed on macOS; Windows and Linux pending | `handover/M36_HANDOVER.md` |
-| M37 `nulis-print` layout and PDF export | Not started | – |
+| M37 `nulis-print` layout and PDF export | In progress: code and tests done; check in the app pending | `handover/M37_HANDOVER.md` |
 | M38 Scope, large files, other views | Not started | – |
 | M39 Print window and Page Setup dialog | Not started | – |
 | M40 Docs and release | Not started | – |

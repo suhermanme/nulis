@@ -38,6 +38,9 @@ Initial direct dependencies:
 | react-markdown / remark-gfm | safe Markdown preview and GitHub-style syntax | MIT |
 | xterm.js / xterm fit addon | integrated terminal rendering and sizing | MIT |
 | Vite | frontend build | MIT |
+| pdf-writer | writes exported PDF files object by object | Apache-2.0 / MIT |
+| ttf-parser | reads the print font's glyphs and metrics | Apache-2.0 / MIT |
+| miniz_oxide | compresses PDF page content and the embedded font | Apache-2.0 / MIT / Zlib |
 | JetBrains Mono 2.304 (Regular, Bold) | font for printed pages and exported PDFs; copy of the license in `apps/desktop/src/assets/fonts/jetbrains-mono/OFL.txt` | OFL-1.1 |
 | TypeScript | frontend type system | Apache-2.0 |
 | Vitest | frontend tests | MIT |

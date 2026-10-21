@@ -42,7 +42,9 @@ pub use line_endings::{
     MAX_LINE_ENDING_CHANGES, MAX_LINE_ENDING_CONVERSION_BYTES,
 };
 pub use navigation::ChangeDirection;
+mod print_export;
 mod rename;
+pub use print_export::{PdfExportRequest, PdfExportResult, PRINT_WINDOW_BYTES};
 pub use rename::MAX_FILE_NAME_BYTES;
 mod replace_in_files;
 pub use find_all::{
@@ -5409,6 +5411,8 @@ pub enum EditorError {
     TooManyLineEndingChanges(usize),
     #[error("Could not rename: {0}")]
     Rename(String),
+    #[error("Could not export to PDF: {0}")]
+    Export(String),
     #[error("The lines have no tab, comma, semicolon, or | between columns")]
     NoColumnDelimiter,
     #[error("Select a column block first (Alt Shift drag, or Column Editing)")]

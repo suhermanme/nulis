@@ -14,6 +14,7 @@ nulis-filesystem = { path = "../nulis-filesystem" }
 nulis-hex = { path = "../nulis-hex" }
 nulis-large-file = { path = "../nulis-large-file" }
 nulis-plugin-host = { path = "../nulis-plugin-host" }
+nulis-print = { path = "../nulis-print" }
 nulis-remote = { path = "../nulis-remote" }
 nulis-search = { path = "../nulis-search" }
 nulis-syntax = { path = "../nulis-syntax" }

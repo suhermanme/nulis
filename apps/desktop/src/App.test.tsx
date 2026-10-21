@@ -387,6 +387,31 @@ test("uses the native destination picker when saving an untitled file", async ()
   });
 });
 
+test("Export to PDF suggests a .pdf name and reports the pages written", async () => {
+  responses["file.new"] = [{
+    documentId: "document-1", name: "notes.md", byteLen: "5", revision: "3", encoding: "utf8", dirty: true,
+  }];
+  responses["file.exportPdfTo"] = [{ path: "/tmp/notes.pdf", pages: "12", missingGlyphs: "2", bytes: "300000" }];
+  vi.mocked(save).mockResolvedValueOnce("/tmp/notes.pdf");
+
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  fireEvent.click(screen.getByRole("button", { name: "New text file" }));
+  await screen.findByText("notes.md editor");
+  fireEvent.click(screen.getByRole("button", { name: "Open File menu" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: /^Export to PDF/ }));
+
+  await waitFor(() => expect(save).toHaveBeenCalledWith({
+    title: "Export to PDF", defaultPath: "notes.pdf", filters: [{ name: "PDF", extensions: ["pdf"] }],
+  }));
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
+    id: "file.exportPdfTo", context: { windowId: "main", documentId: "document-1" },
+    arguments: { expectedRevision: "3", path: "/tmp/notes.pdf", date: expect.any(String) as string },
+  }));
+  expect(await screen.findByText(/Exported 12 pages to notes\.pdf; 2 characters the print font lacks are left blank/))
+    .toBeInTheDocument();
+});
+
 test("asks before closing an unsaved document and honors cancel or discard", async () => {
   responses["file.new"] = [{
     documentId: "document-1", name: "Draft", byteLen: "5", revision: "1", encoding: "utf8", dirty: true,

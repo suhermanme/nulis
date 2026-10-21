@@ -48,7 +48,7 @@ document (piece table) ──► nulis-print layout ──► page model ──�
 ```
 
 - **Layout** reads the document in line ranges, runs syntax analysis per window, expands tabs, wraps or cuts lines, and emits pages of styled runs plus header and footer text. It never holds more than a few pages at once.
-- **PDF writer** uses a pure-Rust PDF library (candidate: `pdf-writer`, MIT/Apache-2.0, no `unsafe` in our code) and embeds a subset of the font. Pages are written to a temporary file as they are produced, then the file is moved into place atomically, like Save.
+- **PDF writer** uses a pure-Rust PDF library (`pdf-writer`, MIT/Apache-2.0, no `unsafe`) and embeds the font file, compressed (M37: subsetting needs Rust 1.85, above the workspace's 1.82). Pages are written to a temporary file as they are produced, then the file is moved into place atomically, like Save.
 - **Print** renders the same page model as fixed-size HTML pages (one `<section>` per page, `break-after: page`, `@page { margin: 0 }`) in the Print Preview window and calls `Webview::print()`. The window is visible, not hidden: on macOS wry shows the print dialog as a sheet on the webview's own window (found in M36). The OS dialog then handles printer choice, copies, and page ranges. On macOS that dialog also has "Save as PDF", but Export to PDF stays a separate command so it works the same on all three platforms.
 
 Why not simply call `window.print()` on the editor: the editor only has the lines on screen, uses the dark theme, and is virtualized. Why not generate PDF through the webview: no cross-platform API, and it would need `unsafe` platform code.

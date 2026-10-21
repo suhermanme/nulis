@@ -13,6 +13,7 @@ members = [
   "crates/nulis-large-file",
   "crates/nulis-platform",
   "crates/nulis-plugin-host",
+  "crates/nulis-print",
   "crates/nulis-remote",
   "crates/nulis-search",
   "crates/nulis-settings",
