@@ -2856,6 +2856,7 @@ version = "0.3.0"
 dependencies = [
  "nulis-core",
  "nulis-plugin-host",
+ "objc2-app-kit",
  "objc2-foundation",
  "serde",
  "serde_json",

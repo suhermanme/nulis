@@ -1225,16 +1225,68 @@ async fn open_print_window(app: tauri::AppHandle) -> Result<(), String> {
     .map_err(|error| error.to_string())
 }
 
+/// The paper the Print Preview laid its pages out for, portrait size in millimetres.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PrintPaper {
+    width_mm: f64,
+    height_mm: f64,
+    landscape: bool,
+}
+
+impl PrintPaper {
+    /// Smallest and largest paper side accepted, in millimetres (A10 to A0 and a bit more).
+    const SIDE_MM: std::ops::RangeInclusive<f64> = 20.0..=1500.0;
+
+    fn validate(&self) -> Result<(), String> {
+        if [self.width_mm, self.height_mm]
+            .iter()
+            .all(|side| side.is_finite() && Self::SIDE_MM.contains(side))
+        {
+            Ok(())
+        } else {
+            Err("paper size must be between 20 and 1500 mm on each side".into())
+        }
+    }
+}
+
 /// Opens the system print dialog for the Print Preview window's pages.
 /// On macOS the dialog is a sheet on this window, so the window must be
 /// visible; Windows and Linux show their own dialog.
+///
+/// Not async: Tauri runs it on the main thread, which `AppKit` requires.
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)] // Tauri extracts WebviewWindow by value.
-fn print_window_print(window: tauri::WebviewWindow) -> Result<(), String> {
+fn print_window_print(window: tauri::WebviewWindow, paper: PrintPaper) -> Result<(), String> {
     if window.label() != PRINT_WINDOW_LABEL {
         return Err("only the Print Preview window prints".into());
     }
+    paper.validate()?;
+    #[cfg(target_os = "macos")]
+    set_macos_print_paper(paper);
     window.print().map_err(|error| error.to_string())
+}
+
+/// macOS prints on the paper of the last print job and ignores the page's
+/// `@page` size, shrinking the pages to fit. wry prints with the shared print
+/// info, so setting its paper first makes the dialog open on the right paper.
+#[cfg(target_os = "macos")]
+fn set_macos_print_paper(paper: PrintPaper) {
+    use objc2_app_kit::{NSPaperOrientation, NSPrintInfo};
+    use objc2_foundation::NSSize;
+    const POINTS_PER_MM: f64 = 72.0 / 25.4;
+    let (width, height) = if paper.landscape {
+        (paper.height_mm, paper.width_mm)
+    } else {
+        (paper.width_mm, paper.height_mm)
+    };
+    let info = NSPrintInfo::sharedPrintInfo();
+    info.setOrientation(if paper.landscape {
+        NSPaperOrientation::Landscape
+    } else {
+        NSPaperOrientation::Portrait
+    });
+    info.setPaperSize(NSSize::new(width * POINTS_PER_MM, height * POINTS_PER_MM));
 }
 
 /// Closes the calling Find or results window.
@@ -1670,7 +1722,7 @@ mod tests {
     use super::{
         authorize_window_command, fitted_find_height, portable_accelerator, validate_native_menu,
         validate_request, visible_frame, CommandContext, ExecuteCommandRequest, HelpTopic,
-        NativeMenuEntry, WindowFrame,
+        NativeMenuEntry, PrintPaper, WindowFrame,
     };
     use serde_json::{json, Value};
 
@@ -1750,6 +1802,20 @@ mod tests {
             assert!(authorize_window_command("help", id).is_err(), "{id}");
         }
         assert!(authorize_window_command("other", "theme.list").is_err());
+        let a4 = PrintPaper {
+            width_mm: 210.0,
+            height_mm: 297.0,
+            landscape: false,
+        };
+        assert!(a4.validate().is_ok());
+        for (width_mm, height_mm) in [(f64::NAN, 297.0), (210.0, 0.0), (5000.0, 297.0)] {
+            let paper = PrintPaper {
+                width_mm,
+                height_mm,
+                ..a4
+            };
+            assert!(paper.validate().is_err(), "{width_mm} × {height_mm}");
+        }
         // Print Preview can read the theme and nothing else.
         for id in ["customization.state", "theme.list"] {
             assert!(authorize_window_command("print", id).is_ok(), "{id}");

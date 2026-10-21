@@ -75,7 +75,10 @@ function rulerTicks(lengthMm: number): number[] {
 function CalibrationPage({ index, geometry, paper, orientation }: {
   index: number; geometry: PageGeometry; paper: PaperSize; orientation: Orientation;
 }) {
-  const pageStyle: CSSProperties = { width: `${geometry.widthMm}mm`, height: `${geometry.heightMm}mm` };
+  // print.css sizes the page from --page-height (one pixel shorter when printing).
+  const pageStyle = {
+    width: `${geometry.widthMm}mm`, "--page-height": `${geometry.heightMm}mm`,
+  } as CSSProperties;
   const boxStyle: CSSProperties = {
     left: `${CALIBRATION_MARGIN_MM}mm`, top: `${CALIBRATION_MARGIN_MM}mm`,
     right: `${CALIBRATION_MARGIN_MM}mm`, bottom: `${CALIBRATION_MARGIN_MM}mm`,
@@ -116,10 +119,16 @@ export function PrintApp() {
   const [error, setError] = useState<string | null>(null);
   const geometry = useMemo(() => pageGeometry(paper, orientation), [paper, orientation]);
   usePageRule(paper, orientation);
-  useEffect(() => { document.title = "Print Preview"; }, []);
+  useEffect(() => {
+    document.title = "Print Preview";
+    // Lets print.css release the window-height layout from styles.css when printing.
+    document.documentElement.classList.add("print-window");
+    return () => document.documentElement.classList.remove("print-window");
+  }, []);
   const print = () => {
     setError(null);
-    void printThisWindow().catch((reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason)));
+    const size = PAPER_MM[paper];
+    void printThisWindow({ widthMm: size.width, heightMm: size.height, landscape: orientation === "landscape" }).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason)));
   };
   return (
     <div className="print-root" style={style}>
@@ -135,7 +144,7 @@ export function PrintApp() {
             <option value="landscape">Landscape</option>
           </select>
         </label>
-        <span className="print-hint">Calibration pages. In the print dialog choose the same paper and no margins.</span>
+        <span className="print-hint">Calibration pages. The print dialog opens on this paper; keep it.</span>
         <button type="button" className="primary" onClick={print}>Print…</button>
       </header>
       {error ? <p role="alert" className="print-error">{error}</p> : null}

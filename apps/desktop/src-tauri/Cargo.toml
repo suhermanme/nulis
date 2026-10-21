@@ -23,7 +23,8 @@ tauri-plugin-dialog.workspace = true
 tauri-plugin-single-instance.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString", "NSUserDefaults"] }
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString", "NSUserDefaults", "NSGeometry"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSPrintInfo"] }
 
 [lints]
 workspace = true

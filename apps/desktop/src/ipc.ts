@@ -157,9 +157,12 @@ export function openPrintWindow(): Promise<void> {
   return invoke<void>("open_print_window");
 }
 
-/** Opens the system print dialog for the calling Print Preview window. */
-export function printThisWindow(): Promise<void> {
-  return invoke<void>("print_window_print");
+/** Portrait paper size in millimetres, and whether pages are landscape. */
+export interface PrintPaper { widthMm: number; heightMm: number; landscape: boolean }
+
+/** Opens the system print dialog for the calling Print Preview window, on this paper. */
+export function printThisWindow(paper: PrintPaper): Promise<void> {
+  return invoke<void>("print_window_print", { paper });
 }
 
 /** Opens the separate list of matching lines, or brings it forward. */

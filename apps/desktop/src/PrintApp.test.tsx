@@ -2,8 +2,8 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, expect, test, vi } from "vitest";
 
-const printThisWindow = vi.fn(() => Promise.resolve());
-vi.mock("./ipc", () => ({ printThisWindow: () => printThisWindow() }));
+const printThisWindow = vi.fn<(paper: unknown) => Promise<void>>(() => Promise.resolve());
+vi.mock("./ipc", () => ({ printThisWindow: (paper: unknown) => printThisWindow(paper) }));
 vi.mock("./windowTheme", () => ({ useWindowTheme: () => ({}) }));
 
 const { PrintApp, pageGeometry } = await import("./PrintApp");
@@ -28,10 +28,10 @@ test("Print Preview shows three calibration pages and prints through the shell",
   expect(screen.getAllByRole("region", { name: /^Page \d of 3$/ })).toHaveLength(3);
   fireEvent.change(screen.getByLabelText("Paper"), { target: { value: "a4" } });
   const first = screen.getByRole("region", { name: "Page 1 of 3" });
-  expect(first).toHaveStyle({ width: "210mm", height: "297mm" });
+  expect(first).toHaveStyle({ width: "210mm", "--page-height": "297mm" });
   expect(first).toHaveTextContent("LAST LINE OF PAGE 1");
   fireEvent.change(screen.getByLabelText("Orientation"), { target: { value: "landscape" } });
-  expect(screen.getByRole("region", { name: "Page 1 of 3" })).toHaveStyle({ width: "297mm", height: "210mm" });
+  expect(screen.getByRole("region", { name: "Page 1 of 3" })).toHaveStyle({ width: "297mm", "--page-height": "210mm" });
   fireEvent.click(screen.getByRole("button", { name: "Print…" }));
-  expect(printThisWindow).toHaveBeenCalledTimes(1);
+  expect(printThisWindow).toHaveBeenCalledWith({ widthMm: 210, heightMm: 297, landscape: true });
 });
