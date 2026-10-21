@@ -14,6 +14,7 @@ Plan: `IMPROVEMENT_PLAN_3.md` §3.0, §3.2, §3.5, §3.7, §4 (M37). Status: cod
 ## How it works
 
 - **Three passes, each bounded:** count lines (raw bytes, 4 MiB steps) to size the line-number gutter; count pages only when a header or footer shows `{pages}`; then lay out and write. Each step locks the document for one window and checks the revision, so editing is never blocked and an edit stops the export ("the document changed during the export; export it again").
+- **Wrapping breaks between words:** at the last space in the second half of the row; a longer word is split at the edge (found when the user exported `IMPROVEMENT_PLAN_3.md`: "Missi / ng").
 - **A long line split across windows** arrives as continuation segments that carry on the open row; tab stops continue across wrapped rows.
 - **The PDF** is written one object per chunk straight to a temporary file in the destination folder. Only each object's offset is kept. The fonts, page tree, outline (one entry per 100 pages above 100 pages), information, and cross-reference table are written at the end; the file is synced and moved into place. The output is deterministic: there is no creation date.
 - **Text is real text:** Type 0 / CID TrueType fonts with Identity-H and a ToUnicode map. Each character is placed in its own cell, so a missing glyph never shifts the columns after it. Missing glyphs are left blank and counted.

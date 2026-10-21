@@ -80,6 +80,48 @@ impl Row {
         });
     }
 
+    /// Removes and returns the cells after the row's last space at or past
+    /// `min_column`, so a wrapped line breaks between words. `None` when
+    /// there is no such space (a word longer than the rest of the row).
+    fn take_after_last_space(&mut self, min_column: u32) -> Option<Vec<(char, Style)>> {
+        let cells = |run: &Run| {
+            let column = run.column;
+            run.text
+                .chars()
+                .zip(column..)
+                .map(|(character, column)| (column, character))
+                .collect::<Vec<_>>()
+        };
+        let space = self
+            .runs
+            .iter()
+            .flat_map(cells)
+            .rev()
+            .find(|(column, character)| *character == ' ' && *column >= min_column)
+            .map(|(column, _)| column)?;
+        let mut tail = Vec::new();
+        let mut kept = Vec::with_capacity(self.runs.len());
+        for run in std::mem::take(&mut self.runs) {
+            let mut head = String::new();
+            for (column, character) in cells(&run) {
+                if column > space {
+                    tail.push((character, run.style));
+                } else {
+                    head.push(character);
+                }
+            }
+            if !head.is_empty() {
+                kept.push(Run {
+                    column: run.column,
+                    text: head,
+                    style: run.style,
+                });
+            }
+        }
+        self.runs = kept;
+        Some(tail)
+    }
+
     /// Replaces the character in the last cell with `marker`.
     fn mark_last_cell(&mut self, column: u32, marker: char) {
         if let Some(last) = self.runs.last_mut() {
@@ -208,9 +250,19 @@ impl Paginator {
         if open.column == self.columns {
             match self.long_lines {
                 LongLines::Wrap => {
+                    // Break after the last space in the second half of the
+                    // row; a longer word is split at the edge.
+                    let tail = open
+                        .row
+                        .take_after_last_space(self.columns / 2)
+                        .unwrap_or_default();
                     let row = std::mem::replace(&mut open.row, Row::new(Gutter::Continuation));
                     self.commit(row, finished);
                     open.column = 0;
+                    for (moved, moved_style) in tail {
+                        open.row.push(open.column, moved, moved_style);
+                        open.column += 1;
+                    }
                 }
                 LongLines::Cut => {
                     open.row.mark_last_cell(self.columns - 1, CUT_MARKER);
@@ -343,6 +395,27 @@ mod tests {
         // A line exactly as wide as the area is not marked.
         let exact = all_pages(Paginator::new(10, 4, LongLines::Cut, 4), &[line(1, "abcd")]);
         assert_eq!(row_text(&exact[0], 0), "abcd");
+    }
+
+    #[test]
+    fn wrapping_breaks_between_words_and_splits_only_long_words() {
+        let mut source = line(1, "aaaa bbbb cc dddddddddddd");
+        source.spans = vec![Span {
+            start: 5,
+            end: 9,
+            token: SyntaxToken::String,
+        }];
+        let pages = all_pages(Paginator::new(10, 8, LongLines::Wrap, 4), &[source]);
+        let texts: Vec<_> = (0..pages[0].rows.len())
+            .map(|row| row_text(&pages[0], row))
+            .collect();
+        // "dddddddddddd" is longer than half a row, so it is split at the edge.
+        assert_eq!(texts, ["aaaa ", "bbbb cc ", "dddddddd", "dddd"]);
+        // The moved word keeps its style.
+        assert_eq!(
+            pages[0].rows[1].runs[0].style,
+            Style::Token(SyntaxToken::String)
+        );
     }
 
     #[test]
