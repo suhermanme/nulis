@@ -1,6 +1,6 @@
 # M37 handover: `nulis-print` layout and Export to PDF
 
-Plan: `IMPROVEMENT_PLAN_3.md` §3.0, §3.2, §3.5, §3.7, §4 (M37). Status: code and automated tests done 2026-10-21 on branch `m36-print`. Not yet tried in the app by hand. Export to PDF, like Print, is only in development builds until M39.
+Plan: `IMPROVEMENT_PLAN_3.md` §3.0, §3.2, §3.5, §3.7, §4 (M37). Status: completed 2026-10-21 on branch `m36-print`, checked in the app on macOS (below). Export to PDF, like Print, is only in development builds until M39.
 
 ## What changed
 
@@ -34,8 +34,12 @@ Plan: `IMPROVEMENT_PLAN_3.md` §3.0, §3.2, §3.5, §3.7, §4 (M37). Status: cod
 - Frontend: lint and typecheck clean; Vitest 21 files, 179 tests (new: Export to PDF suggests `notes.pdf` and reports pages and missing characters).
 - PDFKit (macOS) opens the exported files. Page sizes are right (A4, Letter landscape), text copies out exactly (including ↪ and …), the title and producer are set, and `Samples/sample.rs` renders with the editor's highlighting in the print palette.
 
+## In the app (macOS, development build, 2026-10-21)
+
+The user exported `docs/IMPROVEMENT_PLAN_3.md` with File ▸ Export to PDF…: 5 A4 pages, with the header, the footer, Markdown highlighting, and text that copies out. The first export split words when wrapping; after the fix the user's second export was byte-for-byte identical to the one checked by eye.
+
 ## Open
 
-- Try File ▸ Export to PDF… in a development build (back up the user data first; see M36).
+- Windows and Linux: not tried yet.
 - M38: progress and Cancel (exports run in one command call today), the 1,000-page question, syntax state across window edges, selection, hex dump, Markdown preview, system font fallback.
 - Wide characters (CJK) take one cell, and combining marks take their own cell.
