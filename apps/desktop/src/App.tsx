@@ -299,7 +299,7 @@ function RenameDialog({ name, busy, onSubmit, onCancel }: {
 const EXPORT_POLL_MS = 150;
 
 /** The document an export reads and the file it writes. */
-interface ExportTarget { documentId: string; name: string; revision: string; path: string }
+interface ExportTarget { documentId: string; name: string; revision: string; path: string; scope: "document" | "selection" }
 
 export function App() {
   const desktopShell = isTauri();
@@ -827,11 +827,11 @@ export function App() {
   };
 
   /** Asks where to save, then exports the document as it is now, unsaved edits included. */
-  const exportPdf = async () => {
+  const exportPdf = async (scope: "document" | "selection") => {
     const document = activeDocument;
     if (!document) return;
     if (exportJob) { setStatus("An export to PDF is already running"); return; }
-    const stem = document.name.replace(/\.[^.\\/]+$/, "") || "Untitled";
+    const stem = `${document.name.replace(/\.[^.\\/]+$/, "") || "Untitled"}${scope === "selection" ? " (selection)" : ""}`;
     const folder = document.sourcePath ? document.sourcePath.slice(0, Math.max(document.sourcePath.lastIndexOf("/"), document.sourcePath.lastIndexOf("\\")) + 1) : "";
     try {
       const destination = await saveDialog({
@@ -840,7 +840,7 @@ export function App() {
         filters: [{ name: "PDF", extensions: ["pdf"] }],
       });
       if (!destination) { setStatus("Export cancelled"); return; }
-      await runExport({ documentId: document.documentId, name: document.name, revision: document.revision, path: destination }, false);
+      await runExport({ documentId: document.documentId, name: document.name, revision: document.revision, path: destination, scope }, false);
     } catch (error: unknown) {
       setStatus(errorMessage(error, "Could not export to PDF"));
     }
@@ -856,6 +856,7 @@ export function App() {
         path: target.path,
         date: new Date().toLocaleDateString(undefined, { dateStyle: "long" }),
         confirmed,
+        scope: target.scope,
       },
     });
     setExportJob({ jobId, name: target.name, percent: 0 });
@@ -1777,7 +1778,8 @@ export function App() {
       void openPrintWindow().catch((error: unknown) => setStatus(errorMessage(error, "Could not open Print Preview")));
     },
     "file.pageSetup": () => setStatus("Page Setup is not finished yet"),
-    "file.exportPdf": () => { void exportPdf(); },
+    "file.exportPdf": () => { void exportPdf("document"); },
+    "file.exportSelectionPdf": () => { void exportPdf("selection"); },
     "edit.pasteFromHistory": openClipboardHistory,
     "workspace.rename": requestRename,
     "workspace.groupRight": () => groupWithNextTab("right"),
@@ -2132,13 +2134,15 @@ export function App() {
     .map(([command, label, disabled]) => ({ label, disabled, onSelect: () => runById(command) }));
   fileMenu.push({ kind: "separator" }, ...fileExtras);
   if (PRINT_COMMANDS_ENABLED) {
+    const hasSelection = Boolean(caret && caret.documentId === activeDocument?.documentId && caret.selectedBytes !== "0");
     const printItems: MenuItem[] = ([
       ["file.exportPdf", "Export to PDF…"],
+      ["file.exportSelectionPdf", "Export Selection to PDF…"],
       ["file.pageSetup", "Page Setup…"],
       ["file.print", "Print…"],
     ] as const).filter(([command]) => !customization.menu.some((entry) => entry.kind === "command" && entry.command === command))
       .map(([command, label]) => ({
-        label, disabled: !activeDocument, onSelect: () => runById(command),
+        label, disabled: !activeDocument || (command === "file.exportSelectionPdf" && !hasSelection), onSelect: () => runById(command),
         ...(command === "file.print" ? { shortcut: shortcutLabel("Primary+Alt+P") } : {}),
       }));
     fileMenu.push({ kind: "separator" }, ...printItems);

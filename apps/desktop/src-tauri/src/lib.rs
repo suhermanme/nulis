@@ -609,6 +609,7 @@ fn append_print_menu_items<'a>(
     file_builder = file_builder.separator();
     for (command, title) in [
         ("file.exportPdf", "Export to PDF…"),
+        ("file.exportSelectionPdf", "Export Selection to PDF…"),
         ("file.pageSetup", "Page Setup…"),
         ("file.print", "Print…"),
     ] {

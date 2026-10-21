@@ -420,7 +420,7 @@ test("Export to PDF suggests a .pdf name and reports the pages written", async (
   }));
   await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
     id: "file.exportPdfStart", context: { windowId: "main", documentId: "document-1" },
-    arguments: { expectedRevision: "3", path: "/tmp/notes.pdf", date: expect.any(String) as string, confirmed: false },
+    arguments: { expectedRevision: "3", path: "/tmp/notes.pdf", date: expect.any(String) as string, confirmed: false, scope: "document" },
   }));
   expect(await screen.findByText(/Exported 12 pages to notes\.pdf; 2 characters the print font lacks are left blank/))
     .toBeInTheDocument();

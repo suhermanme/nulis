@@ -15,7 +15,7 @@ use nulis_print::{
     SourceLine, Span,
 };
 use nulis_syntax::HighlightSpan;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     io::{BufWriter, Write},
     path::{Path, PathBuf},
@@ -80,6 +80,28 @@ impl ExportObserver for Unobserved {
     fn report(&self, _progress: ExportProgress) {}
 }
 
+/// Which text an export covers.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ExportScope {
+    #[default]
+    Document,
+    /// Every selected range in order, with a rule between them. A column
+    /// selection covers the whole lines it spans.
+    Selection,
+}
+
+/// A byte range to print and the line it starts on.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct PrintRange {
+    start: u64,
+    end: u64,
+    first_line: u64,
+    lines: u64,
+    /// The range ends just after a line break: the empty line after it is not printed.
+    drop_final_empty: bool,
+}
+
 /// What to export and how.
 #[derive(Clone, Debug)]
 pub struct PdfExportRequest {
@@ -92,6 +114,7 @@ pub struct PdfExportRequest {
     /// Ask first ([`EditorError::ExportNeedsConfirmation`]) above this many
     /// pages; `None` exports whatever the size.
     pub confirm_above: Option<u64>,
+    pub scope: ExportScope,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -139,15 +162,24 @@ impl DocumentManager {
             .parent()
             .filter(|directory| directory.is_dir())
             .ok_or_else(|| EditorError::Export("the folder for the PDF does not exist".into()))?;
-        let (len, _) = self.length_and_revision(document_id)?;
+        let spans = self.print_spans(document_id, request.expected_revision, request.scope)?;
+        let scanned = spans.last().map_or(0, |span| span.1);
+        let range_bytes: u64 = spans.iter().map(|(start, end)| end - start).sum();
         let mut progress = ExportProgress {
-            total: len,
+            total: scanned.max(1),
             ..ExportProgress::default()
         };
         observer.report(progress);
-        let last_line = self.print_line_count(document_id, request.expected_revision, observer)?;
+        let ranges = self.print_ranges(document_id, request.expected_revision, &spans, observer)?;
+        let last_line = ranges
+            .iter()
+            .map(|range| range.first_line + range.lines.saturating_sub(1))
+            .max()
+            .unwrap_or(1);
+        let rows = ranges.iter().map(|range| range.lines).sum::<u64>()
+            + u64::try_from(ranges.len().saturating_sub(1)).unwrap_or(0);
         progress.estimated_pages =
-            nulis_print::estimate_pages(&request.setup, last_line).map_err(export_error)?;
+            nulis_print::estimate_pages(&request.setup, rows, last_line).map_err(export_error)?;
         if let Some(limit) = request.confirm_above {
             if progress.estimated_pages > limit {
                 return Err(EditorError::ExportNeedsConfirmation {
@@ -157,8 +189,8 @@ impl DocumentManager {
         }
         let counting_pages =
             request.setup.header.uses_page_count() || request.setup.footer.uses_page_count();
-        progress.done = len;
-        progress.total = len * (2 + u64::from(counting_pages));
+        progress.done = scanned;
+        progress.total = scanned + range_bytes * (1 + u64::from(counting_pages));
         observer.report(progress);
         let options = ExportOptions {
             setup: request.setup.clone(),
@@ -175,35 +207,27 @@ impl DocumentManager {
             last_line,
         };
 
-        let mut file = tempfile::Builder::new()
-            .prefix(".nulis-export-")
-            .suffix(".pdf")
-            .tempfile_in(directory)
-            .map_err(|error| EditorError::io(&error))?;
         let mut source = DocumentLines {
             manager: self,
             document_id: document_id.clone(),
             revision: request.expected_revision,
+            ranges,
+            index: 0,
             cursor: None,
+            separator_pending: false,
             observer,
             progress,
             passes: 0,
             counting_pages,
-            len,
+            scanned,
+            range_bytes,
+            finished_bytes: 0,
         };
-        let (writer, summary) =
-            export_pdf(&mut source, BufWriter::new(file.as_file_mut()), &options)
-                .map_err(export_error)?;
-        writer
-            .into_inner()
-            .map_err(|error| EditorError::io(error.error()))?
-            .flush()
-            .map_err(|error| EditorError::io(&error))?;
-        file.as_file()
-            .sync_all()
-            .map_err(|error| EditorError::io(&error))?;
-        file.persist(&request.path)
-            .map_err(|error| EditorError::io(&error.error))?;
+        let summary = write_atomically(directory, &request.path, |out| {
+            export_pdf(&mut source, out, &options)
+                .map(|(_, summary)| summary)
+                .map_err(export_error)
+        })?;
         Ok(PdfExportResult {
             path: request.path.display().to_string(),
             pages: summary.pages,
@@ -229,27 +253,105 @@ impl DocumentManager {
         Ok((session.name.clone(), session.source_path.clone()))
     }
 
-    /// Lines in the document at `revision`: one more than its line breaks
-    /// (CRLF, LF, or CR), as the editor counts them.
-    ///
-    /// # Errors
-    /// Returns an error for an unknown document or a changed revision.
-    pub fn print_line_count(
+    /// The byte ranges `scope` covers: the whole document, or the
+    /// selections (sorted, merged, empty ones left out).
+    fn print_spans(
         &self,
         document_id: &DocumentId,
         revision: u64,
+        scope: ExportScope,
+    ) -> Result<Vec<(u64, u64)>, EditorError> {
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| EditorError::StateUnavailable)?;
+        let session = sessions
+            .get(document_id)
+            .ok_or_else(|| EditorError::UnknownDocument(document_id.clone()))?;
+        let table = session.document.table();
+        check_revision(table.revision(), revision)?;
+        let len = table.len();
+        if scope == ExportScope::Document {
+            return Ok(vec![(0, len)]);
+        }
+        let mut spans: Vec<(u64, u64)> = if let Some(block) = session.rectangular_selection {
+            let start = block.anchor_byte.min(block.active_byte);
+            let end = block.anchor_byte.max(block.active_byte);
+            vec![(line_start(table, start)?, line_end(table, end, len)?)]
+        } else {
+            session
+                .selections
+                .iter()
+                .map(|selection| {
+                    let start = selection.anchor_byte.min(selection.active_byte);
+                    let end = selection.anchor_byte.max(selection.active_byte);
+                    (start.min(len), end.min(len))
+                })
+                .filter(|(start, end)| start < end)
+                .collect()
+        };
+        spans.sort_unstable();
+        let mut merged: Vec<(u64, u64)> = Vec::with_capacity(spans.len());
+        for (start, end) in spans {
+            match merged.last_mut() {
+                Some(last) if start <= last.1 => last.1 = last.1.max(end),
+                _ => merged.push((start, end)),
+            }
+        }
+        if merged.is_empty() {
+            return Err(EditorError::Export(
+                "select the text to export first".into(),
+            ));
+        }
+        Ok(merged)
+    }
+
+    /// Line numbers for each span, counted in one pass from the start of the
+    /// document to the end of the last span. A line is ended by CRLF, LF,
+    /// or CR, as the editor counts them.
+    fn print_ranges(
+        &self,
+        document_id: &DocumentId,
+        revision: u64,
+        spans: &[(u64, u64)],
         observer: &dyn ExportObserver,
-    ) -> Result<u64, EditorError> {
+    ) -> Result<Vec<PrintRange>, EditorError> {
+        let scan_end = spans.last().map_or(0, |span| span.1);
+        let (len, _) = self.length_and_revision(document_id)?;
+        // Line breaks completed before each span's start and end.
+        let mut marks: Vec<u64> = spans
+            .iter()
+            .flat_map(|(start, end)| [*start, *end])
+            .collect();
+        marks.sort_unstable();
+        marks.dedup();
+        let mut breaks_at = std::collections::HashMap::with_capacity(marks.len());
+        let mut next_mark = 0;
         let mut offset = 0_u64;
         let mut breaks = 0_u64;
         let mut after_cr = false;
+        let mut ends_with_break = std::collections::HashMap::new();
+        let mut previous_was_break = false;
         loop {
-            let bytes =
-                self.read_at_revision(document_id, revision, offset, LINE_COUNT_WINDOW_BYTES)?;
+            while marks.get(next_mark).is_some_and(|mark| *mark <= offset) {
+                breaks_at.insert(marks[next_mark], breaks);
+                ends_with_break.insert(marks[next_mark], previous_was_break);
+                next_mark += 1;
+            }
+            if offset >= scan_end {
+                break;
+            }
+            let window = (scan_end - offset).min(LINE_COUNT_WINDOW_BYTES);
+            let bytes = self.read_at_revision(document_id, revision, offset, window)?;
             if bytes.is_empty() {
-                return Ok(breaks + 1);
+                break;
             }
             for byte in &bytes {
+                while marks.get(next_mark).is_some_and(|mark| *mark <= offset) {
+                    breaks_at.insert(marks[next_mark], breaks);
+                    ends_with_break.insert(marks[next_mark], previous_was_break);
+                    next_mark += 1;
+                }
                 match byte {
                     b'\n' if after_cr => after_cr = false,
                     b'\n' => breaks += 1,
@@ -259,17 +361,37 @@ impl DocumentManager {
                     }
                     _ => after_cr = false,
                 }
+                previous_was_break = matches!(byte, b'\n' | b'\r');
+                offset += 1;
             }
-            offset += u64::try_from(bytes.len()).unwrap_or(u64::MAX);
             if observer.cancelled() {
                 return Err(EditorError::ExportCancelled);
             }
             observer.report(ExportProgress {
                 done: offset,
-                total: offset.max(1),
+                total: scan_end.max(1),
                 ..ExportProgress::default()
             });
         }
+        Ok(spans
+            .iter()
+            .map(|(start, end)| {
+                let before = breaks_at.get(start).copied().unwrap_or(0);
+                let through = breaks_at.get(end).copied().unwrap_or(before);
+                // A selection ending just after a line break does not print
+                // the empty line after it; the document's own last line does.
+                let drop_final_empty = *end < len
+                    && *end > *start
+                    && ends_with_break.get(end).copied().unwrap_or(false);
+                PrintRange {
+                    start: *start,
+                    end: *end,
+                    first_line: before + 1,
+                    lines: through - before + 1 - u64::from(drop_final_empty),
+                    drop_final_empty,
+                }
+            })
+            .collect())
     }
 
     fn read_at_revision(
@@ -307,6 +429,20 @@ impl DocumentManager {
         cursor: &ViewportCursor,
         highlight: bool,
     ) -> Result<(Vec<SourceLine>, Option<ViewportCursor>), EditorError> {
+        self.range_window(document_id, revision, cursor, highlight, None, false)
+    }
+
+    /// [`Self::print_window`] that stops at `end` (the document's end when
+    /// `None`), optionally without the empty line after a final line break.
+    fn range_window(
+        &self,
+        document_id: &DocumentId,
+        revision: u64,
+        cursor: &ViewportCursor,
+        highlight: bool,
+        end: Option<u64>,
+        drop_final_empty: bool,
+    ) -> Result<(Vec<SourceLine>, Option<ViewportCursor>), EditorError> {
         let sessions = self
             .sessions
             .lock()
@@ -316,7 +452,7 @@ impl DocumentManager {
             .ok_or_else(|| EditorError::UnknownDocument(document_id.clone()))?;
         let table = session.document.table();
         check_revision(table.revision(), revision)?;
-        let len = table.len();
+        let len = end.unwrap_or(u64::MAX).min(table.len());
         let offset = cursor.byte_offset.min(len);
         let limit = if highlight {
             HIGHLIGHT_WINDOW_BYTES
@@ -328,7 +464,7 @@ impl DocumentManager {
         if window_end < len {
             cut_at_boundary(&mut bytes, session.encoding);
         }
-        let (lines, next) = viewport_lines(
+        let (mut lines, next) = viewport_lines(
             &bytes,
             offset,
             cursor.line,
@@ -336,6 +472,15 @@ impl DocumentManager {
             len,
             session.encoding,
         );
+        if next.is_none()
+            && drop_final_empty
+            && lines.len() > 1
+            && lines
+                .last()
+                .is_some_and(|line| line.text.is_empty() && !line.continuation)
+        {
+            lines.pop();
+        }
         let mut highlights = if highlight {
             // Start the analysis at a line start up to the lookback earlier.
             let back = offset.saturating_sub(HIGHLIGHT_LOOKBACK_BYTES);
@@ -374,6 +519,32 @@ impl DocumentManager {
         highlights.sort_by_key(|span| span.start_byte);
         Ok((source_lines(&lines, &highlights), next))
     }
+}
+
+/// Writes a file through `write` into a temporary file in `directory`, then
+/// syncs it and moves it to `path`. On any error the temporary file is removed.
+fn write_atomically<T>(
+    directory: &Path,
+    path: &Path,
+    write: impl FnOnce(&mut BufWriter<&mut std::fs::File>) -> Result<T, EditorError>,
+) -> Result<T, EditorError> {
+    let mut file = tempfile::Builder::new()
+        .prefix(".nulis-export-")
+        .suffix(".pdf")
+        .tempfile_in(directory)
+        .map_err(|error| EditorError::io(&error))?;
+    let mut out = BufWriter::new(file.as_file_mut());
+    let value = write(&mut out)?;
+    out.into_inner()
+        .map_err(|error| EditorError::io(error.error()))?
+        .flush()
+        .map_err(|error| EditorError::io(&error))?;
+    file.as_file()
+        .sync_all()
+        .map_err(|error| EditorError::io(&error))?;
+    file.persist(path)
+        .map_err(|error| EditorError::io(&error.error))?;
+    Ok(value)
 }
 
 fn check_revision(actual: u64, expected: u64) -> Result<(), EditorError> {
@@ -466,6 +637,7 @@ fn source_lines(lines: &[ViewportLine], highlights: &[HighlightSpan]) -> Vec<Sou
             SourceLine {
                 number: line.line,
                 continuation: line.continuation,
+                separator_before: false,
                 text: line.text.clone(),
                 spans,
             }
@@ -473,29 +645,83 @@ fn source_lines(lines: &[ViewportLine], highlights: &[HighlightSpan]) -> Vec<Sou
         .collect()
 }
 
-/// The document as a [`LineSource`], read window by window, reporting
-/// progress and stopping when the observer cancels.
+/// Bytes read per step when looking for the start or end of a line.
+const LINE_EDGE_STEP_BYTES: u64 = 64 * 1024;
+
+/// The start of the line holding `offset`.
+fn line_start(table: &nulis_document::PieceTable, offset: u64) -> Result<u64, EditorError> {
+    let mut end = offset;
+    while end > 0 {
+        let start = end.saturating_sub(LINE_EDGE_STEP_BYTES);
+        let bytes = table.read_vec(start, end - start)?;
+        if let Some(index) = bytes.iter().rposition(|byte| matches!(byte, b'\n' | b'\r')) {
+            return Ok(start + u64::try_from(index).unwrap_or(0) + 1);
+        }
+        end = start;
+    }
+    Ok(0)
+}
+
+/// The end of the line holding `offset`, after its line break.
+fn line_end(table: &nulis_document::PieceTable, offset: u64, len: u64) -> Result<u64, EditorError> {
+    let mut start = offset;
+    while start < len {
+        let bytes = table.read_vec(start, LINE_EDGE_STEP_BYTES.min(len - start))?;
+        if let Some(index) = bytes.iter().position(|byte| matches!(byte, b'\n' | b'\r')) {
+            let at = start + u64::try_from(index).unwrap_or(0);
+            let crlf = bytes.get(index) == Some(&b'\r')
+                && (bytes.get(index + 1) == Some(&b'\n')
+                    || (index + 1 == bytes.len()
+                        && table.read_vec(at + 1, 1)?.first() == Some(&b'\n')));
+            return Ok((at + 1 + u64::from(crlf)).min(len));
+        }
+        start += u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+    }
+    Ok(len)
+}
+
+/// The ranges to print as a [`LineSource`], read window by window,
+/// reporting progress and stopping when the observer cancels.
 struct DocumentLines<'a> {
     manager: &'a DocumentManager,
     document_id: DocumentId,
     revision: u64,
-    /// `None` before the first rewind and after the last window.
+    ranges: Vec<PrintRange>,
+    /// The range being read.
+    index: usize,
+    /// `None` before the first rewind and after the last range.
     cursor: Option<ViewportCursor>,
+    /// The next line returned starts a new range.
+    separator_pending: bool,
     observer: &'a dyn ExportObserver,
     progress: ExportProgress,
-    /// Rewinds so far: 1 is the first pass over the lines.
+    /// Rewinds so far: 1 is the first pass over the ranges.
     passes: u64,
     counting_pages: bool,
-    len: u64,
+    /// Bytes the line count scanned.
+    scanned: u64,
+    /// Bytes in all ranges: one pass.
+    range_bytes: u64,
+    /// Bytes of the ranges already finished in this pass.
+    finished_bytes: u64,
+}
+
+impl DocumentLines<'_> {
+    fn start_of(range: &PrintRange) -> ViewportCursor {
+        ViewportCursor {
+            byte_offset: range.start,
+            line: range.first_line,
+            line_continuation: false,
+        }
+    }
 }
 
 impl LineSource for DocumentLines<'_> {
     fn rewind(&mut self) -> Result<(), PrintError> {
-        self.cursor = Some(ViewportCursor {
-            byte_offset: 0,
-            line: 1,
-            line_continuation: false,
-        });
+        self.index = 0;
+        self.cursor = self.ranges.first().map(Self::start_of);
+        self.separator_pending = false;
+        self.finished_bytes = 0;
         self.passes += 1;
         self.progress.phase = if self.counting_pages && self.passes == 1 {
             ExportPhase::CountingPages
@@ -512,9 +738,17 @@ impl LineSource for DocumentLines<'_> {
         let Some(cursor) = self.cursor.take() else {
             return Ok(None);
         };
-        let (lines, next) = self
+        let range = self.ranges[self.index];
+        let (mut lines, next) = self
             .manager
-            .print_window(&self.document_id, self.revision, &cursor, highlight)
+            .range_window(
+                &self.document_id,
+                self.revision,
+                &cursor,
+                highlight,
+                Some(range.end),
+                range.drop_final_empty,
+            )
             .map_err(|error| match error {
                 EditorError::StaleRevision { .. } => PrintError::Source(
                     "the document changed during the export; export it again".into(),
@@ -526,11 +760,25 @@ impl LineSource for DocumentLines<'_> {
                 return Err(PrintError::Source("reading stopped advancing".into()));
             }
         }
-        // The line count was the first pass; each later pass reads the whole document.
-        let read = next.as_ref().map_or(self.len, |next| next.byte_offset);
-        self.progress.done = self.len * self.passes + read;
+        if std::mem::take(&mut self.separator_pending) {
+            if let Some(first) = lines.first_mut() {
+                first.separator_before = true;
+            }
+        }
+        let read_in_range = next.as_ref().map_or(range.end, |next| next.byte_offset) - range.start;
+        self.progress.done = self.scanned
+            + self.range_bytes * (self.passes - 1)
+            + self.finished_bytes
+            + read_in_range;
         self.observer.report(self.progress);
-        self.cursor = next;
+        if next.is_some() {
+            self.cursor = next;
+        } else {
+            self.finished_bytes += range.end - range.start;
+            self.index += 1;
+            self.separator_pending = true;
+            self.cursor = self.ranges.get(self.index).map(Self::start_of);
+        }
         Ok(Some(lines))
     }
 
@@ -541,7 +789,123 @@ impl LineSource for DocumentLines<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::{cut_at_boundary, TextEncoding};
+    use super::{
+        cut_at_boundary, DocumentLines, DocumentManager, ExportProgress, ExportScope, TextEncoding,
+        Unobserved,
+    };
+    use crate::editor::{DocumentId, Selection};
+    use nulis_print::LineSource;
+
+    /// Every line an export of `scope` prints: (number, text, separator before).
+    fn printed(
+        manager: &DocumentManager,
+        id: &DocumentId,
+        scope: ExportScope,
+    ) -> Vec<(u64, String, bool)> {
+        let spans = manager.print_spans(id, 0, scope).expect("spans");
+        let ranges = manager
+            .print_ranges(id, 0, &spans, &Unobserved)
+            .expect("ranges");
+        let mut source = DocumentLines {
+            manager,
+            document_id: id.clone(),
+            revision: 0,
+            ranges,
+            index: 0,
+            cursor: None,
+            separator_pending: false,
+            observer: &Unobserved,
+            progress: ExportProgress::default(),
+            passes: 0,
+            counting_pages: false,
+            scanned: 0,
+            range_bytes: 0,
+            finished_bytes: 0,
+        };
+        source.rewind().expect("rewind");
+        let mut lines = Vec::new();
+        while let Some(batch) = source.next_lines(false).expect("lines") {
+            lines.extend(
+                batch
+                    .into_iter()
+                    .map(|line| (line.number, line.text, line.separator_before)),
+            );
+        }
+        lines
+    }
+
+    fn document(text: &str) -> (tempfile::TempDir, DocumentManager, DocumentId) {
+        let root = tempfile::tempdir().expect("session root");
+        let manager = DocumentManager::new(root.path().into());
+        let summary = manager
+            .create_untitled("lines.txt".into(), text.into())
+            .expect("document");
+        (root, manager, summary.document_id)
+    }
+
+    #[test]
+    fn a_selection_prints_its_ranges_with_their_own_line_numbers() {
+        let text = (1..=10).fold(String::new(), |mut text, line| {
+            text.push_str("line ");
+            text.push_str(&line.to_string());
+            text.push('\n');
+            text
+        });
+        let (_root, manager, id) = document(&text);
+        let offset = |line: usize| {
+            u64::try_from(text.match_indices("line ").nth(line - 1).expect("line").0)
+                .expect("small")
+        };
+        manager
+            .set_selections(
+                &id,
+                vec![
+                    // Line 7 from "ne 7" (backwards), then all of line 3 with its line break.
+                    Selection {
+                        anchor_byte: offset(7) + 6,
+                        active_byte: offset(7) + 2,
+                    },
+                    Selection {
+                        anchor_byte: offset(3),
+                        active_byte: offset(4),
+                    },
+                ],
+            )
+            .expect("select");
+        assert_eq!(
+            printed(&manager, &id, ExportScope::Selection),
+            [
+                (3, "line 3".to_owned(), false),
+                (7, "ne 7".to_owned(), true)
+            ]
+        );
+        // The whole document keeps the empty line after its last line break.
+        let whole = printed(&manager, &id, ExportScope::Document);
+        assert_eq!(whole.len(), 11);
+        assert_eq!(whole[10], (11, String::new(), false));
+    }
+
+    #[test]
+    fn a_column_selection_prints_the_whole_lines_it_spans() {
+        let (_root, manager, id) = document("alpha\r\nbeta\r\ngamma\r\ndelta\r\n");
+        // Columns 1–3 of lines 2–3.
+        manager
+            .set_rectangular_selection(&id, 8, 16, 1, 3)
+            .expect("block");
+        assert_eq!(
+            printed(&manager, &id, ExportScope::Selection),
+            [
+                (2, "beta".to_owned(), false),
+                (3, "gamma".to_owned(), false)
+            ]
+        );
+    }
+
+    #[test]
+    fn exporting_an_empty_selection_asks_for_one() {
+        let (_root, manager, id) = document("text");
+        assert!(manager.print_spans(&id, 0, ExportScope::Selection).is_err());
+    }
 
     #[test]
     fn windows_end_after_a_line_break_or_at_a_whole_character() {

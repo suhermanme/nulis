@@ -55,13 +55,13 @@ pub trait LineSource {
     fn page_written(&mut self, _number: u64) {}
 }
 
-/// The fewest pages `setup` can take for a document of `last_line` lines:
-/// one row per line, before any long line wraps. Cheap, for asking before a
-/// very large export.
+/// The fewest pages `setup` can take for `rows` rows (lines, plus one per
+/// separator), before any long line wraps, with line numbers up to
+/// `last_line`. Cheap, for asking before a very large export.
 ///
 /// # Errors
 /// Returns an error for an unusable page setup.
-pub fn estimate_pages(setup: &PageSetup, last_line: u64) -> Result<u64, PrintError> {
+pub fn estimate_pages(setup: &PageSetup, rows: u64, last_line: u64) -> Result<u64, PrintError> {
     let metrics = bundled_metrics()?;
     let geometry = Geometry::new(
         setup,
@@ -70,7 +70,7 @@ pub fn estimate_pages(setup: &PageSetup, last_line: u64) -> Result<u64, PrintErr
         metrics.descender,
         last_line,
     )?;
-    Ok(last_line.max(1).div_ceil(u64::from(geometry.rows)))
+    Ok(rows.max(1).div_ceil(u64::from(geometry.rows)))
 }
 
 /// What to export and how.

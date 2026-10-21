@@ -17,7 +17,7 @@ pub use command::{
 pub use editor::{
     BookmarkDirection, ChangeDirection, ClipboardPayload, DocumentId, DocumentManager,
     DocumentMapChange, DocumentMapSample, DocumentMapSnapshot, DocumentSummary, EditorError,
-    ExportObserver, ExportPhase, ExportProgress, ExternalChange, ExternalChangeKind,
+    ExportObserver, ExportPhase, ExportProgress, ExportScope, ExternalChange, ExternalChangeKind,
     FileSearchScope, FileStamp, FindAllResult, FindDirection, FindResult, FoundLine, FoundMatch,
     HexCaret, HexClipboardPayload, HexCursor, HexEditResult, HexViewportRequest, HexViewportRow,
     HexViewportSnapshot, HorizontalDirection, Justify, LanguageDescriptor, LineEditResult,
@@ -2471,6 +2471,11 @@ const WORKBENCH_ACTIONS: &[(&str, &str, &str)] = &[
     ("file.print", "Print…", "File"),
     ("file.pageSetup", "Page Setup…", "File"),
     ("file.exportPdf", "Export to PDF…", "File"),
+    (
+        "file.exportSelectionPdf",
+        "Export Selection to PDF…",
+        "File",
+    ),
     ("workbench.closeTab", "Close Tab", "View"),
     ("workbench.openSettings", "Settings…", "Application"),
     ("workbench.openHelp", "Nulis Help", "Help"),
@@ -2588,7 +2593,12 @@ const WORKBENCH_ACTIONS: &[(&str, &str, &str)] = &[
 /// Print, Page Setup, and Export to PDF are being built (`IMPROVEMENT_PLAN_3.md`,
 /// M36–M39). Until M39 they exist only in development builds.
 pub const PRINT_COMMANDS_ENABLED: bool = cfg!(debug_assertions);
-const PRINT_COMMAND_IDS: &[&str] = &["file.print", "file.pageSetup", "file.exportPdf"];
+const PRINT_COMMAND_IDS: &[&str] = &[
+    "file.print",
+    "file.pageSetup",
+    "file.exportPdf",
+    "file.exportSelectionPdf",
+];
 
 fn register_workbench_commands(commands: &mut CommandRegistry) {
     for (id, title, category) in WORKBENCH_ACTIONS {
@@ -4194,6 +4204,7 @@ mod tests {
                 colors: nulis_print::ColorChoice::Print,
                 date: String::new(),
                 confirm_above: None,
+                scope: crate::editor::ExportScope::Document,
             },
             &CancelAtOnce::default(),
         );

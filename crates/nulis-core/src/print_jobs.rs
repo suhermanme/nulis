@@ -43,6 +43,9 @@ struct ExportPdfArguments {
     /// The user already agreed to a very large export.
     #[serde(default)]
     confirmed: bool,
+    /// The whole document (default) or the selection.
+    #[serde(default)]
+    scope: editor::ExportScope,
 }
 
 impl ExportPdfArguments {
@@ -58,6 +61,7 @@ impl ExportPdfArguments {
             colors: self.colors,
             date: self.date,
             confirm_above: (ask && !self.confirmed).then_some(LARGE_EXPORT_PAGES),
+            scope: self.scope,
         })
     }
 }

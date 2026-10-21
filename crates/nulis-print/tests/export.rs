@@ -20,6 +20,7 @@ impl MemorySource {
             .map(|(index, line)| SourceLine {
                 number: u64::try_from(index).expect("small") + 1,
                 continuation: false,
+                separator_before: false,
                 text: line.to_owned(),
                 spans: line
                     .starts_with("fn")

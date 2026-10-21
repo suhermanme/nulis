@@ -345,6 +345,7 @@ impl<W: Write> PdfWriter<W> {
         }
         content.begin_text();
         let mut pen = Pen::default();
+        let mut separators = Vec::new();
         if geometry.has_header {
             let band = self.palette.band;
             self.draw_band(&mut content, &mut pen, header, geometry.top, band);
@@ -352,6 +353,10 @@ impl<W: Write> PdfWriter<W> {
         let digits = geometry.gutter_columns.saturating_sub(1);
         for (index, row) in page.rows.iter().enumerate() {
             let top = geometry.body_row_top(u32::try_from(index).unwrap_or(u32::MAX));
+            if row.gutter == Gutter::Separator {
+                separators.push(top - geometry.line_height / 2.0);
+                continue;
+            }
             if digits > 0 {
                 let label = match row.gutter {
                     Gutter::Number(number) => format!(
@@ -362,6 +367,7 @@ impl<W: Write> PdfWriter<W> {
                         "{CONTINUATION_MARKER:>width$}",
                         width = usize::try_from(digits).unwrap_or(0)
                     ),
+                    Gutter::Separator => String::new(),
                 };
                 let color = self.palette.line_number;
                 self.draw_text(&mut content, &mut pen, &label, 0, top, color, false);
@@ -385,6 +391,7 @@ impl<W: Write> PdfWriter<W> {
             self.draw_band(&mut content, &mut pen, footer, geometry.footer_top(), band);
         }
         content.end_text();
+        self.draw_rules(&mut content, &separators);
         self.bold_used |= page_bold;
 
         let content_ref = self.allocate()?;
@@ -419,6 +426,24 @@ impl<W: Write> PdfWriter<W> {
         self.write_chunk(&chunk)?;
         self.page_refs.push(page_ref);
         Ok(())
+    }
+
+    /// Thin rules across the text area at each height, in the line-number color.
+    fn draw_rules(&self, content: &mut Content, heights: &[f32]) {
+        if heights.is_empty() {
+            return;
+        }
+        let geometry = self.geometry;
+        let [r, g, b] = self.palette.line_number.unit();
+        #[allow(clippy::cast_precision_loss)] // Columns are far below 2^24.
+        let width = geometry.columns as f32 * geometry.advance;
+        content.set_stroke_rgb(r, g, b).set_line_width(0.5);
+        for y in heights {
+            content
+                .move_to(geometry.left, *y)
+                .line_to(geometry.left + width, *y);
+        }
+        content.stroke();
     }
 
     fn run_style(&self, run: &Run) -> (Rgb, bool) {

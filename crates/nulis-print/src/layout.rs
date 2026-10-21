@@ -23,6 +23,8 @@ pub struct SourceLine {
     pub number: u64,
     /// Carries on the previous segment of the same line.
     pub continuation: bool,
+    /// Starts a new printed range (the next selection): a rule is drawn before it.
+    pub separator_before: bool,
     pub text: String,
     /// Sorted, non-overlapping highlights.
     pub spans: Vec<Span>,
@@ -49,6 +51,8 @@ pub enum Gutter {
     Number(u64),
     /// A wrapped row of the line above.
     Continuation,
+    /// A rule between two printed ranges; the row has no text.
+    Separator,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -192,6 +196,9 @@ impl Paginator {
             previous => {
                 if let Some(previous) = previous {
                     self.commit(previous.row, &mut finished);
+                }
+                if line.separator_before {
+                    self.commit(Row::new(Gutter::Separator), &mut finished);
                 }
                 OpenRow {
                     row: Row::new(Gutter::Number(line.number)),
@@ -429,6 +436,21 @@ mod tests {
         assert_eq!(row_text(&pages[0], 0), "abcd");
         assert_eq!(row_text(&pages[0], 1), "ef");
         assert_eq!(pages[0].rows.len(), 2);
+    }
+
+    #[test]
+    fn a_new_range_starts_after_a_separator_row() {
+        let mut second = line(40, "later");
+        second.separator_before = true;
+        let pages = all_pages(
+            Paginator::new(10, 20, LongLines::Wrap, 4),
+            &[line(3, "first"), second],
+        );
+        let gutters: Vec<_> = pages[0].rows.iter().map(|row| row.gutter).collect();
+        assert_eq!(
+            gutters,
+            [Gutter::Number(3), Gutter::Separator, Gutter::Number(40)]
+        );
     }
 
     #[test]
