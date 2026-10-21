@@ -129,7 +129,7 @@ The React settings surface searches and edits a draft, previews appearance local
 
 Document summaries expose dirty state from a saved revision. Untitled documents keep their original bytes and append store in application data; local files already have a stable original source. After an idle edit interval, the desktop asks the core to sync inserted bytes and atomically persist a bounded piece-table manifest. The manifest records original fingerprint, source ranges, current revision, encoding, language, and the append-store path. Restart lists only manifests whose original still matches and whose session files resolve inside the application-data root. Users choose to restore or discard each candidate. Save rebases the live piece table onto the newly written file and starts a fresh append store while retaining undo history. Tab and window close require Save or Discard for dirty documents.
 
-The CI pipeline checks Rust and frontend code, runs a nightly document fuzz target, and builds Debian, macOS app, and Windows NSIS bundles. Hosted runs, platform assistive-technology checks, and signing/notarization require external environments and credentials.
+The CI pipeline checks Rust and frontend code, runs a nightly document fuzz target, and builds, installs, and starts the macOS `.dmg`, Windows NSIS, and Linux `.deb`/`.rpm` bundles on hosted runners. Platform assistive-technology checks, Developer ID signing and notarization, and Windows code signing still require external environments and credentials.
 
 ## Interaction and layout boundary (M15–M18)
 

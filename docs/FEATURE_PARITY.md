@@ -76,4 +76,4 @@ Legend: `[ ]` not started, `[~]` partial, `[x]` complete. “Complete” require
 - [~] Accessibility validation and platform conventions (keyboard-only editor input, screen-reader status/instructions, reduced motion, and forced colors implemented; dialogs keep Tab inside and pickers and dialogs return focus when closed; Ctrl Y redo on Windows and Linux; manual screen-reader validation with VoiceOver, NVDA, and Orca pending)
 - [~] Performance corpus and bounded-memory measurements (repeatable sparse generator and 10 GiB M01 baseline; full corpus pending)
 - [~] Fuzzing and property-based document tests (generated model tests and a libFuzzer target work; hosted sanitizer run pending)
-- [~] Installers, signing, and notarization (macOS app bundle built and three-platform bundle CI configured; hosted builds, signing, and notarization pending)
+- [~] Installers, signing, and notarization (CI builds, installs, and starts the macOS `.dmg`, Windows NSIS installer, and Linux `.deb`/`.rpm` on hosted runners, and publishes them for tagged releases; the macOS app is ad-hoc signed; Developer ID signing, notarization, and Windows code signing pending)

@@ -153,14 +153,16 @@ Each release also has a `SHA256SUMS.txt` to check the downloads: `sha256sum -c S
 
 ## Project status
 
-Nulis is at version 0.1.0 and under active development. The features above are implemented and covered by automated tests. What remains before a first release:
+The current release is Nulis 0.3.0, and Nulis is under active development. The features above are implemented and covered by automated tests. On every push, CI builds the macOS, Windows, and Linux packages, installs each one as a user would, and starts it. Tagged releases are built, checked, and published the same way. [docs/PLATFORM_MATRIX.md](docs/PLATFORM_MATRIX.md) records what has been checked on each system.
 
-- It is developed and built on macOS. Windows and Linux builds are defined in CI but have not yet been validated on hosted runners or by hand.
-- Installers are not signed or notarized.
+Known limits:
+
+- Nulis is developed on macOS. On Windows only some features have been checked by hand so far, and on Linux none have; CI covers the rest.
+- The macOS app is ad-hoc signed but not notarized, and the Windows installer is not code-signed, so both systems ask once before the first launch (see [Installing](#installing)).
 - Encoding support is limited to UTF-8 and Windows-1252, without automatic detection.
 - Remote (SFTP) files are read-only.
 - XML validation checks well-formedness only, not DTDs or schemas.
-- Manual accessibility testing with screen readers is pending.
+- Testing with screen readers (VoiceOver, NVDA, Orca) has not been done yet.
 
 [docs/FEATURE_PARITY.md](docs/FEATURE_PARITY.md) tracks each capability in detail, and [docs/ROADMAP.md](docs/ROADMAP.md) lists what is planned.
 
@@ -347,7 +349,7 @@ To build only one kind of bundle, pass it to Tauri:
 npm run build --workspace @nulis/desktop -- --bundles app
 ```
 
-Builds are not signed. [docs/RELEASE.md](docs/RELEASE.md) describes the release process.
+macOS builds are ad-hoc signed; Windows and Linux builds are not signed. [docs/RELEASE.md](docs/RELEASE.md) describes the release process.
 
 ### What a shipped build depends on
 

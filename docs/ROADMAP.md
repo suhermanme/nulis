@@ -2,7 +2,7 @@
 
 | Milestone | Scope | State |
 | --- | --- | --- |
-| M00 | workspace, docs, CI, headless core, Tauri/React shell, commands, settings, typed IPC | Complete locally; hosted OS matrix pending first CI run |
+| M00 | workspace, docs, CI, headless core, Tauri/React shell, commands, settings, typed IPC | Complete; CI runs on macOS, Windows, and Linux |
 | M01 | disk-backed source, piece tree, indexing, undo, safe streaming save | Complete locally; hosted Windows/Linux validation pending |
 | M02 | virtual viewport, caret, selection, input, scrolling, IME, clipboard | Complete locally; hosted platform and manual assistive-technology validation continue under M14 hardening |
 | M03 | tabs, splits, multi-caret, navigation, transforms, encodings | Complete locally; hosted platform validation continues under M14 |
@@ -16,7 +16,7 @@
 | M11 | macros and sandboxed scripting | Complete locally; hosted platform validation continues under M14 |
 | M12 | plugin host, permissions, SDK stabilization | Complete locally; hosted platform validation continues under M14 |
 | M13 | customization and complete theme system | Complete locally; hosted platform/native-menu validation continues under M14 |
-| M14 | accessibility, recovery, fuzzing, packaging, hardening | In progress locally; hosted platform runs and signing credentials pending |
+| M14 | accessibility, recovery, fuzzing, packaging, hardening | In progress; hosted CI builds and installs on all three platforms; screen-reader checks, notarization, and Windows code signing pending |
 | M15 | precise pointer editing: double-click word selection and drag-to-move text | Implemented and tested locally on macOS; hosted OS matrix and manual pointer/IME/accessibility checks pending |
 | M16 | saved/unsaved line change indicator and map marks | Implemented and tested locally on macOS; hosted OS matrix and manual pointer/IME/accessibility checks pending |
 | M17 | workspace tabs: group tabs into a named tab of nested panes | Implemented and tested locally on macOS; hosted OS matrix and manual pointer/IME/accessibility checks pending |
