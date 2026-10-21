@@ -16,7 +16,7 @@ Nulis is free software under the [GNU General Public License, version 3 or later
 
 https://github.com/user-attachments/assets/834bbc37-10c6-45fe-882a-8b77acf4d133
 
-![Nulis with a Rust file and a Python file side by side in one workspace](docs/images/screenshots/workspace-dark.png)
+![Nulis 0.3.0 in the NvChad · Solarized Dark theme, with a Rust file and a Python file side by side in one workspace](docs/images/screenshots/workspace-solarized-dark.png)
 
 - [Installing](#installing)
 - [A quick tour](#a-quick-tour)
@@ -87,33 +87,17 @@ Each release also has a `SHA256SUMS.txt` to check the downloads: `sha256sum -c S
 
 ## A quick tour
 
-**Workspaces of split panes, in any of 99 themes.** Drag a tab into the editor to view files side by side; here, Nulis · Paper Current with Rust, JSON, and Markdown.
+**Files larger than memory.** Nulis reads only what is on screen, so a 31 GB log opens at once. Count All runs in the background with progress and Cancel, and you can keep scrolling while it counts.
 
-![Three files in one workspace with the Nulis · Paper Current theme](docs/images/screenshots/light-theme.png)
+![Count All counting matches in a 31 GB log while the file stays scrollable](docs/images/screenshots/large-file-count.png)
 
-**See what changed.** A red bar marks lines you have not saved yet; a green bar marks lines saved during this session. The tab shows a dot while the file has unsaved changes.
+**Multiple carets and column tools.** Alt-click (Option-click on macOS) adds a caret on each line you need. With numbers selected in a column, the status bar adds them up.
 
-![Line change indicators: a saved line in green and two unsaved lines in red](docs/images/screenshots/line-changes.png)
+![Six carets on the price column of a CSV file, with the status bar showing their sum](docs/images/screenshots/column-sum.png)
 
-**Read-Only mode.** One click on the EDIT badge, or Ctrl/⌘ Shift L, protects a document from accidental edits. The badge turns amber, the tab shows a lock, and the caret becomes a steady block.
+**99 themes, light and dark.** Nulis's own Ember Night and Paper Current, plus the NvChad collection. Every theme recolors the whole application and keeps the selection easy to see.
 
-![A document in Read-Only mode with the amber READ ONLY badge](docs/images/screenshots/read-only-mode.png)
-
-**Every command one search away.** Ctrl/⌘ K opens the command palette.
-
-![The command palette filtered to commands that toggle a mode](docs/images/screenshots/command-palette.png)
-
-**Make it yours.** Settings has sections for the editor, themes, languages, keybindings, menus and toolbar, workspaces, and extensions.
-
-![The Settings window on Appearance & Themes](docs/images/screenshots/settings.png)
-
-**Help that is built in.** F1 opens the user guide and the plugin developer guide, with a section per chapter and a search field.
-
-![Nulis Help on the Editing chapter](docs/images/screenshots/help.png)
-
-**Bytes, too.** The hexadecimal editor works on files of any size, with synchronized hex and text columns.
-
-![The hexadecimal editor showing the bytes of a source file](docs/images/screenshots/hex-editor.png)
+![The same Rust code in six themes: Ember Night, Paper Current, Tokyonight, Catppuccin Latte, Gruvbox, and Rosepine Dawn](docs/images/screenshots/themes.png)
 
 ## What Nulis does
 
