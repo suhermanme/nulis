@@ -23,5 +23,6 @@
 | M18 | coherent vector toolbar icons and separate sectioned Settings window | Implemented and tested locally on macOS; hosted OS matrix and manual pointer/IME/accessibility checks pending |
 | M19–M30 | menu-reference feature audit: editing keys, Find and Replace window, Replace in Files, Reload, new icon, format and transforms, search and navigation, view and file features, column and clipboard tools, integration ([IMPROVEMENT_PLAN.md](IMPROVEMENT_PLAN.md)) | Complete; released in Nulis 0.2.0 and 0.2.1 |
 | M31–M35 | Find window fit, regular expressions and column search, theme contrast, YAML and plist tools, CSV/TSV and YAML highlighting, unlimited Count All ([IMPROVEMENT_PLAN_2.md](IMPROVEMENT_PLAN_2.md)) | Complete; released in Nulis 0.3.0 |
+| M36–M40 | Print, Page Setup, and Export to PDF: page layout in the core, streaming PDF export, native print dialog, print theme, large-file progress ([IMPROVEMENT_PLAN_3.md](IMPROVEMENT_PLAN_3.md)) | Planned; approved 2026-10-21 |
 
 Milestones advance only when the prior architecture and tests are sound. A scaffold or documented contract is not counted as a working feature.
