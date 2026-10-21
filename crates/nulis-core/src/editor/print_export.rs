@@ -26,6 +26,54 @@ pub const PRINT_WINDOW_BYTES: u64 = 256 * 1024;
 /// Bytes scanned per step when counting lines.
 const LINE_COUNT_WINDOW_BYTES: u64 = 4 * 1024 * 1024;
 
+/// Asks before exporting more pages than this, unless confirmed.
+pub const LARGE_EXPORT_PAGES: u64 = 1_000;
+
+/// Which part of the export is running.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ExportPhase {
+    #[default]
+    CountingLines,
+    CountingPages,
+    Writing,
+}
+
+/// How far an export has got, for a progress bar.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportProgress {
+    pub phase: ExportPhase,
+    /// Work done and total, in bytes read over all passes.
+    #[serde(with = "decimal_u64")]
+    pub done: u64,
+    #[serde(with = "decimal_u64")]
+    pub total: u64,
+    #[serde(with = "decimal_u64")]
+    pub pages_written: u64,
+    /// The fewest pages the export can take (see [`nulis_print::estimate_pages`]).
+    #[serde(with = "decimal_u64")]
+    pub estimated_pages: u64,
+}
+
+/// Follows an export: progress reports and a way to stop it.
+pub trait ExportObserver: Sync {
+    fn cancelled(&self) -> bool;
+    fn report(&self, progress: ExportProgress);
+}
+
+/// Follows nothing: an export that runs to the end.
+#[derive(Debug, Default)]
+pub struct Unobserved;
+
+impl ExportObserver for Unobserved {
+    fn cancelled(&self) -> bool {
+        false
+    }
+
+    fn report(&self, _progress: ExportProgress) {}
+}
+
 /// What to export and how.
 #[derive(Clone, Debug)]
 pub struct PdfExportRequest {
@@ -35,6 +83,9 @@ pub struct PdfExportRequest {
     pub colors: ColorChoice,
     /// The date for `{date}`, already formatted by the desktop.
     pub date: String,
+    /// Ask first ([`EditorError::ExportNeedsConfirmation`]) above this many
+    /// pages; `None` exports whatever the size.
+    pub confirm_above: Option<u64>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -63,6 +114,7 @@ impl DocumentManager {
         &self,
         document_id: &DocumentId,
         request: &PdfExportRequest,
+        observer: &dyn ExportObserver,
     ) -> Result<PdfExportResult, EditorError> {
         let (name, source_path) = self.print_identity(document_id, request.expected_revision)?;
         if !request.path.is_absolute() {
@@ -81,6 +133,27 @@ impl DocumentManager {
             .parent()
             .filter(|directory| directory.is_dir())
             .ok_or_else(|| EditorError::Export("the folder for the PDF does not exist".into()))?;
+        let (len, _) = self.length_and_revision(document_id)?;
+        let mut progress = ExportProgress {
+            total: len,
+            ..ExportProgress::default()
+        };
+        observer.report(progress);
+        let last_line = self.print_line_count(document_id, request.expected_revision, observer)?;
+        progress.estimated_pages =
+            nulis_print::estimate_pages(&request.setup, last_line).map_err(export_error)?;
+        if let Some(limit) = request.confirm_above {
+            if progress.estimated_pages > limit {
+                return Err(EditorError::ExportNeedsConfirmation {
+                    estimated_pages: progress.estimated_pages,
+                });
+            }
+        }
+        let counting_pages =
+            request.setup.header.uses_page_count() || request.setup.footer.uses_page_count();
+        progress.done = len;
+        progress.total = len * (2 + u64::from(counting_pages));
+        observer.report(progress);
         let options = ExportOptions {
             setup: request.setup.clone(),
             palette: request.colors.palette().map_err(export_error)?,
@@ -93,7 +166,7 @@ impl DocumentManager {
                 pages: None,
             },
             title: name,
-            last_line: self.print_line_count(document_id, request.expected_revision)?,
+            last_line,
         };
 
         let mut file = tempfile::Builder::new()
@@ -101,7 +174,17 @@ impl DocumentManager {
             .suffix(".pdf")
             .tempfile_in(directory)
             .map_err(|error| EditorError::io(&error))?;
-        let mut source = DocumentLines::new(self, document_id.clone(), request.expected_revision);
+        let mut source = DocumentLines {
+            manager: self,
+            document_id: document_id.clone(),
+            revision: request.expected_revision,
+            cursor: None,
+            observer,
+            progress,
+            passes: 0,
+            counting_pages,
+            len,
+        };
         let (writer, summary) =
             export_pdf(&mut source, BufWriter::new(file.as_file_mut()), &options)
                 .map_err(export_error)?;
@@ -149,6 +232,7 @@ impl DocumentManager {
         &self,
         document_id: &DocumentId,
         revision: u64,
+        observer: &dyn ExportObserver,
     ) -> Result<u64, EditorError> {
         let mut offset = 0_u64;
         let mut breaks = 0_u64;
@@ -171,6 +255,14 @@ impl DocumentManager {
                 }
             }
             offset += u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+            if observer.cancelled() {
+                return Err(EditorError::ExportCancelled);
+            }
+            observer.report(ExportProgress {
+                done: offset,
+                total: offset.max(1),
+                ..ExportProgress::default()
+            });
         }
     }
 
@@ -256,7 +348,10 @@ fn check_revision(actual: u64, expected: u64) -> Result<(), EditorError> {
 
 #[allow(clippy::needless_pass_by_value)] // `Result::map_err` transfers ownership.
 fn export_error(error: PrintError) -> EditorError {
-    EditorError::Export(error.to_string())
+    match error {
+        PrintError::Cancelled => EditorError::ExportCancelled,
+        other => EditorError::Export(other.to_string()),
+    }
 }
 
 /// Whether two paths name the same file (also when one does not exist yet).
@@ -340,40 +435,42 @@ fn source_lines(lines: &[ViewportLine], highlights: &[HighlightSpan]) -> Vec<Sou
         .collect()
 }
 
-/// The document as a [`LineSource`], read window by window.
+/// The document as a [`LineSource`], read window by window, reporting
+/// progress and stopping when the observer cancels.
 struct DocumentLines<'a> {
     manager: &'a DocumentManager,
     document_id: DocumentId,
     revision: u64,
+    /// `None` before the first rewind and after the last window.
     cursor: Option<ViewportCursor>,
-}
-
-impl<'a> DocumentLines<'a> {
-    fn new(manager: &'a DocumentManager, document_id: DocumentId, revision: u64) -> Self {
-        Self {
-            manager,
-            document_id,
-            revision,
-            cursor: Some(start_cursor()),
-        }
-    }
-}
-
-fn start_cursor() -> ViewportCursor {
-    ViewportCursor {
-        byte_offset: 0,
-        line: 1,
-        line_continuation: false,
-    }
+    observer: &'a dyn ExportObserver,
+    progress: ExportProgress,
+    /// Rewinds so far: 1 is the first pass over the lines.
+    passes: u64,
+    counting_pages: bool,
+    len: u64,
 }
 
 impl LineSource for DocumentLines<'_> {
     fn rewind(&mut self) -> Result<(), PrintError> {
-        self.cursor = Some(start_cursor());
+        self.cursor = Some(ViewportCursor {
+            byte_offset: 0,
+            line: 1,
+            line_continuation: false,
+        });
+        self.passes += 1;
+        self.progress.phase = if self.counting_pages && self.passes == 1 {
+            ExportPhase::CountingPages
+        } else {
+            ExportPhase::Writing
+        };
         Ok(())
     }
 
     fn next_lines(&mut self, highlight: bool) -> Result<Option<Vec<SourceLine>>, PrintError> {
+        if self.observer.cancelled() {
+            return Err(PrintError::Cancelled);
+        }
         let Some(cursor) = self.cursor.take() else {
             return Ok(None);
         };
@@ -391,8 +488,16 @@ impl LineSource for DocumentLines<'_> {
                 return Err(PrintError::Source("reading stopped advancing".into()));
             }
         }
+        // The line count was the first pass; each later pass reads the whole document.
+        let read = next.as_ref().map_or(self.len, |next| next.byte_offset);
+        self.progress.done = self.len * self.passes + read;
+        self.observer.report(self.progress);
         self.cursor = next;
         Ok(Some(lines))
+    }
+
+    fn page_written(&mut self, number: u64) {
+        self.progress.pages_written = number;
     }
 }
 

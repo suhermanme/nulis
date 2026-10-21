@@ -31,7 +31,7 @@ Plan: `IMPROVEMENT_PLAN_3.md` §3.0, §3.2, §3.5, §3.7, §4 (M37). Status: com
 
 - `cargo fmt --check` clean; `cargo clippy --workspace --all-targets -D warnings` clean.
 - `cargo test --workspace`: all pass. nulis-print has 15 unit tests and 5 export tests (cross-reference offsets point at their objects, page counts, outline above 100 pages, missing glyphs, determinism, empty document). nulis-core has 154 tests, including `export_pdf_reads_every_window_and_refuses_unsafe_destinations`: 40,000 lines give 656 pages, a 700 KiB line read in three windows gives 131 pages, and the refusals hold.
-- Frontend: lint and typecheck clean; Vitest 21 files, 179 tests (new: Export to PDF suggests `notes.pdf` and reports pages and missing characters).
+- Frontend: lint and typecheck clean; Vitest 20 files, 177 tests (new: Export to PDF suggests `notes.pdf` and reports pages and missing characters; an earlier note said 21 and 179, which was a miscount).
 - PDFKit (macOS) opens the exported files. Page sizes are right (A4, Letter landscape), text copies out exactly (including ↪ and …), the title and producer are set, and `Samples/sample.rs` renders with the editor's highlighting in the print palette.
 
 ## In the app (macOS, development build, 2026-10-21)

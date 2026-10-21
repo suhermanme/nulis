@@ -31,6 +31,8 @@ pub enum PrintError {
     Source(String),
     #[error("could not write the file: {0}")]
     Io(#[from] std::io::Error),
+    #[error("cancelled")]
+    Cancelled,
 }
 
 /// The document's lines, read from the start as often as needed.
@@ -48,6 +50,27 @@ pub trait LineSource {
     /// Returns [`PrintError::Source`] if the document can no longer be read,
     /// for example because it changed.
     fn next_lines(&mut self, highlight: bool) -> Result<Option<Vec<SourceLine>>, PrintError>;
+
+    /// Called after each page is written, for progress.
+    fn page_written(&mut self, _number: u64) {}
+}
+
+/// The fewest pages `setup` can take for a document of `last_line` lines:
+/// one row per line, before any long line wraps. Cheap, for asking before a
+/// very large export.
+///
+/// # Errors
+/// Returns an error for an unusable page setup.
+pub fn estimate_pages(setup: &PageSetup, last_line: u64) -> Result<u64, PrintError> {
+    let metrics = bundled_metrics()?;
+    let geometry = Geometry::new(
+        setup,
+        metrics.advance,
+        metrics.ascender,
+        metrics.descender,
+        last_line,
+    )?;
+    Ok(last_line.max(1).div_ceil(u64::from(geometry.rows)))
 }
 
 /// What to export and how.
@@ -106,20 +129,22 @@ pub fn export_pdf<S: LineSource, W: Write>(
     let highlight = options.setup.syntax_highlighting;
     let mut writer = PdfWriter::new(out, geometry, options.palette.clone())?;
     let mut layout = paginator();
-    let write = |writer: &mut PdfWriter<W>, page: &Page| {
+    let write = |writer: &mut PdfWriter<W>, source: &mut S, page: &Page| {
         let header = fields.resolve(&options.setup.header, page.number);
         let footer = fields.resolve(&options.setup.footer, page.number);
-        writer.write_page(page, &header, &footer)
+        writer.write_page(page, &header, &footer)?;
+        source.page_written(page.number);
+        Ok::<(), PrintError>(())
     };
     while let Some(lines) = source.next_lines(highlight)? {
         for line in &lines {
             for page in layout.push(line) {
-                write(&mut writer, &page)?;
+                write(&mut writer, source, &page)?;
             }
         }
     }
     for page in layout.finish() {
-        write(&mut writer, &page)?;
+        write(&mut writer, source, &page)?;
     }
     writer.finish(&options.title)
 }

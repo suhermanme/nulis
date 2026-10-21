@@ -212,6 +212,23 @@ export interface PdfExportResult {
   bytes: string;
 }
 
+/** Progress of an export started with `file.exportPdfStart`. */
+export interface PdfExportReport {
+  progress: {
+    phase: "countingLines" | "countingPages" | "writing";
+    done: string;
+    total: string;
+    pagesWritten: string;
+    estimatedPages: string;
+  };
+  done: boolean;
+  cancelled: boolean;
+  /** At least this many pages: the export stopped to ask first. */
+  needsConfirmation?: string;
+  error?: string;
+  result?: PdfExportResult;
+}
+
 export interface DocumentSummary {
   documentId: string;
   name: string;

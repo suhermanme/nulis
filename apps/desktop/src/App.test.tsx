@@ -387,29 +387,69 @@ test("uses the native destination picker when saving an untitled file", async ()
   });
 });
 
+function exportReport(overrides: Record<string, unknown>) {
+  return {
+    progress: { phase: "writing", done: "10", total: "10", pagesWritten: "0", estimatedPages: "0" },
+    done: true, cancelled: false, ...overrides,
+  };
+}
+
+async function startExportFromMenu(name: string) {
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  fireEvent.click(screen.getByRole("button", { name: "New text file" }));
+  await screen.findByText(`${name} editor`);
+  fireEvent.click(screen.getByRole("button", { name: "Open File menu" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: /^Export to PDF/ }));
+}
+
 test("Export to PDF suggests a .pdf name and reports the pages written", async () => {
   responses["file.new"] = [{
     documentId: "document-1", name: "notes.md", byteLen: "5", revision: "3", encoding: "utf8", dirty: true,
   }];
-  responses["file.exportPdfTo"] = [{ path: "/tmp/notes.pdf", pages: "12", missingGlyphs: "2", bytes: "300000" }];
+  responses["file.exportPdfStart"] = [{ jobId: 7 }];
+  responses["file.exportPdfProgress"] = [exportReport({
+    result: { path: "/tmp/notes.pdf", pages: "12", missingGlyphs: "2", bytes: "300000" },
+  })];
   vi.mocked(save).mockResolvedValueOnce("/tmp/notes.pdf");
 
-  render(<App />);
-  await screen.findByText("Nulis 0.1.0");
-  fireEvent.click(screen.getByRole("button", { name: "New text file" }));
-  await screen.findByText("notes.md editor");
-  fireEvent.click(screen.getByRole("button", { name: "Open File menu" }));
-  fireEvent.click(screen.getByRole("menuitem", { name: /^Export to PDF/ }));
+  await startExportFromMenu("notes.md");
 
   await waitFor(() => expect(save).toHaveBeenCalledWith({
     title: "Export to PDF", defaultPath: "notes.pdf", filters: [{ name: "PDF", extensions: ["pdf"] }],
   }));
   await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
-    id: "file.exportPdfTo", context: { windowId: "main", documentId: "document-1" },
-    arguments: { expectedRevision: "3", path: "/tmp/notes.pdf", date: expect.any(String) as string },
+    id: "file.exportPdfStart", context: { windowId: "main", documentId: "document-1" },
+    arguments: { expectedRevision: "3", path: "/tmp/notes.pdf", date: expect.any(String) as string, confirmed: false },
   }));
   expect(await screen.findByText(/Exported 12 pages to notes\.pdf; 2 characters the print font lacks are left blank/))
     .toBeInTheDocument();
+  expect(executeCommand).toHaveBeenCalledWith({
+    id: "file.exportPdfProgress", context: { windowId: "main" }, arguments: { jobId: 7 },
+  });
+});
+
+test("a very large export asks first and runs again once confirmed", async () => {
+  responses["file.new"] = [{
+    documentId: "document-1", name: "server.log", byteLen: "5", revision: "0", encoding: "utf8",
+  }];
+  responses["file.exportPdfStart"] = [{ jobId: 1 }, { jobId: 2 }];
+  responses["file.exportPdfProgress"] = [
+    exportReport({ needsConfirmation: "3100" }),
+    exportReport({ result: { path: "/tmp/server.pdf", pages: "3150", missingGlyphs: "0", bytes: "9000000" } }),
+  ];
+  vi.mocked(save).mockResolvedValueOnce("/tmp/server.pdf");
+
+  await startExportFromMenu("server.log");
+
+  const dialog = await screen.findByRole("dialog", { name: "Export 3,100 pages?" });
+  expect(dialog).toHaveTextContent("at least 3,100 pages");
+  fireEvent.click(within(dialog).getByRole("button", { name: "Export" }));
+  expect(await screen.findByText("Exported 3,150 pages to server.pdf")).toBeInTheDocument();
+  const starts = vi.mocked(executeCommand).mock.calls
+    .filter(([request]) => request.id === "file.exportPdfStart")
+    .map(([request]) => (request.arguments as { confirmed: boolean }).confirmed);
+  expect(starts).toEqual([false, true]);
 });
 
 test("asks before closing an unsaved document and honors cancel or discard", async () => {

@@ -6,6 +6,7 @@ mod editor;
 mod format_tools;
 mod line_changes;
 mod plist_tools;
+mod print_jobs;
 mod yaml_tools;
 
 use editor::{ApplyCompareRequest, DocumentCompareRequest};
@@ -16,18 +17,19 @@ pub use command::{
 pub use editor::{
     BookmarkDirection, ChangeDirection, ClipboardPayload, DocumentId, DocumentManager,
     DocumentMapChange, DocumentMapSample, DocumentMapSnapshot, DocumentSummary, EditorError,
-    ExternalChange, ExternalChangeKind, FileSearchScope, FileStamp, FindAllResult, FindDirection,
-    FindResult, FoundLine, FoundMatch, HexCaret, HexClipboardPayload, HexCursor, HexEditResult,
-    HexViewportRequest, HexViewportRow, HexViewportSnapshot, HorizontalDirection, Justify,
-    LanguageDescriptor, LineEditResult, LineEnding, LineEndingConversion, LineEndingStyle,
-    LineFormatOptions, LineOperation, MarkdownPreviewSource, NumberPadding, NumberSequence,
-    NumberSum, PdfExportRequest, PdfExportResult, RecoveryCandidate, RectangularSelection,
-    ReplaceAllResult, ReplaceFileOutcome, ReplacePreview, ReplacePreviewFile, ReplaceTarget,
-    SearchMode, SearchOptions, Selection, SyntaxBracketPair, SyntaxFold, SyntaxHighlight,
-    SyntaxSnapshot, SyntaxSymbol, TextEncoding, TextTransform, VerticalDirection,
-    ViewportAtRequest, ViewportCursor, ViewportLine, ViewportLineRequest, ViewportRequest,
-    ViewportSnapshot, WorkspaceSearchMatch, WorkspaceSearchResult, LINE_ENDING_SAMPLE_BYTES,
-    MAX_BOOKMARKS, MAX_CLIPBOARD_BYTES, MAX_EDIT_BYTES, MAX_FILE_NAME_BYTES, MAX_FIND_ALL_LINES,
+    ExportObserver, ExportPhase, ExportProgress, ExternalChange, ExternalChangeKind,
+    FileSearchScope, FileStamp, FindAllResult, FindDirection, FindResult, FoundLine, FoundMatch,
+    HexCaret, HexClipboardPayload, HexCursor, HexEditResult, HexViewportRequest, HexViewportRow,
+    HexViewportSnapshot, HorizontalDirection, Justify, LanguageDescriptor, LineEditResult,
+    LineEnding, LineEndingConversion, LineEndingStyle, LineFormatOptions, LineOperation,
+    MarkdownPreviewSource, NumberPadding, NumberSequence, NumberSum, PdfExportRequest,
+    PdfExportResult, RecoveryCandidate, RectangularSelection, ReplaceAllResult, ReplaceFileOutcome,
+    ReplacePreview, ReplacePreviewFile, ReplaceTarget, SearchMode, SearchOptions, Selection,
+    SyntaxBracketPair, SyntaxFold, SyntaxHighlight, SyntaxSnapshot, SyntaxSymbol, TextEncoding,
+    TextTransform, Unobserved, VerticalDirection, ViewportAtRequest, ViewportCursor, ViewportLine,
+    ViewportLineRequest, ViewportRequest, ViewportSnapshot, WorkspaceSearchMatch,
+    WorkspaceSearchResult, LARGE_EXPORT_PAGES, LINE_ENDING_SAMPLE_BYTES, MAX_BOOKMARKS,
+    MAX_CLIPBOARD_BYTES, MAX_EDIT_BYTES, MAX_FILE_NAME_BYTES, MAX_FIND_ALL_LINES,
     MAX_FIND_ALL_MATCHES, MAX_HEX_CLIPBOARD_BYTES, MAX_HEX_EDIT_BYTES, MAX_HEX_VIEWPORT_BYTES,
     MAX_LINE_ENDING_CHANGES, MAX_LINE_ENDING_CONVERSION_BYTES, MAX_LINE_PREVIEW_BYTES,
     MAX_MARKDOWN_PREVIEW_BYTES, MAX_MERGE_BYTES, MAX_RECTANGULAR_ROWS, MAX_REPLACE_FILES,
@@ -1435,24 +1437,6 @@ struct SaveAsArguments {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct ExportPdfArguments {
-    #[serde(with = "editor::decimal_u64")]
-    expected_revision: u64,
-    path: String,
-    #[serde(default)]
-    setup: nulis_print::PageSetup,
-    #[serde(default)]
-    colors: nulis_print::ColorChoice,
-    /// The date for `{date}`, formatted by the desktop in the user's locale.
-    #[serde(default)]
-    date: String,
-}
-
-/// Longest `{date}` text accepted, in bytes.
-const MAX_EXPORT_DATE_BYTES: usize = 128;
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct RecoveryIdArguments {
     recovery_id: String,
 }
@@ -2802,7 +2786,7 @@ fn register_pointer_commands(commands: &mut CommandRegistry, documents: &Arc<Doc
 
 fn register_editor_commands(commands: &mut CommandRegistry, documents: &Arc<DocumentManager>) {
     register_file_commands(commands, documents);
-    register_print_commands(commands, documents);
+    print_jobs::register_print_commands(commands, documents);
     register_recovery_commands(commands, documents);
     register_text_transfer_commands(commands, documents);
     register_navigation_commands(commands, documents);
@@ -3809,38 +3793,6 @@ fn register_file_commands(commands: &mut CommandRegistry, documents: &Arc<Docume
         .expect("built-in command is unique");
 }
 
-/// Export to PDF (`IMPROVEMENT_PLAN_3.md`). The desktop's `file.exportPdf`
-/// asks where to save, then runs this.
-fn register_print_commands(commands: &mut CommandRegistry, documents: &Arc<DocumentManager>) {
-    let manager = Arc::clone(documents);
-    commands
-        .register(
-            CommandDescriptor::new("file.exportPdfTo", "Export to PDF File", "File")
-                .expect("built-in command ID is valid"),
-            move |context, arguments| {
-                let document_id = context_document(&context)?;
-                let arguments: ExportPdfArguments = parse_arguments(arguments)?;
-                if arguments.date.len() > MAX_EXPORT_DATE_BYTES {
-                    return Err(CommandError::Failed("the date is too long".into()));
-                }
-                let result = manager
-                    .export_pdf(
-                        &document_id,
-                        &editor::PdfExportRequest {
-                            path: std::path::PathBuf::from(arguments.path),
-                            expected_revision: arguments.expected_revision,
-                            setup: arguments.setup,
-                            colors: arguments.colors,
-                            date: arguments.date,
-                        },
-                    )
-                    .map_err(|error| editor_command_error(&error))?;
-                serde_json::to_value(result).map_err(|error| serialization_command_error(&error))
-            },
-        )
-        .expect("built-in command is unique");
-}
-
 fn register_recovery_commands(commands: &mut CommandRegistry, documents: &Arc<DocumentManager>) {
     let manager = Arc::clone(documents);
     commands
@@ -4075,6 +4027,125 @@ mod tests {
         )
         .expect("export long line");
         assert_eq!(result["pages"], "131");
+    }
+
+    /// Opens a document of `rows` numbered lines in `folder`.
+    fn open_rows(core: &NulisCore, folder: &std::path::Path, rows: u32) -> CommandContext {
+        let source = folder.join("rows.txt");
+        let mut text = String::new();
+        for line in 1..=rows {
+            text.push_str("row ");
+            text.push_str(&line.to_string());
+            text.push('\n');
+        }
+        std::fs::write(&source, &text).expect("write source");
+        let opened = core
+            .execute_command(
+                "file.open",
+                CommandContext::default(),
+                serde_json::json!({ "path": source.display().to_string() }),
+            )
+            .expect("open");
+        CommandContext {
+            window_id: Some("main".into()),
+            document_id: Some(opened["documentId"].as_str().expect("document ID").into()),
+        }
+    }
+
+    /// Cancels at its first progress report.
+    #[derive(Default)]
+    struct CancelAtOnce(std::sync::atomic::AtomicBool);
+
+    impl crate::editor::ExportObserver for CancelAtOnce {
+        fn cancelled(&self) -> bool {
+            self.0.load(std::sync::atomic::Ordering::Relaxed)
+        }
+
+        fn report(&self, _progress: crate::editor::ExportProgress) {
+            self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
+    #[test]
+    fn export_jobs_ask_before_very_large_pdfs() {
+        let application_data = tempfile::tempdir().expect("application data");
+        let folder = tempfile::tempdir().expect("folder");
+        let core = NulisCore::with_session_root(application_data.path().into());
+        let context = open_rows(&core, folder.path(), 70_000);
+        let pdf = folder.path().join("big.pdf");
+        let run = |confirmed: bool| {
+            let started = core
+                .execute_command(
+                    "file.exportPdfStart",
+                    context.clone(),
+                    serde_json::json!({
+                        "expectedRevision": "0",
+                        "path": pdf.display().to_string(),
+                        "confirmed": confirmed,
+                        "setup": { "syntaxHighlighting": false },
+                    }),
+                )
+                .expect("start");
+            let job = serde_json::json!({ "jobId": started["jobId"] });
+            for _ in 0..6_000 {
+                let report = core
+                    .execute_command(
+                        "file.exportPdfProgress",
+                        CommandContext::default(),
+                        job.clone(),
+                    )
+                    .expect("progress");
+                if report["done"] == true {
+                    return report;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            panic!("the export did not finish");
+        };
+        // 70,001 lines at 61 rows a page: at least 1,148 pages.
+        let asked = run(false);
+        assert_eq!(asked["needsConfirmation"], "1148");
+        assert!(!pdf.exists(), "nothing is written before the user agrees");
+        let done = run(true);
+        assert_eq!(done["result"]["pages"], "1148");
+        assert_eq!(done["progress"]["phase"], "writing");
+        assert_eq!(done["progress"]["done"], done["progress"]["total"]);
+        assert!(pdf.exists());
+    }
+
+    #[test]
+    fn a_cancelled_export_writes_nothing() {
+        let application_data = tempfile::tempdir().expect("application data");
+        let folder = tempfile::tempdir().expect("folder");
+        let core = NulisCore::with_session_root(application_data.path().into());
+        let context = open_rows(&core, folder.path(), 5_000);
+        let pdf = folder.path().join("cancelled.pdf");
+        let outcome = core.documents.export_pdf(
+            &crate::editor::DocumentId(context.document_id.clone().expect("document")),
+            &crate::editor::PdfExportRequest {
+                path: pdf.clone(),
+                expected_revision: 0,
+                setup: nulis_print::PageSetup::default(),
+                colors: nulis_print::ColorChoice::Print,
+                date: String::new(),
+                confirm_above: None,
+            },
+            &CancelAtOnce::default(),
+        );
+        assert_eq!(outcome, Err(crate::EditorError::ExportCancelled));
+        assert!(!pdf.exists());
+        let leftovers = std::fs::read_dir(folder.path())
+            .expect("list")
+            .filter(|entry| {
+                entry.as_ref().is_ok_and(|entry| {
+                    entry
+                        .file_name()
+                        .to_string_lossy()
+                        .starts_with(".nulis-export-")
+                })
+            })
+            .count();
+        assert_eq!(leftovers, 0, "a cancelled export leaves no temporary file");
     }
 
     #[test]

@@ -44,7 +44,10 @@ pub use line_endings::{
 pub use navigation::ChangeDirection;
 mod print_export;
 mod rename;
-pub use print_export::{PdfExportRequest, PdfExportResult, PRINT_WINDOW_BYTES};
+pub use print_export::{
+    ExportObserver, ExportPhase, ExportProgress, PdfExportRequest, PdfExportResult, Unobserved,
+    LARGE_EXPORT_PAGES, PRINT_WINDOW_BYTES,
+};
 pub use rename::MAX_FILE_NAME_BYTES;
 mod replace_in_files;
 pub use find_all::{
@@ -5413,6 +5416,10 @@ pub enum EditorError {
     Rename(String),
     #[error("Could not export to PDF: {0}")]
     Export(String),
+    #[error("The PDF would have at least {estimated_pages} pages")]
+    ExportNeedsConfirmation { estimated_pages: u64 },
+    #[error("Export to PDF was cancelled")]
+    ExportCancelled,
     #[error("The lines have no tab, comma, semicolon, or | between columns")]
     NoColumnDelimiter,
     #[error("Select a column block first (Alt Shift drag, or Column Editing)")]

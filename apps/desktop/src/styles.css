@@ -624,6 +624,10 @@ kbd { padding: 2px 6px; border: 1px solid #373e48; border-radius: 4px; color: #b
 .status-spacer { flex: 1; }
 .statusbar > span { white-space: nowrap; }
 .statusbar > [role="status"] { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.status-progress { display: flex; flex: none; align-items: center; gap: 6px; }
+.status-progress progress { width: 120px; height: 6px; accent-color: var(--accent); }
+.status-action { padding: 1px 8px; border: 1px solid var(--border); border-radius: 4px; color: var(--ui-text); background: transparent; font-size: 10px; }
+.status-action:hover { background: var(--hover); }
 .status-mode {
   display: inline-flex; flex: none; align-items: center; gap: 5px; align-self: stretch; margin: 0; padding: 0 10px;
   border: 0; color: var(--editor-bg); background: var(--success); font: 700 10px/1 inherit; letter-spacing: .08em; cursor: pointer;

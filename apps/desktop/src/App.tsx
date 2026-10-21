@@ -11,7 +11,7 @@ import type {
   CommandDescriptor,
   CustomizationDocument,
   DocumentSummary,
-  PdfExportResult,
+  PdfExportReport,
   EditorPreferences,
   FolderCompareResult,
   LanguageDescriptor,
@@ -295,6 +295,12 @@ function RenameDialog({ name, busy, onSubmit, onCancel }: {
   </div>;
 }
 
+/** How often a running export is asked for its progress. */
+const EXPORT_POLL_MS = 150;
+
+/** The document an export reads and the file it writes. */
+interface ExportTarget { documentId: string; name: string; revision: string; path: string }
+
 export function App() {
   const desktopShell = isTauri();
   const nativeMenuActionRef = useRef<(command: string) => void>(() => undefined);
@@ -395,6 +401,8 @@ export function App() {
   const [busyDecision, setBusyDecision] = useState(false);
   const [closeFlow, setCloseFlow] = useState<CloseFlow>(null);
   const [status, setStatus] = useState("Connecting to the Nulis core…");
+  const [exportJob, setExportJob] = useState<{ jobId: number; name: string; percent: number } | null>(null);
+  const [largeExport, setLargeExport] = useState<(ExportTarget & { estimatedPages: string }) | null>(null);
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
   const activeTabIdRef = useRef(activeTabId);
@@ -822,6 +830,7 @@ export function App() {
   const exportPdf = async () => {
     const document = activeDocument;
     if (!document) return;
+    if (exportJob) { setStatus("An export to PDF is already running"); return; }
     const stem = document.name.replace(/\.[^.\\/]+$/, "") || "Untitled";
     const folder = document.sourcePath ? document.sourcePath.slice(0, Math.max(document.sourcePath.lastIndexOf("/"), document.sourcePath.lastIndexOf("\\")) + 1) : "";
     try {
@@ -831,24 +840,62 @@ export function App() {
         filters: [{ name: "PDF", extensions: ["pdf"] }],
       });
       if (!destination) { setStatus("Export cancelled"); return; }
-      setStatus(`Exporting ${document.name} to PDF…`);
-      const result = await executeCommand<PdfExportResult>({
-        id: "file.exportPdfTo",
-        context: { windowId: "main", documentId: document.documentId },
-        arguments: {
-          expectedRevision: document.revision,
-          path: destination,
-          date: new Date().toLocaleDateString(undefined, { dateStyle: "long" }),
-        },
-      });
+      await runExport({ documentId: document.documentId, name: document.name, revision: document.revision, path: destination }, false);
+    } catch (error: unknown) {
+      setStatus(errorMessage(error, "Could not export to PDF"));
+    }
+  };
+
+  /** Runs an export job, showing its progress, and reports how it ended. */
+  const runExport = async (target: ExportTarget, confirmed: boolean) => {
+    const { jobId } = await executeCommand<{ jobId: number }>({
+      id: "file.exportPdfStart",
+      context: { windowId: "main", documentId: target.documentId },
+      arguments: {
+        expectedRevision: target.revision,
+        path: target.path,
+        date: new Date().toLocaleDateString(undefined, { dateStyle: "long" }),
+        confirmed,
+      },
+    });
+    setExportJob({ jobId, name: target.name, percent: 0 });
+    setStatus(`Exporting ${target.name} to PDF…`);
+    let report: PdfExportReport;
+    try {
+      for (;;) {
+        await new Promise((resolve) => setTimeout(resolve, EXPORT_POLL_MS));
+        report = await executeCommand<PdfExportReport>({
+          id: "file.exportPdfProgress", context: { windowId: "main" }, arguments: { jobId },
+        });
+        if (report.done) break;
+        const { done, total } = report.progress;
+        const percent = BigInt(total) > 0n ? Number((BigInt(done) * 100n) / BigInt(total)) : 0;
+        setExportJob({ jobId, name: target.name, percent });
+      }
+    } finally {
+      setExportJob(null);
+    }
+    if (report.needsConfirmation) {
+      setLargeExport({ ...target, estimatedPages: report.needsConfirmation });
+      setStatus("Export waiting for your answer");
+    } else if (report.cancelled) {
+      setStatus("Export to PDF cancelled");
+    } else if (report.error) {
+      setStatus(report.error);
+    } else if (report.result) {
+      const { result } = report;
       const name = result.path.split(/[\\/]/).pop() ?? result.path;
       const pages = result.pages === "1" ? "1 page" : `${Number(result.pages).toLocaleString()} pages`;
       const missing = result.missingGlyphs === "0" ? ""
         : `; ${Number(result.missingGlyphs).toLocaleString()} characters the print font lacks are left blank`;
       setStatus(`Exported ${pages} to ${name}${missing}`);
-    } catch (error: unknown) {
-      setStatus(errorMessage(error, "Could not export to PDF"));
     }
+  };
+
+  const cancelExport = () => {
+    if (!exportJob) return;
+    void executeCommand({ id: "file.exportPdfCancel", context: { windowId: "main" }, arguments: { jobId: exportJob.jobId } })
+      .catch(() => undefined);
   };
 
   const saveDocument = async (saveAs: boolean) => {
@@ -2383,7 +2430,13 @@ export function App() {
       </section>
 
       <footer className="statusbar"><span className="status-indicator" aria-hidden="true" />
-        <span role="status">{status}</span><span className="status-spacer" />
+        <span role="status">{status}</span>
+        {exportJob ? <span className="status-progress">
+          <progress max={100} value={exportJob.percent} aria-label={`Exporting ${exportJob.name} to PDF`} />
+          <span>{exportJob.percent}%</span>
+          <button type="button" className="status-action" onClick={cancelExport}>Cancel</button>
+        </span> : null}
+        <span className="status-spacer" />
         {activeDocument ? <button type="button" className={`status-mode${activeDocument.readOnly ? " read-only" : ""}`}
           aria-pressed={activeDocument.readOnly === true}
           aria-label={activeDocument.readOnly ? "Read-only mode: switch to Edit mode" : "Edit mode: switch to Read-Only mode"}
@@ -2536,6 +2589,25 @@ export function App() {
               setLossyBeautify(null);
               void runTool("tools.beautify", true);
             }}>Beautify</button>
+          </div>
+        </section>
+      </div> : null}
+      {largeExport ? <div className="decision-backdrop">
+        <section className="decision-dialog" role="dialog" aria-modal="true" aria-labelledby="large-export-title"
+          onKeyDown={(event) => {
+            keepFocusInDialog(event);
+            if (event.key === "Escape") { setLargeExport(null); setStatus("Export cancelled"); }
+          }}>
+          <h2 id="large-export-title">Export {Number(largeExport.estimatedPages).toLocaleString()} pages?</h2>
+          <p>{largeExport.name} makes a PDF of at least {Number(largeExport.estimatedPages).toLocaleString()} pages,
+            more if long lines wrap. A PDF this large takes a while to write.</p>
+          <div className="decision-actions">
+            <button autoFocus type="button" onClick={() => { setLargeExport(null); setStatus("Export cancelled"); }}>Cancel</button>
+            <button className="primary" type="button" onClick={() => {
+              const target = largeExport;
+              setLargeExport(null);
+              void runExport(target, true).catch((error: unknown) => setStatus(errorMessage(error, "Could not export to PDF")));
+            }}>Export</button>
           </div>
         </section>
       </div> : null}
