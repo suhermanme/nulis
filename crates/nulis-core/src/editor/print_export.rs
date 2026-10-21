@@ -15,6 +15,7 @@ use nulis_print::{
     SourceLine, Span,
 };
 use nulis_syntax::HighlightSpan;
+use nulis_syntax::SyntaxToken;
 use serde::{Deserialize, Serialize};
 use std::{
     io::{BufWriter, Write},
@@ -89,6 +90,8 @@ pub enum ExportScope {
     /// Every selected range in order, with a rule between them. A column
     /// selection covers the whole lines it spans.
     Selection,
+    /// The bytes as a hexadecimal dump, as the hexadecimal editor shows them.
+    HexDump,
 }
 
 /// A byte range to print and the line it starts on.
@@ -162,6 +165,83 @@ impl DocumentManager {
             .parent()
             .filter(|directory| directory.is_dir())
             .ok_or_else(|| EditorError::Export("the folder for the PDF does not exist".into()))?;
+        let base = ExportBase {
+            fields: BandFields {
+                path: source_path
+                    .as_ref()
+                    .map_or_else(|| name.clone(), |path| path.display().to_string()),
+                file: name.clone(),
+                date: request.date.clone(),
+                pages: None,
+            },
+            palette: request.colors.palette().map_err(export_error)?,
+            title: name,
+            counting_pages: request.setup.header.uses_page_count()
+                || request.setup.footer.uses_page_count(),
+            directory: directory.to_path_buf(),
+        };
+        if request.scope == ExportScope::HexDump {
+            self.export_hex_dump(document_id, request, observer, base)
+        } else {
+            self.export_text(document_id, request, observer, base)
+        }
+    }
+
+    /// The hexadecimal dump: 16 bytes a row, without line numbers.
+    fn export_hex_dump(
+        &self,
+        document_id: &DocumentId,
+        request: &PdfExportRequest,
+        observer: &dyn ExportObserver,
+        base: ExportBase,
+    ) -> Result<PdfExportResult, EditorError> {
+        let (len, _) = self.length_and_revision(document_id)?;
+        let rows = len.div_ceil(HEX_ROW_BYTES).max(1);
+        let setup = PageSetup {
+            line_numbers: false,
+            long_lines: nulis_print::LongLines::Cut,
+            syntax_highlighting: true,
+            ..request.setup.clone()
+        };
+        let estimated_pages =
+            nulis_print::estimate_pages(&setup, rows, rows).map_err(export_error)?;
+        check_size(request.confirm_above, estimated_pages)?;
+        let progress = ExportProgress {
+            total: len * (1 + u64::from(base.counting_pages)),
+            estimated_pages,
+            ..ExportProgress::default()
+        };
+        observer.report(progress);
+        let options = ExportOptions {
+            setup,
+            palette: base.palette,
+            fields: base.fields,
+            title: base.title,
+            last_line: rows,
+        };
+        let mut source = HexLines {
+            manager: self,
+            document_id: document_id.clone(),
+            revision: request.expected_revision,
+            len,
+            offset: None,
+            observer,
+            progress,
+            passes: 0,
+            counting_pages: base.counting_pages,
+        };
+        write_pdf(&base.directory, &request.path, &mut source, &options)
+    }
+
+    /// The text of the whole document or of the selections.
+    fn export_text(
+        &self,
+        document_id: &DocumentId,
+        request: &PdfExportRequest,
+        observer: &dyn ExportObserver,
+        base: ExportBase,
+    ) -> Result<PdfExportResult, EditorError> {
+        let counting_pages = base.counting_pages;
         let spans = self.print_spans(document_id, request.expected_revision, request.scope)?;
         let scanned = spans.last().map_or(0, |span| span.1);
         let range_bytes: u64 = spans.iter().map(|(start, end)| end - start).sum();
@@ -180,33 +260,17 @@ impl DocumentManager {
             + u64::try_from(ranges.len().saturating_sub(1)).unwrap_or(0);
         progress.estimated_pages =
             nulis_print::estimate_pages(&request.setup, rows, last_line).map_err(export_error)?;
-        if let Some(limit) = request.confirm_above {
-            if progress.estimated_pages > limit {
-                return Err(EditorError::ExportNeedsConfirmation {
-                    estimated_pages: progress.estimated_pages,
-                });
-            }
-        }
-        let counting_pages =
-            request.setup.header.uses_page_count() || request.setup.footer.uses_page_count();
+        check_size(request.confirm_above, progress.estimated_pages)?;
         progress.done = scanned;
         progress.total = scanned + range_bytes * (1 + u64::from(counting_pages));
         observer.report(progress);
         let options = ExportOptions {
             setup: request.setup.clone(),
-            palette: request.colors.palette().map_err(export_error)?,
-            fields: BandFields {
-                path: source_path
-                    .as_ref()
-                    .map_or_else(|| name.clone(), |path| path.display().to_string()),
-                file: name.clone(),
-                date: request.date.clone(),
-                pages: None,
-            },
-            title: name,
+            palette: base.palette,
+            fields: base.fields,
+            title: base.title,
             last_line,
         };
-
         let mut source = DocumentLines {
             manager: self,
             document_id: document_id.clone(),
@@ -223,17 +287,7 @@ impl DocumentManager {
             range_bytes,
             finished_bytes: 0,
         };
-        let summary = write_atomically(directory, &request.path, |out| {
-            export_pdf(&mut source, out, &options)
-                .map(|(_, summary)| summary)
-                .map_err(export_error)
-        })?;
-        Ok(PdfExportResult {
-            path: request.path.display().to_string(),
-            pages: summary.pages,
-            missing_glyphs: summary.missing_glyphs,
-            bytes: summary.bytes,
-        })
+        write_pdf(&base.directory, &request.path, &mut source, &options)
     }
 
     /// The document's name and file, checking it is still at `revision`.
@@ -521,6 +575,49 @@ impl DocumentManager {
     }
 }
 
+/// What every export path needs besides its lines.
+#[derive(Debug)]
+struct ExportBase {
+    fields: BandFields,
+    palette: nulis_print::Palette,
+    title: String,
+    counting_pages: bool,
+    directory: PathBuf,
+}
+
+/// Bytes per row of a hexadecimal dump, as in the hexadecimal editor.
+const HEX_ROW_BYTES: u64 = 16;
+
+/// Refuses with [`EditorError::ExportNeedsConfirmation`] above `limit` pages.
+fn check_size(limit: Option<u64>, estimated_pages: u64) -> Result<(), EditorError> {
+    match limit {
+        Some(limit) if estimated_pages > limit => {
+            Err(EditorError::ExportNeedsConfirmation { estimated_pages })
+        }
+        _ => Ok(()),
+    }
+}
+
+/// Lays out `source` and writes the PDF to `path` through a temporary file.
+fn write_pdf<S: LineSource>(
+    directory: &Path,
+    path: &Path,
+    source: &mut S,
+    options: &ExportOptions,
+) -> Result<PdfExportResult, EditorError> {
+    let summary = write_atomically(directory, path, |out| {
+        export_pdf(source, out, options)
+            .map(|(_, summary)| summary)
+            .map_err(export_error)
+    })?;
+    Ok(PdfExportResult {
+        path: path.display().to_string(),
+        pages: summary.pages,
+        missing_glyphs: summary.missing_glyphs,
+        bytes: summary.bytes,
+    })
+}
+
 /// Writes a file through `write` into a temporary file in `directory`, then
 /// syncs it and moves it to `path`. On any error the temporary file is removed.
 fn write_atomically<T>(
@@ -787,6 +884,119 @@ impl LineSource for DocumentLines<'_> {
     }
 }
 
+/// Bytes read per step of a hexadecimal dump (a whole number of rows).
+const HEX_WINDOW_BYTES: u64 = 64 * 1024;
+
+/// The document's bytes as hexadecimal dump rows:
+/// `00000000  48 65 6C 6C 6F 0A …  Hello.`. The offset is shown like a
+/// comment and the characters like a string.
+struct HexLines<'a> {
+    manager: &'a DocumentManager,
+    document_id: DocumentId,
+    revision: u64,
+    len: u64,
+    /// `None` before the first rewind and after the last row.
+    offset: Option<u64>,
+    observer: &'a dyn ExportObserver,
+    progress: ExportProgress,
+    passes: u64,
+    counting_pages: bool,
+}
+
+/// One dump row for `bytes` (at most 16) at `offset`, with offset digits wide.
+fn hex_row(offset: u64, bytes: &[u8], digits: usize, number: u64) -> SourceLine {
+    use std::fmt::Write as _;
+    let mut text = format!("{offset:0digits$X}  ");
+    for (index, byte) in bytes.iter().enumerate() {
+        let _ = write!(text, "{byte:02X} ");
+        if index == 7 {
+            text.push(' ');
+        }
+    }
+    // Pad short last rows so the characters stay in their column.
+    let full_width = digits + 2 + 16 * 3 + 1;
+    while text.chars().count() < full_width {
+        text.push(' ');
+    }
+    let characters_start = text.chars().count() + 1;
+    text.push(' ');
+    text.extend(bytes.iter().map(|byte| {
+        if (0x20..0x7F).contains(byte) {
+            char::from(*byte)
+        } else {
+            '.'
+        }
+    }));
+    let end = text.chars().count();
+    SourceLine {
+        number,
+        continuation: false,
+        separator_before: false,
+        spans: vec![
+            Span {
+                start: 0,
+                end: digits,
+                token: SyntaxToken::Comment,
+            },
+            Span {
+                start: characters_start,
+                end,
+                token: SyntaxToken::String,
+            },
+        ],
+        text,
+    }
+}
+
+impl LineSource for HexLines<'_> {
+    fn rewind(&mut self) -> Result<(), PrintError> {
+        self.offset = Some(0);
+        self.passes += 1;
+        self.progress.phase = if self.counting_pages && self.passes == 1 {
+            ExportPhase::CountingPages
+        } else {
+            ExportPhase::Writing
+        };
+        Ok(())
+    }
+
+    fn next_lines(&mut self, _highlight: bool) -> Result<Option<Vec<SourceLine>>, PrintError> {
+        if self.observer.cancelled() {
+            return Err(PrintError::Cancelled);
+        }
+        let Some(offset) = self.offset.take() else {
+            return Ok(None);
+        };
+        let bytes = self
+            .manager
+            .read_at_revision(&self.document_id, self.revision, offset, HEX_WINDOW_BYTES)
+            .map_err(|error| match error {
+                EditorError::StaleRevision { .. } => PrintError::Source(
+                    "the document changed during the export; export it again".into(),
+                ),
+                other => PrintError::Source(other.to_string()),
+            })?;
+        let digits = usize::try_from(self.len.max(1).ilog(16) + 1)
+            .unwrap_or(8)
+            .max(8);
+        let lines = bytes
+            .chunks(16)
+            .zip((offset..).step_by(16))
+            .map(|(row, at)| hex_row(at, row, digits, at / HEX_ROW_BYTES + 1))
+            .collect();
+        let next = offset + u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+        // An empty read ends the dump, so a wrong length can never loop.
+        self.offset = (next < self.len && !bytes.is_empty()).then_some(next);
+        self.progress.done = self.len * (self.passes - 1) + next;
+        self.observer.report(self.progress);
+        Ok(Some(lines))
+    }
+
+    fn page_written(&mut self, number: u64) {
+        self.progress.pages_written = number;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -898,6 +1108,38 @@ mod tests {
                 (2, "beta".to_owned(), false),
                 (3, "gamma".to_owned(), false)
             ]
+        );
+    }
+
+    #[test]
+    fn a_hex_dump_shows_offsets_bytes_and_characters() {
+        let (_root, manager, id) = document("Hello, hex dump!\nTwo\u{1}");
+        let mut source = super::HexLines {
+            manager: &manager,
+            document_id: id,
+            revision: 0,
+            len: 21,
+            offset: None,
+            observer: &Unobserved,
+            progress: ExportProgress::default(),
+            passes: 0,
+            counting_pages: false,
+        };
+        source.rewind().expect("rewind");
+        let rows = source.next_lines(true).expect("rows").expect("some rows");
+        assert!(source.next_lines(true).expect("end").is_none());
+        let texts: Vec<_> = rows.iter().map(|row| row.text.as_str()).collect();
+        assert_eq!(
+            texts,
+            [
+                "00000000  48 65 6C 6C 6F 2C 20 68  65 78 20 64 75 6D 70 21  Hello, hex dump!",
+                "00000010  0A 54 77 6F 01                                    .Two.",
+            ]
+        );
+        assert_eq!(rows[0].spans[0].end, 8);
+        assert_eq!(
+            rows[1].spans[1].start,
+            texts[1].find('.').expect("characters")
         );
     }
 

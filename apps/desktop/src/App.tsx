@@ -298,8 +298,11 @@ function RenameDialog({ name, busy, onSubmit, onCancel }: {
 /** How often a running export is asked for its progress. */
 const EXPORT_POLL_MS = 150;
 
+/** What an export covers; `hexDump` is the hexadecimal editor's view of the bytes. */
+type ExportScope = "document" | "selection" | "hexDump";
+
 /** The document an export reads and the file it writes. */
-interface ExportTarget { documentId: string; name: string; revision: string; path: string; scope: "document" | "selection" }
+interface ExportTarget { documentId: string; name: string; revision: string; path: string; scope: ExportScope }
 
 export function App() {
   const desktopShell = isTauri();
@@ -827,11 +830,14 @@ export function App() {
   };
 
   /** Asks where to save, then exports the document as it is now, unsaved edits included. */
-  const exportPdf = async (scope: "document" | "selection") => {
+  const exportPdf = async (requested: "document" | "selection") => {
     const document = activeDocument;
     if (!document) return;
+    // In the hexadecimal editor the PDF is a dump of the bytes.
+    const scope: ExportScope = viewModes[document.documentId] === "hex" ? "hexDump" : requested;
     if (exportJob) { setStatus("An export to PDF is already running"); return; }
-    const stem = `${document.name.replace(/\.[^.\\/]+$/, "") || "Untitled"}${scope === "selection" ? " (selection)" : ""}`;
+    const suffix = scope === "selection" ? " (selection)" : scope === "hexDump" ? " (hex)" : "";
+    const stem = `${document.name.replace(/\.[^.\\/]+$/, "") || "Untitled"}${suffix}`;
     const folder = document.sourcePath ? document.sourcePath.slice(0, Math.max(document.sourcePath.lastIndexOf("/"), document.sourcePath.lastIndexOf("\\")) + 1) : "";
     try {
       const destination = await saveDialog({

@@ -1,19 +1,20 @@
 //! Exports a file to PDF through the core, as File ▸ Export to PDF does.
 //!
-//! `cargo run -p nulis-core --example export_pdf -- <input> <output.pdf> [setup JSON]`
+//! `cargo run -p nulis-core --example export_pdf -- <input> <output.pdf> [setup JSON] [document|hexDump]`
 
 use nulis_core::{CommandContext, NulisCore};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut arguments = std::env::args().skip(1);
     let (Some(input), Some(output)) = (arguments.next(), arguments.next()) else {
-        eprintln!("usage: export_pdf <input> <output.pdf> [setup JSON]");
+        eprintln!("usage: export_pdf <input> <output.pdf> [setup JSON] [document|hexDump]");
         std::process::exit(2);
     };
     let setup: serde_json::Value = match arguments.next() {
         Some(json) => serde_json::from_str(&json)?,
         None => serde_json::json!({}),
     };
+    let scope = arguments.next().unwrap_or_else(|| "document".into());
     let data = tempfile::tempdir()?;
     let core = NulisCore::with_session_root(data.path().into());
     let opened = core.execute_command(
@@ -34,6 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "path": output.display().to_string(),
             "setup": setup,
             "date": "21 October 2026",
+            "scope": scope,
         }),
     )?;
     println!("{result}");
