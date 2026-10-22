@@ -627,9 +627,17 @@ fn write_atomically<T>(
     path: &Path,
     write: impl FnOnce(&mut BufWriter<&mut std::fs::File>) -> Result<T, EditorError>,
 ) -> Result<T, EditorError> {
-    let mut file = tempfile::Builder::new()
-        .prefix(".nulis-export-")
-        .suffix(".pdf")
+    let mut builder = tempfile::Builder::new();
+    builder.prefix(".nulis-export-").suffix(".pdf");
+    // A temporary file is private (0600) and keeps that mode when it is moved
+    // into place. Ask for 0666 so the umask gives the PDF the same mode as any
+    // other new file.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(std::fs::Permissions::from_mode(0o666));
+    }
+    let mut file = builder
         .tempfile_in(directory)
         .map_err(|error| EditorError::io(&error))?;
     let mut out = BufWriter::new(file.as_file_mut());
@@ -1143,6 +1151,32 @@ mod tests {
             rows[1].spans[1].start,
             texts[1].find('.').expect("characters")
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_exported_file_gets_the_mode_of_a_new_file() {
+        use crate::EditorError;
+        use std::io::Write as _;
+        use std::os::unix::fs::PermissionsExt;
+        let directory = tempfile::tempdir().expect("directory");
+        let path = directory.path().join("out.pdf");
+        super::write_atomically(directory.path(), &path, |out| {
+            out.write_all(b"%PDF")
+                .map_err(|error| EditorError::io(&error))
+        })
+        .expect("write");
+        // `File::create` asks for 0666 and the umask trims it.
+        let plain = directory.path().join("plain");
+        std::fs::File::create(&plain).expect("plain file");
+        let mode = |path: &std::path::Path| {
+            std::fs::metadata(path)
+                .expect("metadata")
+                .permissions()
+                .mode()
+                & 0o777
+        };
+        assert_eq!(mode(&path), mode(&plain));
     }
 
     #[test]

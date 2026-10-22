@@ -6,7 +6,7 @@ Written 2026-10-21 at the end of a session, for the next one. Read this first, t
 
 - **Branch `m36-print`**, on top of `main` (`c58f9d2`, Nulis 0.3.0); `git log --oneline main..m36-print` lists its commits. Not merged and not pushed. The working tree was clean when this note was written.
 - **M36** (Print Preview spike, commands, font) and **M37** (`nulis-print`, Export to PDF) are done and were checked by hand on macOS.
-- **M38** (export job with progress and Cancel, large-export question, selection, hex dump, font fallback, highlight windows) has its code and tests done. **The check in the app is still to do**: the user postponed it.
+- **M38** (export job with progress and Cancel, large-export question, selection, hex dump, font fallback, highlight windows) is done and was checked in the app on macOS on 2026-10-22 (results in `M38_HANDOVER.md`). One bug found there (exported PDFs got mode `0600`) is fixed.
 - **M39** and **M40** have not started.
 - Printing is **development builds only**: `PRINT_COMMANDS_ENABLED` is `cfg!(debug_assertions)` in `crates/nulis-core/src/lib.rs` and `import.meta.env.DEV` in `apps/desktop/src/commands.ts`. `PRINT_MENU_ENABLED` in `apps/desktop/src-tauri/src/lib.rs` follows the core. A release build shows none of it.
 - IPC protocol 40.
@@ -51,7 +51,7 @@ Compile with `swiftc -O -o /tmp/x <file>`. Exports are deterministic (no creatio
 cargo run -p nulis-core --example export_pdf -- <input> <out.pdf> ['{"orientation":"landscape"}'] [document|hexDump]
 ```
 
-## Next: the M38 check in the app (postponed)
+## Done: the M38 check in the app (2026-10-22)
 
 Test files on the user's Mac: `~/Desktop/nulis-print-tests/`. If they are gone, regenerate:
 - `big-server.log`: 150,000 log lines, about 10 MB.
@@ -66,9 +66,17 @@ Test files on the user's Mac: `~/Desktop/nulis-print-tests/`. If they are gone, 
 | Hex editor, Export to PDF | Name ends in "(hex)"; offset, 16 bytes (gap after 8), characters |
 | Export `scripts.rs` | Chinese, Japanese, and Korean print, with the two alignment rows lined up; the status bar says 7 characters are left blank (Javanese 5, emoji 2) |
 
-Record the result in `M38_HANDOVER.md` and `IMPLEMENTATION_TRACKER.md`, and mark M38 complete.
+All passed; recorded in `M38_HANDOVER.md` and `IMPLEMENTATION_TRACKER.md`. A second selection is added with Option-drag (Alt on Windows and Linux), not Cmd.
 
-## Then: M39, Print and Page Setup
+**Test build as an app** (instead of `npm run dev`), from `apps/desktop`; the frontend goes to the scratchpad so the project's `dist` is not overwritten:
+
+```sh
+npx tauri build --debug --bundles app --config '{"build":{"beforeBuildCommand":"tsc -b && vite build --mode development --outDir <scratchpad>/dist --emptyOutDir","frontendDist":"<scratchpad>/dist"}}'
+```
+
+The app is `target/debug/bundle/macos/Nulis.app`. It uses the same user data, so back up first.
+
+## Next: M39, Print and Page Setup
 
 Plan §3.2 and §3.6. Suggested order:
 

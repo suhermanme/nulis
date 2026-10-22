@@ -1,6 +1,6 @@
 # M38 handover: export jobs, selection, hex dump, font fallback
 
-Plan: `IMPROVEMENT_PLAN_3.md` §3.3, §3.4, §3.5, §4 (M38). Status: code and automated tests done 2026-10-21 on branch `m36-print`. Not yet tried in the app by hand. Like the rest of printing, it is only in development builds until M39.
+Plan: `IMPROVEMENT_PLAN_3.md` §3.3, §3.4, §3.5, §4 (M38). Status: done. Code and automated tests 2026-10-21; checked by hand in a development build on macOS 2026-10-22. On branch `m36-print`. Like the rest of printing, it is only in development builds until M39.
 
 ## What changed
 
@@ -38,9 +38,22 @@ Plan: `IMPROVEMENT_PLAN_3.md` §3.3, §3.4, §3.5, §4 (M38). Status: code and a
 - Frontend: lint and typecheck clean; Vitest 20 files, 178 tests (new: the large-export dialog runs again with `confirmed: true`).
 - By eye (PDFKit render, macOS 26): `Samples/sample-binary.plist` as a hex dump. A mixed-script file: Chinese, Japanese, Korean, Greek, Cyrillic and symbols print, with CJK columns lined up; Arabic and Devanagari print unshaped; Javanese and emoji are reported missing (7). Fallback fonts used: Arial Unicode MS, AppleGothic, Courier New, Menlo; the PDF is 362 KB.
 
+## Check in the app (2026-10-22, macOS)
+
+A debug bundle (`npx tauri build --debug --bundles app`, frontend built with `vite build --mode development` so `import.meta.env.DEV` is true) with the user's data backed up first. The user drove the dialogs; the PDFs were measured with `docs/handover/tools/pdf_inspect.swift`. All passed:
+
+| Check | Result |
+| --- | --- |
+| Export `big-server.log` (150,000 lines) | "Export 2,460 pages?" asked; progress bar and Cancel in the status bar |
+| Cancel partway | "Export to PDF cancelled"; no PDF and no `.nulis-export-*` file left |
+| Export to the end | 2,460 A4 pages, 25 outline entries (one per 100 pages), 5.8 MB |
+| Export Selection, two selections (Option-drag adds the second) | `Sample.java` lines 4–5, a rule, lines 23–24, each with its own line number and highlighting |
+| Hex editor, Export to PDF | "Sample (hex).pdf"; offset, 16 bytes with a gap after 8, characters; 5 pages |
+| Export `scripts.rs` | Chinese, Japanese, and Korean print; the `\|中\|文\|列\|` and `\|ab\|cd\|ef\|` rows line up; 7 characters reported blank |
+
+Found in the check and fixed: exported PDFs were created with mode `0600` (owner only), because the temporary file keeps its mode when it is moved into place. `write_atomically` now asks for `0666` on Unix, so the umask gives the PDF the same mode as any other new file (`0644` by default). The test `an_exported_file_gets_the_mode_of_a_new_file` fails without the fix.
+
 ## Open
 
-- Try in a development build (back up the user data first; see M36): progress and Cancel on a large file, the large-export dialog, Export Selection, the hex dump, a file with CJK text.
-  Test files are in `~/Desktop/nulis-print-tests` on the user's Mac: `big-server.log` (150,000 lines, at least 2,460 pages, so the large-export dialog appears) and `scripts.rs` (mixed scripts; 7 characters should be reported missing). The user postponed this check on 2026-10-21.
 - Windows and Linux: fallback depends on the installed fonts; Linux distributions often have only CFF CJK fonts (Noto Sans CJK), which are not used yet.
 - Rectangular selections print whole lines, not the column block.
