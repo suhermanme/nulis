@@ -25,6 +25,18 @@ export function pageSizeRule(widthMm: number, heightMm: number, margins?: { top:
   return `@page { size: ${widthMm}mm ${heightMm}mm; margin: ${margin}; }`;
 }
 
+/**
+ * Whether the engine repeats a box's padding on every printed page. Chromium
+ * does; WebKit (macOS, Linux) does not, and adds no header of its own there.
+ */
+export function repeatsPagePadding(): boolean {
+  try {
+    return typeof CSS !== "undefined" && typeof CSS.supports === "function" && CSS.supports("box-decoration-break", "clone");
+  } catch {
+    return false;
+  }
+}
+
 /** Puts `rule` in the print style sheet while mounted; the dialog may still change the paper. */
 function usePageRule(rule: string | null) {
   useEffect(() => {
@@ -76,6 +88,10 @@ async function readPages(update: (shown: Shown) => void, stale: () => boolean): 
     start += batch.pages.length;
     if (batch.pages.length === 0 || start >= batch.total) return;
   }
+}
+
+function sheetMargins(margins: { top: number; right: number; bottom: number; left: number }): string {
+  return `${margins.top}mm ${margins.right}mm ${margins.bottom}mm ${margins.left}mm`;
 }
 
 const loadMarkdownImage: ImageLoader = (_documentId, relativePath) => printWindowMarkdownImage(relativePath);
@@ -130,7 +146,8 @@ export function PrintApp() {
     : markdownPaper ? { widthMm: markdownPaper.widthMm, heightMm: markdownPaper.heightMm } : null;
   const pageWidthMm = paper ? (landscape ? paper.heightMm : paper.widthMm) : 0;
   const pageHeightMm = paper ? (landscape ? paper.widthMm : paper.heightMm) : 0;
-  usePageRule(paper ? pageSizeRule(pageWidthMm, pageHeightMm, markdownSetup?.margins) : null);
+  const repeatMargins = repeatsPagePadding();
+  usePageRule(paper ? pageSizeRule(pageWidthMm, pageHeightMm, repeatMargins ? undefined : markdownSetup?.margins) : null);
 
   const title = shown.kind === "pages" || shown.kind === "markdown" ? shown.title : "";
   useEffect(() => {
@@ -168,9 +185,10 @@ export function PrintApp() {
       ) : null}
       {shown.kind === "markdown" && markdownSetup ? (
         <main className="print-pages">
-          <div className="print-markdown-sheet" style={{
+          <div className={repeatMargins ? "print-markdown-sheet repeat-margins" : "print-markdown-sheet"} style={{
             width: `${pageWidthMm}mm`,
-            padding: `${markdownSetup.margins.top}mm ${markdownSetup.margins.right}mm ${markdownSetup.margins.bottom}mm ${markdownSetup.margins.left}mm`,
+            padding: sheetMargins(markdownSetup.margins),
+            ["--sheet-margins" as string]: sheetMargins(markdownSetup.margins),
           }}>
             <MarkdownPreview documentId={shown.documentId} source={shown.text} loadImage={loadMarkdownImage} className="print-markdown" />
           </div>

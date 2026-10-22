@@ -26,5 +26,11 @@ tauri-plugin-single-instance.workspace = true
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "NSString", "NSUserDefaults", "NSGeometry"] }
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSPrintInfo"] }
 
+# Print opens the GTK print dialog itself, to set the paper and orientation
+# (the versions wry already uses).
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "=0.18.2"
+webkit2gtk = "=2.0.2"
+
 [lints]
 workspace = true

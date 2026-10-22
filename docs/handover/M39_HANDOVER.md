@@ -59,6 +59,13 @@ Back up the user data first (see `PLAN3_RESUME.md`). Then:
 6. Current theme colors with a dark theme, and with a light theme. **Passed.**
 7. Release build menu: not built; the switches that hid the items are gone, and the tests cover the menu.
 
+## Windows and Linux check (2026-10-22, test VMs)
+
+- Page counts match on every system for the same Page Setup: `big-server.log` at A4 landscape gives 3,751 pages at 9 pt and 5,173 at 12 pt on macOS, Windows, Ubuntu, and the reference export.
+- **Linux printed landscape pages shrunk onto portrait paper:** WebKitGTK opened its dialog on the default paper. Fixed: Print opens the GTK dialog itself with the paper and orientation set (`print_on_linux` in `src-tauri/src/lib.rs`, with `gtk` and `webkit2gtk` at wry's versions).
+- **Windows added its own header and footer** (date, title, `tauri.localhost` address, page number) to Markdown prints, in the `@page` margins. Fixed: where the engine repeats padding on each page (`box-decoration-break: clone`, Chromium), the page margin is 0 and the margins are that padding (checked with Chrome 155: no header or footer, 15 mm kept at the top of every page). Code pages already print with no page margin.
+- The Print error over 5,000 pages said "Could not export to PDF"; it now says "Could not print".
+
 ## Open
 
 - Windows and Linux: paper size (only macOS sets it before the dialog), fonts, and page breaks in WebView2 and WebKitGTK.

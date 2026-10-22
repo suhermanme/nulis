@@ -2685,6 +2685,7 @@ dependencies = [
 name = "nulis-desktop"
 version = "0.3.0"
 dependencies = [
+ "gtk",
  "nulis-core",
  "nulis-plugin-host",
  "objc2-app-kit",
@@ -2696,6 +2697,7 @@ dependencies = [
  "tauri-plugin-clipboard-manager",
  "tauri-plugin-dialog",
  "tauri-plugin-single-instance",
+ "webkit2gtk",
 ]
 
 [[package]]

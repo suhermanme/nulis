@@ -80,6 +80,10 @@
   .print-page:last-child { break-after: auto; }
   /* Markdown flows from page to page within the @page margins. */
   .print-markdown-sheet { width: auto !important; padding: 0 !important; box-shadow: none; }
+  /* Chromium (WebView2 on Windows) draws its own date, title, address, and
+     page number in the @page margins. There the page margin is 0 and the
+     margins are padding repeated on every page instead. */
+  .print-markdown-sheet.repeat-margins { padding: var(--sheet-margins) !important; box-decoration-break: clone; }
   .markdown-preview.print-markdown h1, .markdown-preview.print-markdown h2, .markdown-preview.print-markdown h3 { break-after: avoid; }
   .markdown-preview.print-markdown pre, .markdown-preview.print-markdown img, .markdown-preview.print-markdown tr { break-inside: avoid; }
 }

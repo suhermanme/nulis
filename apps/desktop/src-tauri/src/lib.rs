@@ -1362,7 +1362,81 @@ fn print_window_print(window: tauri::WebviewWindow, paper: PrintPaper) -> Result
     paper.validate()?;
     #[cfg(target_os = "macos")]
     set_macos_print_paper(paper);
+    open_print_dialog(&window, paper)
+}
+
+#[cfg(not(target_os = "linux"))]
+#[allow(clippy::unnecessary_wraps)] // Same signature as the Linux version.
+fn open_print_dialog(window: &tauri::WebviewWindow, _paper: PrintPaper) -> Result<(), String> {
     window.print().map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "linux")]
+fn open_print_dialog(window: &tauri::WebviewWindow, paper: PrintPaper) -> Result<(), String> {
+    print_on_linux(window, paper)
+}
+
+/// WebKitGTK opens the print dialog on the default paper, portrait, and
+/// shrinks a landscape page onto it. This opens the same dialog with the
+/// Print Preview's paper and orientation already chosen.
+#[cfg(target_os = "linux")]
+fn print_on_linux(window: &tauri::WebviewWindow, paper: PrintPaper) -> Result<(), String> {
+    window
+        .with_webview(move |webview| {
+            use gtk::prelude::{Cast, WidgetExt};
+            use webkit2gtk::PrintOperationExt;
+            let view = webview.inner();
+            let size = linux_paper_size(paper);
+            let orientation = if paper.landscape {
+                gtk::PageOrientation::Landscape
+            } else {
+                gtk::PageOrientation::Portrait
+            };
+            let setup = gtk::PageSetup::new();
+            setup.set_paper_size(&size);
+            setup.set_orientation(orientation);
+            let settings = gtk::PrintSettings::new();
+            settings.set_paper_size(&size);
+            settings.set_orientation(orientation);
+            let operation = webkit2gtk::PrintOperation::new(&view);
+            operation.set_page_setup(&setup);
+            operation.set_print_settings(&settings);
+            let parent = view
+                .toplevel()
+                .and_then(|widget| widget.downcast::<gtk::Window>().ok());
+            operation.run_dialog(parent.as_ref());
+        })
+        .map_err(|error| error.to_string())
+}
+
+/// The named GTK paper for the sizes Page Setup offers, so the dialog and
+/// the printer recognize them; any other size as a custom one.
+#[cfg(target_os = "linux")]
+fn linux_paper_size(paper: PrintPaper) -> gtk::PaperSize {
+    const NAMED: [(&str, f64, f64); 5] = [
+        ("iso_a4", 210.0, 297.0),
+        ("na_letter", 215.9, 279.4),
+        ("na_legal", 215.9, 355.6),
+        ("iso_a3", 297.0, 420.0),
+        ("iso_a5", 148.0, 210.0),
+    ];
+    NAMED
+        .iter()
+        .find(|(_, width, height)| {
+            (paper.width_mm - width).abs() < 0.5 && (paper.height_mm - height).abs() < 0.5
+        })
+        .map_or_else(
+            || {
+                gtk::PaperSize::new_custom(
+                    "nulis-page-setup",
+                    "Page Setup",
+                    paper.width_mm,
+                    paper.height_mm,
+                    gtk::Unit::Mm,
+                )
+            },
+            |(name, _, _)| gtk::PaperSize::new(Some(name)),
+        )
 }
 
 /// macOS prints on the paper of the last print job and ignores the page's

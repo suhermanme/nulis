@@ -92,6 +92,21 @@ test("a Markdown document prints its formatted preview on the Page Setup paper",
   expect(printThisWindow).toHaveBeenCalledWith({ widthMm: 215.9, heightMm: 279.4, landscape: false });
 });
 
+test("where the engine repeats padding on each page, Markdown margins leave no room for the browser's header", async () => {
+  vi.stubGlobal("CSS", { supports: (property: string, value: string) => property === "box-decoration-break" && value === "clone" });
+  try {
+    window.localStorage.setItem("nulis.printSettings.v1", JSON.stringify({ setup: { margins: { top: 20, right: 20, bottom: 20, left: 20 } } }));
+    content = { kind: "markdown", title: "notes.md", source: { documentId: "doc-1", revision: "3", text: "# Title" } };
+    const { container } = render(<PrintApp />);
+    await screen.findByRole("heading", { name: "Title" });
+    const sheet = container.querySelector(".print-markdown-sheet");
+    expect(sheet).toHaveClass("repeat-margins");
+    expect((sheet as HTMLElement).style.getPropertyValue("--sheet-margins")).toBe("20mm 20mm 20mm 20mm");
+  } finally {
+    vi.unstubAllGlobals();
+  }
+});
+
 test("with nothing prepared the window says how to print", async () => {
   content = { kind: "empty" };
   render(<PrintApp />);
