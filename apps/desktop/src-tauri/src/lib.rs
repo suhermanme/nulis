@@ -1376,7 +1376,7 @@ fn open_print_dialog(window: &tauri::WebviewWindow, paper: PrintPaper) -> Result
     print_on_linux(window, paper)
 }
 
-/// WebKitGTK opens the print dialog on the default paper, portrait, and
+/// `WebKitGTK` opens the print dialog on the default paper, portrait, and
 /// shrinks a landscape page onto it. This opens the same dialog with the
 /// Print Preview's paper and orientation already chosen.
 #[cfg(target_os = "linux")]
