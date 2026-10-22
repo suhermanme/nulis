@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+base64.workspace = true
 nulis-large-file = { path = "../nulis-large-file" }
 serde.workspace = true
 serde_json.workspace = true

@@ -112,8 +112,9 @@ export function RemotePanel({ onOpen, onStatus }: RemotePanelProps) {
         onChange={(event) => setProfile({ ...profile, port: Number(event.target.value) })} /></div>
       <input aria-label="Remote root path" placeholder="Root path" value={profile.rootPath}
         onChange={(event) => setProfile({ ...profile, rootPath: event.target.value })} />
-      <input aria-label="SHA-256 host key fingerprint" placeholder="Pinned host key SHA-256" value={profile.hostKeySha256}
-        onChange={(event) => setProfile({ ...profile, hostKeySha256: event.target.value.toLowerCase().replaceAll(":", "") })} />
+      <input aria-label="SHA-256 host key fingerprint" placeholder="Host key: SHA256:… (ssh-keygen -lf)" value={profile.hostKeySha256}
+        spellCheck={false} autoCapitalize="off" autoCorrect="off"
+        onChange={(event) => setProfile({ ...profile, hostKeySha256: event.target.value.trim() })} />
       <input aria-label="Remote password" type="password" autoComplete="new-password"
         placeholder={profile.credentialId ? "New password (optional)" : "Password"} value={password}
         onChange={(event) => setPassword(event.target.value)} />

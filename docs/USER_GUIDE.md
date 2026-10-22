@@ -511,7 +511,7 @@ Folders are read only when you expand them, so browsing a large disk stays fast.
 Click **Remote** in the activity bar to browse a server over SFTP.
 
 1. Fill in a profile: an ID and label of your choice, the host, user name, port, and the root path to start in.
-2. Enter the server's **SHA-256 host key fingerprint**. Nulis connects only if the server presents exactly this key.
+2. Enter the server's **host key fingerprint**, as SSH prints it: `SHA256:` followed by 43 letters, digits, `+`, and `/`. Nulis connects only if the server presents exactly this key. To get it, run `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the server, or compare with the fingerprint `ssh` showed the first time you connected. Nulis checks the server's ED25519 key when it has one, as `ssh` does; if the key does not match, the message names the key type and the fingerprint the server presented. The hexadecimal form (64 digits, colons allowed) is accepted too.
 3. Enter the password and press **Save**. The password is stored in the operating system's keychain, never in a settings file.
 4. Press **Connect**, browse the folders, and click a file to open it.
 

@@ -757,6 +757,8 @@ test("Replace in Files previews, asks for confirmation, then reports each file",
 });
 
 test("stores remote credentials separately from persisted SFTP profile metadata", async () => {
+  // Typed as OpenSSH prints it; the core stores it as hex.
+  const typedFingerprint = "SHA256:67C81qIlWGDaV1sM2jKJr1jRag9Wwk6wTTNf8Di0+Ww";
   const saved = {
     id: "staging", label: "Staging", host: "example.test", port: 22,
     username: "developer", rootPath: "/srv/app", credentialId: "staging.password",
@@ -775,7 +777,7 @@ test("stores remote credentials separately from persisted SFTP profile metadata"
   fireEvent.change(screen.getByRole("textbox", { name: "Remote username" }), { target: { value: "developer" } });
   fireEvent.change(screen.getByRole("textbox", { name: "Remote root path" }), { target: { value: "/srv/app" } });
   fireEvent.change(screen.getByRole("textbox", { name: "SHA-256 host key fingerprint" }), {
-    target: { value: "ab".repeat(32) },
+    target: { value: typedFingerprint },
   });
   fireEvent.change(screen.getByLabelText("Remote password"), { target: { value: "secret-value" } });
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -785,7 +787,7 @@ test("stores remote credentials separately from persisted SFTP profile metadata"
     arguments: { credentialId: "staging.password", secret: "secret-value" },
   }));
   expect(executeCommand).toHaveBeenCalledWith({
-    id: "remote.saveProfile", context: { windowId: "main" }, arguments: saved,
+    id: "remote.saveProfile", context: { windowId: "main" }, arguments: { ...saved, hostKeySha256: typedFingerprint },
   });
   expect(await screen.findByRole("option", { name: "Staging" })).toBeInTheDocument();
 });

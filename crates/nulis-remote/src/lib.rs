@@ -1,8 +1,9 @@
 //! Capability-scoped remote resources with keychain-backed credentials.
 
+use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine as _};
 use nulis_large_file::ReadAt;
 use serde::{Deserialize, Serialize};
-use ssh2::{HashType, Session};
+use ssh2::{HashType, HostKeyType, MethodType, Session};
 use std::{
     collections::BTreeMap,
     fs,
@@ -132,8 +133,13 @@ pub enum RemoteError {
     InvalidCredential,
     #[error("remote state is unavailable")]
     StateUnavailable,
-    #[error("remote host key did not match the pinned SHA-256 fingerprint")]
-    HostKeyMismatch,
+    #[error("the server's {key_type} host key has the fingerprint {presented}, not the one saved in this profile")]
+    HostKeyMismatch {
+        /// The key type, as `ssh-keygen -l` names it (`ED25519`, `ECDSA`, `RSA`).
+        key_type: &'static str,
+        /// `SHA256:` and the unpadded base64 digest, as OpenSSH prints it.
+        presented: String,
+    },
     #[error("remote authentication failed")]
     AuthenticationFailed,
     #[error("remote operation failed: {0}")]
@@ -379,7 +385,8 @@ impl RemoteService {
     ///
     /// # Errors
     /// Returns an error for invalid metadata, limits, or persistence failure.
-    pub fn save_profile(&self, profile: RemoteProfile) -> Result<RemoteProfile, RemoteError> {
+    pub fn save_profile(&self, mut profile: RemoteProfile) -> Result<RemoteProfile, RemoteError> {
+        profile.host_key_sha256 = normalize_host_key_fingerprint(&profile.host_key_sha256)?;
         self.profiles.save(profile)
     }
     /// Deletes profile metadata.
@@ -515,18 +522,23 @@ impl RemoteService {
         tcp.set_write_timeout(Some(Duration::from_secs(30)))
             .map_err(operation)?;
         let mut session = Session::new().map_err(operation)?;
+        // Ask for the host key OpenSSH uses first, so the fingerprint `ssh`
+        // showed on first connect is the one checked. Methods this build of
+        // libssh2 lacks (Ed25519 and ECDSA with WinCNG) are dropped by it.
+        let _ = session.method_pref(MethodType::HostKey, HOST_KEY_PREFERENCE);
         session.set_tcp_stream(tcp);
         session.handshake().map_err(operation)?;
+        let (_, key_type) = session
+            .host_key()
+            .ok_or_else(|| RemoteError::Operation("remote did not provide a host key".into()))?;
         let host_key = session
             .host_key_hash(HashType::Sha256)
             .ok_or_else(|| RemoteError::Operation("remote did not provide a host key".into()))?;
-        let mut fingerprint = String::with_capacity(64);
-        for byte in host_key {
-            use std::fmt::Write as _;
-            write!(fingerprint, "{byte:02x}").expect("writing to a String cannot fail");
-        }
-        if fingerprint != profile.host_key_sha256 {
-            return Err(RemoteError::HostKeyMismatch);
+        if hex(host_key) != profile.host_key_sha256 {
+            return Err(RemoteError::HostKeyMismatch {
+                key_type: key_type_name(key_type),
+                presented: format!("SHA256:{}", STANDARD_NO_PAD.encode(host_key)),
+            });
         }
         let mut secret = self.credentials.get(&profile.credential_id)?;
         let authentication = std::str::from_utf8(&secret)
@@ -566,6 +578,52 @@ impl ReadAt for SftpSource {
             .map_err(|_| io::Error::other("remote source is unavailable"))?;
         file.seek(SeekFrom::Start(offset))?;
         file.read(buffer)
+    }
+}
+
+/// Host key algorithms in OpenSSH's default order.
+const HOST_KEY_PREFERENCE: &str = "ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,rsa-sha2-512,rsa-sha2-256,ssh-rsa";
+
+fn hex(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let mut text = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        write!(text, "{byte:02x}").expect("writing to a String cannot fail");
+    }
+    text
+}
+
+fn key_type_name(key_type: HostKeyType) -> &'static str {
+    match key_type {
+        HostKeyType::Ed25519 => "ED25519",
+        HostKeyType::Ecdsa256 | HostKeyType::Ecdsa384 | HostKeyType::Ecdsa521 => "ECDSA",
+        HostKeyType::Rsa => "RSA",
+        HostKeyType::Dss => "DSA",
+        HostKeyType::Unknown => "unknown",
+    }
+}
+
+/// Reads a SHA-256 host key fingerprint as OpenSSH prints it
+/// (`SHA256:` and base64, padded or not) or as hex (colons allowed), and
+/// returns it as 64 lowercase hex digits.
+///
+/// # Errors
+/// Returns an error when the text is neither form of a 32-byte digest.
+pub fn normalize_host_key_fingerprint(text: &str) -> Result<String, RemoteError> {
+    let text = text.trim();
+    let digest = text
+        .get(..7)
+        .filter(|prefix| prefix.eq_ignore_ascii_case("sha256:"))
+        .map_or(text, |_| &text[7..]);
+    let without_colons = digest.replace(':', "");
+    if without_colons.len() == 64 && without_colons.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Ok(without_colons.to_ascii_lowercase());
+    }
+    match STANDARD_NO_PAD.decode(digest.trim_end_matches('=')) {
+        Ok(bytes) if bytes.len() == 32 => Ok(hex(&bytes)),
+        _ => Err(RemoteError::InvalidProfile(
+            "the host key fingerprint must be a SHA-256 fingerprint, such as SHA256:67C81q… from ssh-keygen -lf".into(),
+        )),
     }
 }
 
@@ -790,5 +848,58 @@ mod tests {
         let mut profile = profile();
         profile.host_key_sha256.clear();
         assert!(super::validate_profile(&profile).is_err());
+    }
+
+    #[test]
+    fn host_key_fingerprints_are_read_as_openssh_prints_them_or_as_hex() {
+        // `ssh-keygen -lf` for the ED25519 key of a test server.
+        let hex = "ebb0bcd6a2255860da575b0cda3289af58d16a0f56c24eb04d335ff038b4f96c";
+        for text in [
+            "SHA256:67C81qIlWGDaV1sM2jKJr1jRag9Wwk6wTTNf8Di0+Ww",
+            " sha256:67C81qIlWGDaV1sM2jKJr1jRag9Wwk6wTTNf8Di0+Ww= ",
+            "67C81qIlWGDaV1sM2jKJr1jRag9Wwk6wTTNf8Di0+Ww",
+            "EBB0BCD6A2255860DA575B0CDA3289AF58D16A0F56C24EB04D335FF038B4F96C",
+            "eb:b0:bc:d6:a2:25:58:60:da:57:5b:0c:da:32:89:af:58:d1:6a:0f:56:c2:4e:b0:4d:33:5f:f0:38:b4:f9:6c",
+        ] {
+            assert_eq!(super::normalize_host_key_fingerprint(text).expect(text), hex);
+        }
+        for text in [
+            "",
+            "SHA256:",
+            "SHA256:67C81qIlWGDaV1sM2jKJr1jRag9Wwk6w",
+            "MD5:ab:cd",
+            "ab".repeat(31).as_str(),
+        ] {
+            assert!(
+                super::normalize_host_key_fingerprint(text).is_err(),
+                "{text}"
+            );
+        }
+        // Lowercasing base64, as the form used to, changes the digest.
+        assert_ne!(
+            super::normalize_host_key_fingerprint(
+                "sha256:67c81qilwgdav1sm2jkjr1jrag9wwk6wwtnf8di0+ww"
+            )
+            .ok(),
+            Some(hex.to_owned())
+        );
+    }
+
+    #[test]
+    fn a_profile_saved_with_an_openssh_fingerprint_stores_hex() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let service = RemoteService::with_credentials(
+            directory.path().join("profiles.json"),
+            Arc::new(MemoryCredentials::default()),
+        )
+        .expect("service");
+        let mut entered = profile();
+        entered.host_key_sha256 = "SHA256:67C81qIlWGDaV1sM2jKJr1jRag9Wwk6wTTNf8Di0+Ww".into();
+        let saved = service.save_profile(entered).expect("save");
+        assert_eq!(
+            saved.host_key_sha256,
+            "ebb0bcd6a2255860da575b0cda3289af58d16a0f56c24eb04d335ff038b4f96c"
+        );
+        assert_eq!(service.list_profiles().expect("list"), vec![saved]);
     }
 }
