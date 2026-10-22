@@ -1,8 +1,8 @@
 # Work state
 
-## Plan 3: print and Export to PDF (M36–M40, in progress)
+## Plan 3: print and Export to PDF (M36–M40, complete)
 
-On branch `m36-print`, not merged. Print (pages laid out by the core, in a Print Preview window), Page Setup with a live preview, Export to PDF (whole document, selection, hex dump), progress and Cancel, and fallback fonts; printing is in every build since M39. M36–M39 are checked on macOS; Windows and Linux are untried. M40 (docs and release) is next. Where to resume, how to run a test build without losing the user's session, and the next tasks: `handover/PLAN3_RESUME.md`.
+Merged into `main` 2026-10-22, not yet released (notes: `release-notes/v0.4.0.md`). Print (pages laid out by the core, in a Print Preview window), Page Setup with a live preview, Export to PDF (whole document, selection, hex dump), progress and Cancel, and fallback fonts; printing is in every build since M39. M36–M40 are done and checked on macOS; Windows and Linux are untried. Where to resume, how to run a test build without losing the user's session, and the next tasks: `handover/PLAN3_RESUME.md`.
 
 ## Nulis 0.3.0 (plan 2, M31–M35)
 

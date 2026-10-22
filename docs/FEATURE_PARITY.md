@@ -52,6 +52,7 @@ Legend: `[ ]` not started, `[~]` partial, `[x]` complete. “Complete” require
 - [x] Workspace/file explorer (File View with Open, Places, and Folder tabs; Places browses the computer and mounted volumes with lazy bounded listings, a file-name filter, and optional hidden files; the opened folder keeps its canonical root and symlink rule; files open through the central command)
 - [x] Remote file providers (bounded read-only SFTP with saved profiles, pinned host keys, and platform-keychain passwords)
 - [x] Integrated terminal (native PTY sessions, bounded output rings, direct argument arrays, resize/input/lifecycle commands, and xterm.js rendering)
+- [~] Print, Page Setup, and Export to PDF (M36–M39: pages laid out once in the core for both; Print Preview window and the system print dialog; streaming PDF export with progress, Cancel, and an outline; selection and hex dump export; formatted Markdown printing; Page Setup with paper, margins, font size, wrap or cut, colors, line numbers, header and footer, and a live preview; installed fonts for missing characters; checked by hand on macOS, Windows and Linux pending; no text shaping)
 - [~] Restricted Markdown/HTML preview (Markdown Edit/View mode with safe rendering, GitHub-style syntax, and bounded local images; separate HTML preview remains)
 
 ## Extensibility and customization

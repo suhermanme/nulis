@@ -79,7 +79,7 @@ Complexity: S (≤1 day), M (2–4 days), L (≥1 week). Value: H/M/L. Rec. = re
 | Delete Active File (disabled in S01) | Delete file on disk | none | Missing | S | L | Defer (destructive) |
 | Compare Files… | Side-by-side diff | `compare.documents`, `compare.folders` | Done | – | – | – |
 | Sort ▸ File / All Files / Merge / Advanced (S03) | Sort lines of a document | none | Missing | M | M | M25 (sort lines/selection; multi-file merge deferred) |
-| Print… / Print All / Page & Print Setup (S04) | Print with page setup, printer font | none | Missing | L | L | Defer |
+| Print… / Print All / Page & Print Setup (S04) | Print with page setup, printer font | `file.print`, `file.pageSetup`, `file.exportPdf`, `file.exportSelectionPdf` | Done (M36–M39, [IMPROVEMENT_PLAN_3.md](IMPROVEMENT_PLAN_3.md)); Print All and a printer font choice not offered | – | – | – |
 | Favorite Files… | Pinned file list | none | Missing | S | L | Defer |
 | Convert To ▸ (not expanded) | Likely encoding/line-ending conversion | encoding override UTF-8/Windows-1252 only | Unclear | – | – | Covered by M27 EOL work |
 | Recent Files / Recent Remote Files / Recent Projects | Most-recently-used lists | none | Missing | S | M | M27 (local recent files) |
@@ -279,6 +279,6 @@ Each milestone must define scope/exclusions, tasks, files, tests, acceptance cri
 
 ## 10. Deferred and out of scope
 
-Writing to remote servers, file encryption, printing and page setup, spell check, project files with backup/restore, ctags, HTML Tidy/XMLlint external tools, user-defined external tools, templates, paragraph reflow/alignment, hard-wrap conversion, page-break rendering, macro auto-load and file-event macros, additional encodings, multiple top-level editor windows, deleting files from the editor, favorites, color insertion, hex insert-N-bytes dialog and hex-dump copy, context menu customization. OS-provided items (AutoFill, Dictation, Emoji & Symbols) are out of scope.
+Writing to remote servers, file encryption, spell check, project files with backup/restore, ctags, HTML Tidy/XMLlint external tools, user-defined external tools, templates, paragraph reflow/alignment, hard-wrap conversion, page-break rendering, macro auto-load and file-event macros, additional encodings, multiple top-level editor windows, deleting files from the editor, favorites, color insertion, hex insert-N-bytes dialog and hex-dump copy, context menu customization. OS-provided items (AutoFill, Dictation, Emoji & Symbols) are out of scope.
 
 These can be revisited after M27; each needs its own design note, and security-sensitive ones (remote writes, external tools, encryption) need a review against `SECURITY.md`.

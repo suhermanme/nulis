@@ -173,3 +173,11 @@ Broad language coverage through Tree-sitter would add a pinned grammar crate per
 **Status:** Accepted
 
 The opened-folder explorer is confined to a canonical root and refuses symlinks. A Places view in the style of other editors has to reach the whole machine, so `places.list` accepts any absolute path. This does not widen what the editor window can read: `file.open` already opens any path. Listings stay bounded, expose names and sizes only, and remain unavailable to the Settings window.
+
+## ADR-0013 — Pages are laid out once, in the core, for both Print and PDF
+
+**Status:** Accepted (M36–M39)
+
+Printing through the webview alone would mean rendering the whole document as HTML, which fails on files larger than memory and lays out pages differently on each system's engine. Instead `nulis-print` paginates in Rust: a streaming `Paginator` reads the document in bounded windows (64 KiB with highlighting, 256 KiB without) and produces pages of rows on a fixed grid of character cells. Export to PDF writes those pages straight to disk with `pdf-writer`, one object at a time, so memory stays flat at any size. Print sends the same pages, as text pieces placed on the grid, to a separate Print Preview window that draws them as fixed-size HTML pages and calls the system print dialog. Both therefore break lines and pages identically.
+
+Consequences: pages use one bundled font (JetBrains Mono, embedded whole) with installed TrueType fonts as fallback and no text shaping, so joined and reordering scripts do not print correctly. Print keeps its pages in memory until the preview closes, so it stops at 5,000 pages; Export to PDF has no page limit. The Print Preview window may read only the prepared pages, or the Markdown text of the document the editor chose, and cannot open, save, or export. Page Setup values are stored with the other view preferences in the editor and checked by the core on every use; they are not part of `settings.json`.

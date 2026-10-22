@@ -4,10 +4,10 @@ Written 2026-10-21 at the end of a session, for the next one. Read this first, t
 
 ## State
 
-- **Branch `m36-print`**, on top of `main` (`c58f9d2`, Nulis 0.3.0); `git log --oneline main..m36-print` lists its commits. Not merged and not pushed. The working tree was clean when this note was written.
+- **Branch `m36-print`** was merged into `main` (fast-forward) on 2026-10-22 at the end of M40. Not pushed. The working tree was clean when this note was written.
 - **M36** (Print Preview spike, commands, font) and **M37** (`nulis-print`, Export to PDF) are done and were checked by hand on macOS.
 - **M38** (export job with progress and Cancel, large-export question, selection, hex dump, font fallback, highlight windows) is done and was checked in the app on macOS on 2026-10-22 (results in `M38_HANDOVER.md`). One bug found there (exported PDFs got mode `0600`) is fixed.
-- **M39** (Print from the core's pages, Page Setup dialog, Markdown preview print, printing in every build) is done and checked on macOS (2026-10-22, `M39_HANDOVER.md`). **M40** has not started and is next.
+- **M39** (Print from the core's pages, Page Setup dialog, Markdown preview print, printing in every build) is done and checked on macOS (2026-10-22, `M39_HANDOVER.md`). **M40** (docs and release notes) is done (`M40_HANDOVER.md`). What remains: the Windows and Linux checks (step 6 below), then the 0.4.0 release.
 - Printing is in **every build** since M39 (the development-only switches were removed).
 - IPC protocol 41.
 - Last full check (all passed):

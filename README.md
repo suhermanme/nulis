@@ -132,6 +132,7 @@ Each release also has a `SHA256SUMS.txt` to check the downloads: `sha256sum -c S
 - **Hexadecimal editor** with synchronized hex and text columns, for files of any size.
 - **Compare and merge** two documents (text by line, binary by byte) and **compare folders**.
 - **Markdown preview** with GitHub-style syntax and local images.
+- **Print and Export to PDF**, with a Page Setup dialog (paper, margins, font size, colors, line numbers, header and footer) and a live preview. Printed pages and the PDF match line for line. Large files export in the background with progress and Cancel; a selection or a hex dump can be exported too, and Markdown in View mode prints formatted.
 - **Integrated terminal** running the platform's default shell.
 - **Remote files** over SFTP, read-only, with pinned host keys and passwords kept in the operating system's keychain.
 
@@ -247,6 +248,7 @@ A document is a **piece table**: an immutable, randomly accessible original file
 | `nulis-search` | Streaming find and replace, linear-time regular expressions with capture-group replacement, column search, and find in files. |
 | `nulis-syntax` | Language detection, Tree-sitter parsers for JSON and Python, a table-driven lexer for the other languages, folding, and symbols. |
 | `nulis-hex` | Hexadecimal viewports and byte editing. |
+| `nulis-print` | Page layout for Print and PDF, the streaming PDF writer, and fonts. |
 | `nulis-diff` | Text, binary, and folder comparison. |
 | `nulis-filesystem` | Folders, the Places tree, and session persistence. |
 | `nulis-remote` | SFTP profiles, host key pinning, and remote reads. |
