@@ -1,6 +1,6 @@
 # M39 handover: Print, Page Setup, and printing on in every build
 
-Plan: `IMPROVEMENT_PLAN_3.md` §3.2, §3.6, §4 (M39). Status: code and automated tests done 2026-10-22 on branch `m36-print`. **Not yet tried in the app.** Windows and Linux not tried.
+Plan: `IMPROVEMENT_PLAN_3.md` §3.2, §3.6, §4 (M39). Status: done 2026-10-22 on branch `m36-print`; checked in the app on macOS the same day (see below). Windows and Linux not tried.
 
 ## What changed
 
@@ -49,8 +49,18 @@ Back up the user data first (see `PLAN3_RESUME.md`). Then:
 6. Current theme colors with a dark theme: the pages are dark.
 7. A release build (`npm run build`) shows Print, Page Setup, and Export to PDF.
 
+## Result of the check in the app (macOS, 2026-10-22)
+
+1. Page Setup: the preview follows each change; saved values are kept. **Passed.**
+2. Print of `sample.rs`, saved as PDF from the system dialog, against Export to PDF of the same file: both 2 A4 pages, same lines, page breaks, header, footer, and colors; page 1 renders the same. The Export file is larger (271 KB against 27 KB) only because Nulis embeds its font differently from macOS. **Passed.**
+3. `big-server.log`: asks before printing, shows progress, Cancel works. **Passed.**
+4. Markdown in View mode: Print Preview showed the formatted page, but **Page Setup previewed the source text** with line numbers. Fixed: `PageSetupDialog` takes `loadMarkdown` and, when Print would print the formatted preview, shows that page on the chosen paper and margins, with a note that only paper, orientation, and margins apply (`PageSetupDialog.test.tsx`). Rechecked. **Passed.**
+5. Hexadecimal editor: Print prints the hex dump. **Passed.**
+6. Current theme colors with a dark theme, and with a light theme. **Passed.**
+7. Release build menu: not built; the switches that hid the items are gone, and the tests cover the menu.
+
 ## Open
 
-- The check in the app above.
 - Windows and Linux: paper size (only macOS sets it before the dialog), fonts, and page breaks in WebView2 and WebKitGTK.
-- `settings.schema.json`, the user guide, and the release notes: M40.
+- User guide and in-app Help: done 2026-10-22 (`USER_GUIDE.md` ▸ Files ▸ Printing and PDF, the Print shortcut, and two limits; Help is built from the guide).
+- `settings.schema.json` and the release notes: M40.

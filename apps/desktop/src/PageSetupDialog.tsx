@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import type { PrintPageFrame, PrintedPage } from "./contracts";
+import type { MarkdownPreviewSource, PrintPageFrame, PrintedPage } from "./contracts";
 import { keepFocusInDialog } from "./dialogFocus";
-import { ScaledPageView } from "./PrintedPageView";
+import { MarkdownPreview } from "./MarkdownPreview";
+import { PX_PER_MM, ScaledPageView } from "./PrintedPageView";
 import {
   BAND_FIELDS, FONT_SIZE_RANGE, MARGIN_PRESETS, MARGIN_RANGE, PAPER_SIZES, cleanBandText, defaultPrintSettings,
   marginPreset, normalizePrintSettings, type Band, type ColorMode, type MarginPreset, type Margins, type PrintSettings,
@@ -42,14 +43,38 @@ function BandFields({ legend, band, onChange }: { legend: string; band: Band; on
   );
 }
 
+/** The Markdown preview as Print lays it out: on the paper, within the margins, scaled to `widthPx`. */
+function ScaledMarkdownSheet({ source, setup, widthPx }: { source: MarkdownPreviewSource; setup: PrintSettings["setup"]; widthPx: number }) {
+  const paper = PAPER_SIZES.find(({ id }) => id === setup.paper) ?? PAPER_SIZES[0];
+  const landscape = setup.orientation === "landscape";
+  const widthMm = landscape ? paper.heightMm : paper.widthMm;
+  const heightMm = landscape ? paper.widthMm : paper.heightMm;
+  const scale = widthPx / (widthMm * PX_PER_MM);
+  const { top, right, bottom, left } = setup.margins;
+  return (
+    <div className="print-preview-frame" style={{ width: `${widthPx}px`, height: `${heightMm * PX_PER_MM * scale}px` }}>
+      <div className="print-markdown-sheet page-setup-markdown-sheet" style={{
+        width: `${widthMm}mm`, height: `${heightMm}mm`, padding: `${top}mm ${right}mm ${bottom}mm ${left}mm`,
+        transform: `scale(${scale})`, transformOrigin: "top left",
+      }}>
+        <div className="page-setup-markdown-body">
+          <MarkdownPreview documentId={source.documentId} source={source.text} className="print-markdown" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /**
  * Page Setup (`IMPROVEMENT_PLAN_3.md` §3.2): paper, margins, font, what
  * each page shows, and colors, with a live preview of the first page laid
  * out by the core.
  */
-export function PageSetupDialog({ initial, preview, onSave, onCancel }: {
+export function PageSetupDialog({ initial, preview, loadMarkdown, onSave, onCancel }: {
   initial: PrintSettings;
   preview: PreviewPage;
+  /** Set when Print would print the formatted Markdown preview: the preview then shows that instead. */
+  loadMarkdown?: () => Promise<MarkdownPreviewSource>;
   onSave(settings: PrintSettings): void;
   onCancel(): void;
 }) {
@@ -58,6 +83,17 @@ export function PageSetupDialog({ initial, preview, onSave, onCancel }: {
   const [problem, setProblem] = useState<string | null>(null);
   const [preset, setPreset] = useState<MarginPreset>(() => marginPreset(initial.setup.margins));
   const setup = settings.setup;
+  const [markdown, setMarkdown] = useState<MarkdownPreviewSource | null>(null);
+  // Read once, when the dialog opens.
+  const [readMarkdown] = useState(() => loadMarkdown);
+
+  useEffect(() => {
+    if (!readMarkdown) return undefined;
+    let active = true;
+    void readMarkdown().then((source) => { if (active) setMarkdown(source); })
+      .catch((reason: unknown) => { if (active) setProblem(errorText(reason)); });
+    return () => { active = false; };
+  }, [readMarkdown]);
 
   useEffect(() => {
     let active = true;
@@ -156,7 +192,10 @@ export function PageSetupDialog({ initial, preview, onSave, onCancel }: {
             <p className="page-setup-hint">Fields: {BAND_FIELDS.join(" ")}. Leave all three empty for no header or footer.</p>
           </div>
           <div className="page-setup-preview" aria-label="Preview of the first page">
-            {shown ? <ScaledPageView page={shown.page} frame={shown.frame} widthPx={PREVIEW_WIDTH_PX} /> : <div className="page-setup-preview-empty">Preview…</div>}
+            {readMarkdown
+              ? markdown ? <ScaledMarkdownSheet source={markdown} setup={setup} widthPx={PREVIEW_WIDTH_PX} /> : <div className="page-setup-preview-empty">Preview…</div>
+              : shown ? <ScaledPageView page={shown.page} frame={shown.frame} widthPx={PREVIEW_WIDTH_PX} /> : <div className="page-setup-preview-empty">Preview…</div>}
+            {readMarkdown ? <p className="page-setup-hint">Markdown in View mode prints this formatted preview. Only paper, orientation, and margins apply to it; the rest is for code and text.</p> : null}
             {problem ? <p role="alert" className="page-setup-problem">{problem}</p> : null}
           </div>
         </div>

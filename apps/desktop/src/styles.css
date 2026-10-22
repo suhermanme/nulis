@@ -711,6 +711,8 @@ kbd { padding: 2px 6px; border: 1px solid #373e48; border-radius: 4px; color: #b
 .page-setup-checks { display: flex; flex-wrap: wrap; gap: 6px 18px; }
 .page-setup-checks label { display: flex; align-items: center; gap: 6px; color: var(--ui-text); font-size: 13px; }
 .decision-dialog .page-setup-hint { margin: 0; font-size: 12px; }
+.page-setup-markdown-sheet { box-shadow: none; }
+.page-setup-markdown-body { height: 100%; overflow: hidden; }
 .page-setup-preview { display: grid; flex: none; gap: 8px; align-content: start; justify-items: center; width: 250px; }
 .page-setup-preview-empty { display: grid; place-items: center; width: 250px; height: 354px; border: 1px dashed var(--border); color: var(--muted); font-size: 12px; }
 .decision-dialog .page-setup-problem { margin: 0; color: var(--danger); font-size: 12px; }

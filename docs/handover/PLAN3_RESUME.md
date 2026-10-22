@@ -7,7 +7,7 @@ Written 2026-10-21 at the end of a session, for the next one. Read this first, t
 - **Branch `m36-print`**, on top of `main` (`c58f9d2`, Nulis 0.3.0); `git log --oneline main..m36-print` lists its commits. Not merged and not pushed. The working tree was clean when this note was written.
 - **M36** (Print Preview spike, commands, font) and **M37** (`nulis-print`, Export to PDF) are done and were checked by hand on macOS.
 - **M38** (export job with progress and Cancel, large-export question, selection, hex dump, font fallback, highlight windows) is done and was checked in the app on macOS on 2026-10-22 (results in `M38_HANDOVER.md`). One bug found there (exported PDFs got mode `0600`) is fixed.
-- **M39** (Print from the core's pages, Page Setup dialog, Markdown preview print, printing in every build) has its code and tests done (2026-10-22, `M39_HANDOVER.md`). **The check in the app is still to do.** **M40** has not started.
+- **M39** (Print from the core's pages, Page Setup dialog, Markdown preview print, printing in every build) is done and checked on macOS (2026-10-22, `M39_HANDOVER.md`). **M40** has not started and is next.
 - Printing is in **every build** since M39 (the development-only switches were removed).
 - IPC protocol 41.
 - Last full check (all passed):
@@ -76,7 +76,7 @@ npx tauri build --debug --bundles app --config '{"build":{"beforeBuildCommand":"
 
 The app is `target/debug/bundle/macos/Nulis.app`. It uses the same user data, so back up first.
 
-## M39, Print and Page Setup (code done; check in the app next)
+## M39, Print and Page Setup (done; macOS checked)
 
 What was built and what to check: `M39_HANDOVER.md`. The plan below is kept for reference; step 1 stores the values in local storage instead (see the handover's decisions), and step 6 (Windows and Linux) is still open.
 
@@ -96,7 +96,7 @@ Plan §3.2 and §3.6. Suggested order:
 
 ## Last: M40, docs and release
 
-`USER_GUIDE.md` sections (Help is built from it), `FEATURE_PARITY.md`, `IMPROVEMENT_PLAN.md` §4.1 rows (S04), ADR-0013 (page layout in the core, streaming PDF, fonts), and the release notes. Then merge `m36-print` into `main`.
+`USER_GUIDE.md` (the Printing and PDF section is written; check it again before release), `FEATURE_PARITY.md`, `IMPROVEMENT_PLAN.md` §4.1 rows (S04), ADR-0013 (page layout in the core, streaming PDF, fonts), and the release notes. Then merge `m36-print` into `main`.
 
 ## Known limits (decided; say so in the user guide)
 

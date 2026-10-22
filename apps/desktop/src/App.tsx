@@ -61,7 +61,7 @@ import {
 import { Icon, IconButton, iconForCommand, type IconName } from "./icons";
 import { EDITOR_ACTIONS, FIND_WINDOW_COMMANDS, LINE_ENDING_LABELS, PALETTE_COMMANDS, shortcutLabel, type EditorActionName } from "./commands";
 import {
-  closeWindowAfterSave, configureNativeMenu, executeCommand, getApplicationInfo, listCommands, openFindWindow, openHelpWindow, openPrintWindow, openResultsWindow, openSettingsWindow, takeLaunchPaths, type HelpTopic,
+  closeWindowAfterSave, configureNativeMenu, executeCommand, getApplicationInfo, getMarkdownPreviewSource, listCommands, openFindWindow, openHelpWindow, openPrintWindow, openResultsWindow, openSettingsWindow, takeLaunchPaths, type HelpTopic,
   setToolsMenu,
 } from "./ipc";
 import {
@@ -2647,6 +2647,8 @@ export function App() {
         </section>
       </div> : null}
       {pageSetupOpen ? <PageSetupDialog initial={printSettings} preview={previewFirstPage}
+        loadMarkdown={activeDocument && markdownViewing === activeDocument.documentId && viewModes[activeDocument.documentId] !== "hex"
+          ? () => getMarkdownPreviewSource(activeDocument.documentId) : undefined}
         onCancel={() => setPageSetupOpen(false)}
         onSave={(settings) => {
           setPrintSettings(settings);

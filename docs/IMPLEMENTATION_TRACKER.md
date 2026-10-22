@@ -4,8 +4,8 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 
 ## Current state
 
-- **Current milestone:** M39 (Print and Page Setup): code and tests done 2026-10-22, check in the app pending. M36, M37, and M38 are done and checked on macOS; Windows and Linux pending. Printing is now in every build. All on branch `m36-print`. **To resume, read `handover/PLAN3_RESUME.md`.**
-- **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 5 of 5 milestones completed (M31–M35); plan 3: 3 of 5 completed (M36, M37, M38; macOS checked, Windows/Linux pending), M39 in progress
+- **Current milestone:** M40 (docs and release) is next. M36–M39 are done and checked on macOS (M39 on 2026-10-22); Windows and Linux pending. Printing is now in every build. All on branch `m36-print`. **To resume, read `handover/PLAN3_RESUME.md`.**
+- **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 5 of 5 milestones completed (M31–M35); plan 3: 4 of 5 completed (M36–M39; macOS checked, Windows/Linux pending)
 - **Baseline before M19 (commit `66853e1`):** `cargo test -p nulis-core` 86 passed; desktop Vitest 11 files, 115 tests passed.
 
 | Milestone | Status | Handover |
@@ -30,7 +30,7 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 | M36 Print spike and commands | Completed (print check passed on macOS; Windows/Linux pending) | `handover/M36_HANDOVER.md` |
 | M37 `nulis-print` layout and PDF export | Completed (checked in the app on macOS; Windows/Linux pending) | `handover/M37_HANDOVER.md` |
 | M38 Scope, large files, other views | Done; checked in the app on macOS 2026-10-22 | `handover/M38_HANDOVER.md` |
-| M39 Print window and Page Setup dialog | In progress: code and tests done; check in the app pending | `handover/M39_HANDOVER.md` |
+| M39 Print window and Page Setup dialog | Complete (macOS checked 2026-10-22; Windows/Linux pending) | `handover/M39_HANDOVER.md` |
 | M40 Docs and release | Not started | – |
 
 ## M19 — Audit and foundation

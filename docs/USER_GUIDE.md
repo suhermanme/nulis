@@ -115,6 +115,43 @@ Nulis is built to open files larger than memory, tens of gigabytes included.
 
 A few features that need the whole document at once — the JSON, XML, YAML, and plist tools, for example — have size limits and tell you when a file is too large for them.
 
+### Printing and PDF
+
+The **File** menu has **Export to PDF…**, **Export Selection to PDF…**, **Page Setup…**, and **Print…**. All four lay out the pages the same way, so a printed page and a page of the PDF match line for line.
+
+| Action | How |
+| --- | --- |
+| Print | **Ctrl/⌘ Alt P** or **File ▸ Print…**. Nulis lays out the pages, with a progress bar and **Cancel** in the status bar, then opens **Print Preview** with every page. Click **Print…** there for the system print dialog, where you can also save the pages as a PDF. |
+| Save as a PDF file | **File ▸ Export to PDF…** asks where to save, then writes the PDF in the background with a progress bar and **Cancel**. Above 100 pages, the PDF gets an outline with one entry per 100 pages. |
+| Print only the selection | **File ▸ Export Selection to PDF…** exports each selection with its own line numbers and a thin rule between selections. A column selection exports the whole lines it spans. |
+| Choose how pages look | **File ▸ Page Setup…** (see below). Print and both exports use what you save there. |
+
+What gets printed depends on the view:
+
+- **Code and text:** the document's text in a fixed-width font, with the editor's syntax highlighting.
+- **Markdown in View mode:** **Print…** prints the formatted preview on white paper, within the Page Setup margins and without a header or footer. **Export to PDF…** always exports the Markdown source.
+- **Hexadecimal editor:** Print and Export to PDF produce a hex dump: the offset, 16 bytes, and their characters on each row, without line numbers.
+
+Above 1,000 pages, Nulis asks before going on. **Print** stops at 5,000 pages; for longer documents use **Export to PDF…**, which has no page limit.
+
+#### Page Setup
+
+**File ▸ Page Setup…** shows a preview of the first page that updates as you change:
+
+- **Paper:** A4, Letter, Legal, A3, or A5 (Letter by default in the United States, A4 elsewhere), and **Portrait** or **Landscape**.
+- **Margins:** Narrow (10 mm), Normal (15 mm), Wide (25 mm), or Custom, with each side from 0 to 80 mm.
+- **Font size:** 6 to 24 points.
+- **Long lines:** wrap onto the next row (marked ↪ in the line numbers) or cut off at the edge.
+- **Colors:** print colors on white paper, black and white, or the current theme's colors (a dark theme gives dark pages).
+- **Line numbers** and **Syntax highlighting**, each on or off.
+- **Header** and **Footer:** text on the left, center, and right. These fields are filled in for each page: `{file}` (the file name), `{path}` (the full path), `{date}`, `{page}`, and `{pages}` (the page count). Leave all three parts empty for no header or footer.
+
+**Restore Defaults** puts every value back. **Save** keeps the values on this computer for every document. When a Markdown file is in View mode, the preview shows the formatted page instead, and only paper, orientation, and margins apply to it.
+
+#### Characters and fonts
+
+Pages use the JetBrains Mono font bundled with Nulis. In a PDF, characters that font lacks, such as Chinese, Japanese, or Korean, are drawn from fonts installed on your computer. Chinese, Japanese, and Korean characters take two columns, so columns stay lined up. Emoji and characters with no suitable installed font are left blank, and the status bar says how many there were. Print Preview can draw some of these, such as emoji, because it also uses the system's fonts. Scripts whose letters join or reorder, such as Arabic and Devanagari, are printed one letter at a time and do not look right.
+
 ## Tabs and Workspaces
 
 Each open file has a tab. Click a tab to show it, drag it to reorder it, and use the arrow keys to move between tabs when the tab strip has focus. When there are more tabs than fit, left and right arrow buttons appear at the ends of the strip; the active tab is always scrolled into view.
@@ -538,6 +575,7 @@ These are the defaults. Shortcuts for commands can be changed under **Settings �
 | Ctrl/⌘ S | Save |
 | Ctrl/⌘ Shift S | Save As |
 | Ctrl/⌘ W | Close file |
+| Ctrl/⌘ Alt P | Print |
 | Ctrl/⌘ Shift W | Close window |
 | Ctrl/⌘ K | Command palette |
 | Ctrl/⌘ Shift L | Switch between Edit and Read-Only mode |
@@ -602,6 +640,8 @@ Nulis keeps every operation bounded so that it stays responsive. The limits you 
 | Open Recent | The last 20 files |
 | Paste from History | The last 20 copies of this session, each up to 1 MiB |
 | File name in Rename File | 255 bytes |
+| Print | 5,000 pages (Nulis asks above 1,000; Export to PDF has no page limit) |
+| Header or footer text in Page Setup | 256 bytes for each part |
 
 When a limit is reached, the status bar explains which one.
 
