@@ -492,12 +492,12 @@ test("Print says when a document is too long to print", async () => {
   await openNewDocument("huge.log");
   responses["file.printStart"] = [{ jobId: 1 }];
   responses["file.exportPdfProgress"] = [exportReport({
-    error: "Print takes at most 5,000 pages, and this needs at least 6,558; use Export to PDF instead",
+    error: "Could not print: this needs at least 6,558 pages, and Print takes at most 5,000; use Export to PDF instead",
   })];
 
   await chooseFileMenuItem(/^Print…/);
 
-  expect(await screen.findByText(/at most 5,000 pages.*use Export to PDF instead/)).toBeInTheDocument();
+  expect(await screen.findByText(/^Could not print: this needs at least 6,558 pages.*use Export to PDF instead$/)).toBeInTheDocument();
   expect(openPrintWindow).not.toHaveBeenCalled();
 });
 

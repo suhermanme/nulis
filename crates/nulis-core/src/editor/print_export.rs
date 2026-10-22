@@ -228,6 +228,16 @@ impl DocumentManager {
         request: &PrintRequest,
         observer: &dyn ExportObserver,
     ) -> Result<PrintedDocument, EditorError> {
+        self.lay_out_print_pages(document_id, request, observer)
+            .map_err(print_error)
+    }
+
+    fn lay_out_print_pages(
+        &self,
+        document_id: &DocumentId,
+        request: &PrintRequest,
+        observer: &dyn ExportObserver,
+    ) -> Result<PrintedDocument, EditorError> {
         let (mut source, options) = self.print_source(document_id, request, observer)?;
         let limit = request.max_pages.unwrap_or(u64::MAX);
         let mut pages = Vec::new();
@@ -258,6 +268,15 @@ impl DocumentManager {
     /// # Errors
     /// Returns an error for a stale revision or an unusable page setup.
     pub fn print_preview(
+        &self,
+        document_id: &DocumentId,
+        request: &PrintRequest,
+    ) -> Result<(nulis_print::PageFrame, nulis_print::PrintedPage), EditorError> {
+        self.first_print_page(document_id, request)
+            .map_err(print_error)
+    }
+
+    fn first_print_page(
         &self,
         document_id: &DocumentId,
         request: &PrintRequest,
@@ -795,10 +814,18 @@ fn check_size(request: &PrintRequest, estimated_pages: u64) -> Result<(), Editor
 /// Why Print refuses a document that needs at least `pages` pages.
 fn too_many_pages(limit: u64, pages: u64) -> String {
     format!(
-        "Print takes at most {} pages, and this needs at least {}; use Export to PDF instead",
-        grouped(limit),
-        grouped(pages)
+        "this needs at least {} pages, and Print takes at most {}; use Export to PDF instead",
+        grouped(pages),
+        grouped(limit)
     )
+}
+
+/// Print shares the export's layout; its errors say "Could not print".
+fn print_error(error: EditorError) -> EditorError {
+    match error {
+        EditorError::Export(message) => EditorError::Print(message),
+        other => other,
+    }
 }
 
 /// `1234567` as `1,234,567`.
@@ -1443,7 +1470,12 @@ mod tests {
         let error = manager
             .print_pages(&id, &request, &Unobserved)
             .expect_err("too many pages");
-        assert!(error.to_string().contains("at least 3"), "{error}");
+        assert!(
+            error
+                .to_string()
+                .starts_with("Could not print: this needs at least 3 pages"),
+            "{error}"
+        );
         let allowed = super::PrintRequest {
             max_pages: Some(5),
             ..request

@@ -5348,6 +5348,8 @@ pub enum EditorError {
     Rename(String),
     #[error("Could not export to PDF: {0}")]
     Export(String),
+    #[error("Could not print: {0}")]
+    Print(String),
     #[error("The PDF would have at least {estimated_pages} pages")]
     ExportNeedsConfirmation { estimated_pages: u64 },
     #[error("Export to PDF was cancelled")]

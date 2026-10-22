@@ -4073,8 +4073,11 @@ mod tests {
         let context = open_rows(&core, folder.path(), 400_000);
         let refused = run_print(&core, &context, true);
         let error = refused["error"].as_str().expect("refused");
-        assert!(error.contains("at most 5,000 pages"), "{error}");
-        assert!(error.contains("at least 6,558"), "{error}");
+        assert!(
+            error.starts_with("Could not print: this needs at least 6,558 pages"),
+            "{error}"
+        );
+        assert!(error.contains("Print takes at most 5,000"), "{error}");
     }
 
     #[test]
