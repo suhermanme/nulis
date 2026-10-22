@@ -152,9 +152,27 @@ export function openFindWindow(): Promise<void> {
   return invoke<void>("open_find_window");
 }
 
-/** Opens the Print Preview window, or brings it forward. */
-export function openPrintWindow(): Promise<void> {
-  return invoke<void>("open_print_window");
+/** What Print Preview shows: the pages laid out by `file.printStart`, or a Markdown preview. */
+export type PrintContent = { kind: "pages" } | { kind: "markdown"; documentId: string; title: string };
+
+/** Opens the Print Preview window on `content`, or brings it forward and shows `content`. */
+export function openPrintWindow(content: PrintContent): Promise<void> {
+  return invoke<void>("open_print_window", { content });
+}
+
+/** What the calling Print Preview window should show. */
+export type PrintWindowContent =
+  | { kind: "pages" }
+  | { kind: "markdown"; title: string; source: MarkdownPreviewSource }
+  | { kind: "empty" };
+
+export function printWindowContent(): Promise<PrintWindowContent> {
+  return invoke<PrintWindowContent>("print_window_content");
+}
+
+/** An image of the Markdown document being printed, as a data URL. */
+export function printWindowMarkdownImage(relativePath: string): Promise<string> {
+  return invoke<string>("print_window_markdown_image", { relativePath });
 }
 
 /** Portrait paper size in millimetres, and whether pages are landscape. */

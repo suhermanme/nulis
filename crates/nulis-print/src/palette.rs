@@ -54,7 +54,7 @@ pub struct Palette {
 
 const TOKEN_COUNT: usize = 9;
 
-fn token_index(token: SyntaxToken) -> usize {
+pub(crate) fn token_index(token: SyntaxToken) -> usize {
     match token {
         SyntaxToken::Comment => 0,
         SyntaxToken::Keyword => 1,
@@ -89,6 +89,12 @@ impl Palette {
     #[must_use]
     pub fn token(&self, token: SyntaxToken) -> TokenStyle {
         self.tokens[token_index(token)]
+    }
+
+    /// Every token's style, in `SyntaxToken` order.
+    #[must_use]
+    pub fn token_styles(&self) -> &[TokenStyle] {
+        &self.tokens
     }
 
     /// Dark text on white, with token colors that stay apart in grayscale.

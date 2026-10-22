@@ -8,12 +8,14 @@
 
 mod fonts;
 pub mod layout;
+pub mod model;
 pub mod palette;
 pub mod pdf;
 pub mod setup;
 
 pub use fonts::FontMetrics;
 pub use layout::{Gutter, Page, Paginator, Row, Run, SourceLine, Span, Style};
+pub use model::{PageFrame, Piece, PrintedPage};
 pub use palette::{ColorChoice, Palette, Rgb};
 pub use pdf::{bundled_metrics, PdfSummary, PdfWriter};
 pub use setup::{
@@ -80,7 +82,7 @@ pub fn estimate_pages(setup: &PageSetup, rows: u64, last_line: u64) -> Result<u6
 pub struct ExportOptions {
     pub setup: PageSetup,
     pub palette: Palette,
-    /// Header and footer fields; `pages` is filled in by the export.
+    /// Header and footer fields; `pages` is counted by the export unless given.
     pub fields: BandFields,
     pub title: String,
     /// The document's last line number, which sizes the line-number gutter.
@@ -99,14 +101,69 @@ pub fn export_pdf<S: LineSource, W: Write>(
     out: W,
     options: &ExportOptions,
 ) -> Result<(W, PdfSummary), PrintError> {
+    let geometry = geometry(options)?;
+    let mut writer = PdfWriter::new(
+        out,
+        geometry,
+        options.palette.clone(),
+        options.fallback_fonts,
+    )?;
+    paginate(source, options, &geometry, |page, header, footer| {
+        writer.write_page(page, header, footer)
+    })?;
+    writer.finish(&options.title)
+}
+
+/// Lays out every line of `source` as pages for the Print Preview window,
+/// handing each to `emit` as it is finished. Returns what every page shares.
+///
+/// # Errors
+/// Returns an error for an unusable page setup or an unreadable document,
+/// or the first error `emit` returns.
+pub fn print_pages<S: LineSource>(
+    source: &mut S,
+    options: &ExportOptions,
+    mut emit: impl FnMut(PrintedPage) -> Result<(), PrintError>,
+) -> Result<PageFrame, PrintError> {
+    let geometry = geometry(options)?;
+    paginate(source, options, &geometry, |page, header, footer| {
+        emit(model::place_page(&geometry, page, header, footer))
+    })?;
+    Ok(PageFrame::new(&options.setup, &geometry, &options.palette))
+}
+
+/// What every page of `options` shares, without laying anything out.
+///
+/// # Errors
+/// Returns an error for an unusable page setup.
+pub fn page_frame(options: &ExportOptions) -> Result<PageFrame, PrintError> {
+    Ok(PageFrame::new(
+        &options.setup,
+        &geometry(options)?,
+        &options.palette,
+    ))
+}
+
+fn geometry(options: &ExportOptions) -> Result<Geometry, PrintError> {
     let metrics = bundled_metrics()?;
-    let geometry = Geometry::new(
+    Geometry::new(
         &options.setup,
         metrics.advance,
         metrics.ascender,
         metrics.descender,
         options.last_line,
-    )?;
+    )
+}
+
+/// Lays out `source` and hands every page, with its header and footer
+/// filled in, to `emit`. When a header or footer shows `{pages}`, a first
+/// pass counts the pages.
+fn paginate<S: LineSource>(
+    source: &mut S,
+    options: &ExportOptions,
+    geometry: &Geometry,
+    mut emit: impl FnMut(&Page, &[String; 3], &[String; 3]) -> Result<(), PrintError>,
+) -> Result<(), PrintError> {
     let paginator = || {
         Paginator::new(
             geometry.rows,
@@ -116,7 +173,10 @@ pub fn export_pdf<S: LineSource, W: Write>(
         )
     };
     let mut fields = options.fields.clone();
-    if options.setup.header.uses_page_count() || options.setup.footer.uses_page_count() {
+    // A page count already given (an estimate for a preview) needs no counting pass.
+    if fields.pages.is_none()
+        && (options.setup.header.uses_page_count() || options.setup.footer.uses_page_count())
+    {
         source.rewind()?;
         let mut counter = paginator();
         let mut pages = 0_u64;
@@ -131,29 +191,23 @@ pub fn export_pdf<S: LineSource, W: Write>(
 
     source.rewind()?;
     let highlight = options.setup.syntax_highlighting;
-    let mut writer = PdfWriter::new(
-        out,
-        geometry,
-        options.palette.clone(),
-        options.fallback_fonts,
-    )?;
     let mut layout = paginator();
-    let write = |writer: &mut PdfWriter<W>, source: &mut S, page: &Page| {
+    let mut write = |source: &mut S, page: &Page| {
         let header = fields.resolve(&options.setup.header, page.number);
         let footer = fields.resolve(&options.setup.footer, page.number);
-        writer.write_page(page, &header, &footer)?;
+        emit(page, &header, &footer)?;
         source.page_written(page.number);
         Ok::<(), PrintError>(())
     };
     while let Some(lines) = source.next_lines(highlight)? {
         for line in &lines {
             for page in layout.push(line) {
-                write(&mut writer, source, &page)?;
+                write(source, &page)?;
             }
         }
     }
     for page in layout.finish() {
-        write(&mut writer, source, &page)?;
+        write(source, &page)?;
     }
-    writer.finish(&options.title)
+    Ok(())
 }

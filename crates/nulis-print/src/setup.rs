@@ -129,6 +129,30 @@ impl BandFields {
     }
 }
 
+/// Where a header's or footer's three parts start on a row `columns` wide:
+/// left at the edge, centre in the middle, right against the far edge. Each
+/// part is cut to the row; empty parts are left out.
+pub(crate) fn band_layout(columns: u32, parts: &[String; 3]) -> Vec<(u32, String)> {
+    let width = |text: &str| text.chars().map(crate::layout::cell_width).sum::<u32>();
+    let fit = |text: &str| {
+        text.chars()
+            .take(usize::try_from(columns).unwrap_or(0))
+            .collect::<String>()
+    };
+    let [left, center, right] = parts.each_ref().map(|part| fit(part));
+    let mut placed = Vec::with_capacity(3);
+    if !left.is_empty() {
+        placed.push((0, left));
+    }
+    if !center.is_empty() {
+        placed.push((columns.saturating_sub(width(&center)) / 2, center));
+    }
+    if !right.is_empty() {
+        placed.push((columns.saturating_sub(width(&right)), right));
+    }
+    placed
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", default, deny_unknown_fields)]
 pub struct PageSetup {

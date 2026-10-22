@@ -1,5 +1,6 @@
-/* Print Preview window (IMPROVEMENT_PLAN_3.md). Pages are always paper
-   white with dark text, whatever the window theme. */
+/* Print Preview window and the Page Setup preview (IMPROVEMENT_PLAN_3.md).
+   Pages keep the colors the core chose (paper white unless the current
+   theme is printed), whatever the window theme. */
 
 @font-face {
   font-family: "Nulis Print Mono";
@@ -14,7 +15,7 @@
   font-style: normal;
 }
 
-/* PrintApp finds this sheet by the marker below to add its @page size rule. */
+/* PrintApp finds this sheet by the marker below to add its @page rule. */
 .print-root {
   --print-sheet: 1;
   display: flex; flex-direction: column; height: 100vh; overflow: hidden;
@@ -24,9 +25,10 @@
   display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 14px;
   border-bottom: 1px solid var(--border);
 }
-.print-toolbar label { display: flex; align-items: center; gap: 6px; font-size: 12px; }
-.print-hint { flex: 1; min-width: 200px; color: var(--muted); font-size: 12px; }
+.print-toolbar-title { flex: 1; min-width: 160px; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.print-hint { color: var(--muted); font-size: 12px; }
 .print-error { margin: 8px 14px 0; color: var(--danger); font-size: 12px; }
+.print-message { display: grid; flex: 1; place-items: center; padding: 24px; color: var(--muted); background: var(--editor-bg); }
 .print-pages {
   display: flex; flex: 1; flex-direction: column; align-items: center; gap: 18px;
   padding: 18px; overflow: auto; background: var(--editor-bg);
@@ -36,19 +38,32 @@
   height: var(--page-height);
   position: relative; flex: none; overflow: hidden; box-sizing: border-box;
   color: #1b1b1b; background: #ffffff; box-shadow: 0 2px 10px rgb(0 0 0 / 35%);
+  font-family: "Nulis Print Mono", ui-monospace, monospace;
+  /* One glyph per character, as in the PDF: no ligatures such as "->". */
+  font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0;
   print-color-adjust: exact; -webkit-print-color-adjust: exact;
 }
-.print-margin-box {
-  position: absolute; display: flex; flex-direction: column; box-sizing: border-box;
-  outline: 0.25pt dashed #9a9a9a;
-  font-family: "Nulis Print Mono", ui-monospace, monospace;
+.print-line { position: absolute; right: 0; white-space: pre; }
+.print-piece { position: absolute; top: 0; white-space: pre; }
+.print-cell { overflow: hidden; text-align: center; }
+.print-rule { position: absolute; height: 0; border-top: 0.5pt solid; }
+
+/* The Page Setup preview: one page drawn small. */
+.print-preview-frame { overflow: hidden; box-shadow: 0 1px 6px rgb(0 0 0 / 30%); }
+.print-preview-frame .print-page { box-shadow: none; }
+
+/* A Markdown preview printed on paper: light colors whatever the theme. */
+.print-markdown-sheet { flex: none; box-sizing: border-box; background: #ffffff; box-shadow: 0 2px 10px rgb(0 0 0 / 35%); }
+.markdown-preview.print-markdown {
+  --editor-fg: #24292f; --editor-bg: #ffffff; --ui-text: #1f2328; --muted: #57606a;
+  --border: #d0d7de; --raised: #f6f8fa; --accent: #0969da;
+  --syntax-function: #0969da; --syntax-keyword: #9a3b2b;
+  --editor-font-family: "Nulis Print Mono", ui-monospace, monospace;
+  overflow: visible; padding: 0;
 }
-.print-band { display: flex; justify-content: space-between; height: 11pt; color: #555555; white-space: pre; }
-.print-band-footer { justify-content: center; margin-top: auto; }
-.print-body { flex: none; margin: 0; overflow: hidden; font: inherit; white-space: pre; }
-.print-tick { position: absolute; background: #c0392b; }
-.print-tick-x { top: 0; width: 0.25pt; height: 4mm; }
-.print-tick-y { left: 0; width: 4mm; height: 0.25pt; }
+.markdown-preview.print-markdown > * { max-width: none; }
+.markdown-preview.print-markdown pre { overflow: visible; white-space: pre-wrap; overflow-wrap: anywhere; }
+.markdown-preview.print-markdown table { display: table; width: auto; overflow: visible; }
 
 /* styles.css (loaded after this file) pins html, body, and #root to the
    window with overflow hidden; printing must see the whole document, so
@@ -57,10 +72,14 @@
   html.print-window, html.print-window body, html.print-window #root, html.print-window .print-root {
     height: auto; overflow: visible; background: #ffffff;
   }
-  .print-toolbar, .print-error { display: none; }
+  .print-toolbar, .print-error, .print-message { display: none; }
   .print-pages { display: block; padding: 0; overflow: visible; background: #ffffff; }
   /* A page exactly as tall as the paper can round up by a fraction of a
      pixel and spill onto a blank extra page (seen with A4 portrait on macOS). */
   .print-page { height: calc(var(--page-height) - 1px); box-shadow: none; break-after: page; break-inside: avoid; }
   .print-page:last-child { break-after: auto; }
+  /* Markdown flows from page to page within the @page margins. */
+  .print-markdown-sheet { width: auto !important; padding: 0 !important; box-shadow: none; }
+  .markdown-preview.print-markdown h1, .markdown-preview.print-markdown h2, .markdown-preview.print-markdown h3 { break-after: avoid; }
+  .markdown-preview.print-markdown pre, .markdown-preview.print-markdown img, .markdown-preview.print-markdown tr { break-inside: avoid; }
 }

@@ -411,6 +411,8 @@ interface EditorViewportProps {
   searchRequest?: SearchRequest;
   /** Reports the caret position whenever it changes; `null` when it is unknown. */
   onCaret?(position: CaretPosition | null): void;
+  /** Reports whether the formatted Markdown preview is showing, so Print can print it. */
+  onMarkdownView?(viewing: boolean): void;
   /** Switches the document between Edit and Read-Only mode. */
   onToggleReadOnly?(): void;
   /** Switches the document between the text and hexadecimal editors. */
@@ -459,6 +461,7 @@ export function EditorViewport({
   onToggleLineChanges,
   searchRequest,
   onCaret,
+  onMarkdownView,
   onToggleReadOnly,
   onToggleHexMode,
   onCopyPath,
@@ -617,6 +620,10 @@ export function EditorViewport({
       setMarkdownMode("edit");
     }
   }, [snapshot?.syntax?.languageId]);
+
+  useEffect(() => {
+    onMarkdownView?.(markdownMode === "view");
+  }, [markdownMode, onMarkdownView]);
 
   useEffect(() => {
     if (markdownMode !== "view") return;

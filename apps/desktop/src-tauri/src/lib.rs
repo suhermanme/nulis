@@ -78,13 +78,15 @@ const OPEN_PATHS_EVENT: &str = "nulis://open-paths";
 /// Help only reads what it needs to follow the chosen theme and font.
 const HELP_COMMANDS: &[&str] = &["customization.state", "theme.list"];
 const HELP_MIN_SIZE: (u32, u32) = (640, 420);
-/// Print Preview reads the theme and nothing else. It never receives
-/// document bytes through the command boundary.
-const PRINT_COMMANDS: &[&str] = &["customization.state", "theme.list"];
+/// Print Preview reads the theme and the pages the editor window prepared
+/// for it (`print.pages`). It cannot choose a document or run editor or
+/// file commands.
+const PRINT_COMMANDS: &[&str] = &["customization.state", "theme.list", "print.pages"];
+/// Tells an open Print Preview window to show new content.
+const PRINT_CONTENT_EVENT: &str = "nulis://print-content";
+/// Longest document name accepted as a print title, in bytes.
+const MAX_PRINT_TITLE_BYTES: usize = 512;
 const PRINT_MIN_SIZE: (u32, u32) = (520, 420);
-/// Print, Page Setup, and Export to PDF stay out of release menus until
-/// they are finished (`IMPROVEMENT_PLAN_3.md`, M39).
-const PRINT_MENU_ENABLED: bool = nulis_core::PRINT_COMMANDS_ENABLED;
 const OPEN_SETTINGS_MENU_ID: &str = "workbench.openSettings";
 const ABOUT_MENU_ID: &str = "app.about";
 const HELP_MENU_ID: &str = "workbench.openHelp";
@@ -596,16 +598,13 @@ fn portable_accelerator(value: &str) -> Option<String> {
     Some(translated.join("+"))
 }
 
-/// Export to PDF, Page Setup, and Print, when this build offers them.
+/// Export to PDF, Page Setup, and Print.
 #[cfg(desktop)]
 fn append_print_menu_items<'a>(
     app: &'a tauri::AppHandle,
     mut file_builder: SubmenuBuilder<'a, tauri::Wry, tauri::AppHandle>,
     entries: &[NativeMenuEntry],
 ) -> tauri::Result<SubmenuBuilder<'a, tauri::Wry, tauri::AppHandle>> {
-    if !PRINT_MENU_ENABLED {
-        return Ok(file_builder);
-    }
     file_builder = file_builder.separator();
     for (command, title) in [
         ("file.exportPdf", "Export to PDF…"),
@@ -1210,12 +1209,42 @@ async fn open_results_window(app: tauri::AppHandle) -> Result<(), String> {
     .map_err(|error| error.to_string())
 }
 
+/// What the Print Preview window shows: the pages the core laid out
+/// (`file.printStart`), or a document's rendered Markdown preview.
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+enum PrintContent {
+    Pages,
+    #[serde(rename_all = "camelCase")]
+    Markdown {
+        document_id: DocumentId,
+        title: String,
+    },
+}
+
+/// The content the editor window last chose for Print Preview.
+#[derive(Default)]
+struct PrintContentState(Mutex<Option<PrintContent>>);
+
 #[tauri::command]
-#[allow(clippy::needless_pass_by_value)] // Tauri extracts AppHandle by value.
-async fn open_print_window(app: tauri::AppHandle) -> Result<(), String> {
-    if !PRINT_MENU_ENABLED {
-        return Err("printing is not available in this build".into());
+#[allow(clippy::needless_pass_by_value)] // Tauri extracts AppHandle and WebviewWindow by value.
+async fn open_print_window(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    content: PrintContent,
+) -> Result<(), String> {
+    if window.label() != MAIN_WINDOW_LABEL {
+        return Err("only the editor window chooses what to print".into());
     }
+    if let PrintContent::Markdown { title, .. } = &content {
+        if title.len() > MAX_PRINT_TITLE_BYTES {
+            return Err("the document name is too long".into());
+        }
+    }
+    let state = app.state::<PrintContentState>();
+    *state.0.lock().map_err(|_| "print state is unavailable")? = Some(content);
+    // An open window loads the new content; a new one loads it as it starts.
+    let _ = app.emit_to(PRINT_WINDOW_LABEL, PRINT_CONTENT_EVENT, ());
     show_aux_window(
         &app,
         PRINT_WINDOW_LABEL,
@@ -1224,6 +1253,74 @@ async fn open_print_window(app: tauri::AppHandle) -> Result<(), String> {
         PRINT_MIN_SIZE,
     )
     .map_err(|error| error.to_string())
+}
+
+/// What Print Preview shows, as the window reads it.
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+enum PrintWindowContent {
+    /// Read the pages with `print.pages`.
+    Pages,
+    Markdown {
+        title: String,
+        source: MarkdownPreviewSource,
+    },
+    Empty,
+}
+
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri extracts State and WebviewWindow by value.
+fn print_window_content(
+    core: State<'_, NulisCore>,
+    print: State<'_, PrintContentState>,
+    window: tauri::WebviewWindow,
+) -> Result<PrintWindowContent, String> {
+    require_print_window(&window)?;
+    let content = print
+        .0
+        .lock()
+        .map_err(|_| "print state is unavailable")?
+        .clone();
+    Ok(match content {
+        None => PrintWindowContent::Empty,
+        Some(PrintContent::Pages) => PrintWindowContent::Pages,
+        Some(PrintContent::Markdown { document_id, title }) => PrintWindowContent::Markdown {
+            title,
+            source: core
+                .markdown_preview_source(&document_id)
+                .map_err(|error| error.to_string())?,
+        },
+    })
+}
+
+/// An image in the Markdown document being printed, by its relative path.
+#[tauri::command]
+#[allow(clippy::needless_pass_by_value)] // Tauri extracts State and WebviewWindow by value.
+fn print_window_markdown_image(
+    core: State<'_, NulisCore>,
+    print: State<'_, PrintContentState>,
+    window: tauri::WebviewWindow,
+    relative_path: String,
+) -> Result<String, String> {
+    require_print_window(&window)?;
+    let content = print
+        .0
+        .lock()
+        .map_err(|_| "print state is unavailable")?
+        .clone();
+    let Some(PrintContent::Markdown { document_id, .. }) = content else {
+        return Err("no Markdown document is being printed".into());
+    };
+    core.markdown_preview_image(&document_id, &relative_path)
+        .map_err(|error| error.to_string())
+}
+
+fn require_print_window(window: &tauri::WebviewWindow) -> Result<(), String> {
+    if window.label() == PRINT_WINDOW_LABEL {
+        Ok(())
+    } else {
+        Err("only the Print Preview window reads what is printed".into())
+    }
 }
 
 /// The paper the Print Preview laid its pages out for, portrait size in millimetres.
@@ -1585,6 +1682,22 @@ fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) {
             api.prevent_close();
             let _ = window.hide();
         }
+        // The prepared pages can be large; they go with the window.
+        (PRINT_WINDOW_LABEL, tauri::WindowEvent::Destroyed) => {
+            let app = window.app_handle();
+            if let Some(state) = app.try_state::<PrintContentState>() {
+                if let Ok(mut content) = state.0.lock() {
+                    *content = None;
+                }
+            }
+            if let Some(core) = app.try_state::<NulisCore>() {
+                let _ = core.execute_command(
+                    "print.release",
+                    nulis_core::CommandContext::default(),
+                    Value::Null,
+                );
+            }
+        }
         (SETTINGS_WINDOW_LABEL, tauri::WindowEvent::Destroyed) => {
             let app = window.app_handle();
             persist_settings_frame(app);
@@ -1676,6 +1789,7 @@ pub fn run() {
             let session_root = app.path().app_data_dir()?.join("sessions");
             app.manage(NulisCore::with_session_root(session_root));
             app.manage(SettingsFrame::default());
+            app.manage(PrintContentState::default());
             #[cfg(desktop)]
             app.manage(ToolsMenu::default());
             #[cfg(desktop)]
@@ -1702,6 +1816,8 @@ pub fn run() {
             close_help_window,
             open_find_window,
             open_print_window,
+            print_window_content,
+            print_window_markdown_image,
             print_window_print,
             open_results_window,
             close_find_window,
@@ -1723,7 +1839,7 @@ mod tests {
     use super::{
         authorize_window_command, fitted_find_height, portable_accelerator, validate_native_menu,
         validate_request, visible_frame, CommandContext, ExecuteCommandRequest, HelpTopic,
-        NativeMenuEntry, PrintPaper, WindowFrame,
+        NativeMenuEntry, PrintContent, PrintPaper, WindowFrame,
     };
     use serde_json::{json, Value};
 
@@ -1817,13 +1933,31 @@ mod tests {
             };
             assert!(paper.validate().is_err(), "{width_mm} × {height_mm}");
         }
-        // Print Preview can read the theme and nothing else.
-        for id in ["customization.state", "theme.list"] {
+        // Print Preview can read the theme and the prepared pages, nothing else:
+        // it cannot lay out a document itself or release the pages.
+        for id in ["customization.state", "theme.list", "print.pages"] {
             assert!(authorize_window_command("print", id).is_ok(), "{id}");
         }
-        for id in ["file.open", "file.save", "editor.insertText", "plugin.list"] {
+        for id in [
+            "file.open",
+            "file.save",
+            "file.printStart",
+            "file.exportPdfStart",
+            "print.release",
+            "editor.insertText",
+            "plugin.list",
+        ] {
             assert!(authorize_window_command("print", id).is_err(), "{id}");
         }
+        // Markdown content names its document; unknown kinds are refused.
+        let markdown: PrintContent = serde_json::from_value(serde_json::json!({
+            "kind": "markdown", "documentId": "doc-1", "title": "notes.md"
+        }))
+        .expect("markdown content");
+        assert!(matches!(markdown, PrintContent::Markdown { .. }));
+        assert!(
+            serde_json::from_value::<PrintContent>(serde_json::json!({ "kind": "file" })).is_err()
+        );
     }
 
     #[test]

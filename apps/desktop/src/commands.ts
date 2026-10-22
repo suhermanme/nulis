@@ -87,13 +87,6 @@ export const WORKBENCH_ACTIONS = [
   ...(Object.keys(FIND_WINDOW_COMMANDS) as Array<keyof typeof FIND_WINDOW_COMMANDS>),
 ] as const;
 
-/**
- * Print, Page Setup, and Export to PDF are being built (`IMPROVEMENT_PLAN_3.md`,
- * M36–M39) and appear only in development builds until M39. Mirrors
- * `PRINT_COMMANDS_ENABLED` in nulis-core.
- */
-export const PRINT_COMMANDS_ENABLED: boolean = import.meta.env.DEV;
-
 /** JSON, XML, YAML, and plist tools; offered only while such a document is focused. */
 export const TOOL_COMMANDS = ["tools.validate", "tools.beautify", "tools.minify"] as const;
 

@@ -84,7 +84,7 @@ use nulis_automation::{
     CURRENT_REVISION_ARGUMENT,
 };
 
-pub const IPC_PROTOCOL_VERSION: u32 = 40;
+pub const IPC_PROTOCOL_VERSION: u32 = 41;
 pub const PRODUCT_NAME: &str = "Nulis";
 pub const APPLICATION_ID: &str = "com.nulis.editor";
 const MAX_SCRIPT_MESSAGES: usize = 100;
@@ -2590,21 +2590,8 @@ const WORKBENCH_ACTIONS: &[(&str, &str, &str)] = &[
     ),
 ];
 
-/// Print, Page Setup, and Export to PDF are being built (`IMPROVEMENT_PLAN_3.md`,
-/// M36–M39). Until M39 they exist only in development builds.
-pub const PRINT_COMMANDS_ENABLED: bool = cfg!(debug_assertions);
-const PRINT_COMMAND_IDS: &[&str] = &[
-    "file.print",
-    "file.pageSetup",
-    "file.exportPdf",
-    "file.exportSelectionPdf",
-];
-
 fn register_workbench_commands(commands: &mut CommandRegistry) {
     for (id, title, category) in WORKBENCH_ACTIONS {
-        if !PRINT_COMMANDS_ENABLED && PRINT_COMMAND_IDS.contains(id) {
-            continue;
-        }
         let action = id.rsplit('.').next().unwrap_or(id);
         commands
             .register(
@@ -4121,6 +4108,152 @@ mod tests {
         assert_eq!(done["progress"]["phase"], "writing");
         assert_eq!(done["progress"]["done"], done["progress"]["total"]);
         assert!(pdf.exists());
+    }
+
+    /// Starts a Print and waits for its report.
+    fn run_print(core: &NulisCore, context: &CommandContext, confirmed: bool) -> serde_json::Value {
+        let started = core
+            .execute_command(
+                "file.printStart",
+                context.clone(),
+                serde_json::json!({
+                    "expectedRevision": "0",
+                    "confirmed": confirmed,
+                    "date": "today",
+                    "setup": { "syntaxHighlighting": false },
+                }),
+            )
+            .expect("start");
+        let job = serde_json::json!({ "jobId": started["jobId"] });
+        for _ in 0..6_000 {
+            let report = core
+                .execute_command(
+                    "file.exportPdfProgress",
+                    CommandContext::default(),
+                    job.clone(),
+                )
+                .expect("progress");
+            if report["done"] == true {
+                return report;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        panic!("the print layout did not finish");
+    }
+
+    #[test]
+    fn print_lays_out_the_same_pages_as_the_pdf_and_hands_them_out_in_batches() {
+        let application_data = tempfile::tempdir().expect("application data");
+        let folder = tempfile::tempdir().expect("folder");
+        let core = NulisCore::with_session_root(application_data.path().into());
+        let context = open_rows(&core, folder.path(), 200);
+        let pdf = folder.path().join("rows.pdf");
+        let exported = core
+            .execute_command(
+                "file.exportPdfTo",
+                context.clone(),
+                serde_json::json!({
+                    "expectedRevision": "0",
+                    "path": pdf.display().to_string(),
+                    "date": "today",
+                    "setup": { "syntaxHighlighting": false },
+                }),
+            )
+            .expect("export");
+        let report = run_print(&core, &context, false);
+        assert_eq!(report["printedPages"], exported["pages"]);
+        assert_eq!(report["printedPages"], "4");
+
+        let read = |start: usize, count: usize| {
+            core.execute_command(
+                "print.pages",
+                CommandContext::default(),
+                serde_json::json!({ "start": start, "count": count }),
+            )
+        };
+        let batch = read(1, 2).expect("pages");
+        assert_eq!(batch["total"], 4);
+        assert_eq!(batch["start"], 1);
+        assert_eq!(batch["title"], "rows.txt");
+        assert!((batch["frame"]["widthMm"].as_f64().expect("width") - 210.0).abs() < 0.01);
+        let pages = batch["pages"].as_array().expect("pages");
+        assert_eq!(pages.len(), 2);
+        let second: serde_json::Value =
+            serde_json::from_str(pages[0].as_str().expect("page JSON")).expect("page");
+        assert_eq!(second["number"], 2);
+        // 61 rows a page: page 2 starts with line 62.
+        assert_eq!(second["rows"][0][0][3], " 62");
+        assert_eq!(second["rows"][0][1][3], "row 62");
+        assert_eq!(second["header"][0][3], "rows.txt");
+        assert_eq!(second["footer"][0][3], "Page 2 of 4");
+        // Reading past the end returns no pages.
+        assert_eq!(
+            read(9, 5).expect("past the end")["pages"],
+            serde_json::json!([])
+        );
+
+        core.execute_command(
+            "print.release",
+            CommandContext::default(),
+            serde_json::Value::Null,
+        )
+        .expect("release");
+        assert!(read(0, 1).is_err(), "released pages are gone");
+    }
+
+    #[test]
+    fn the_page_setup_preview_lays_out_only_the_first_page() {
+        let application_data = tempfile::tempdir().expect("application data");
+        let folder = tempfile::tempdir().expect("folder");
+        let core = NulisCore::with_session_root(application_data.path().into());
+        let context = open_rows(&core, folder.path(), 70_000);
+        let preview = core
+            .execute_command(
+                "file.printPreview",
+                context.clone(),
+                serde_json::json!({
+                    "expectedRevision": "0",
+                    "date": "today",
+                    "setup": { "orientation": "landscape", "fontSize": 12 },
+                }),
+            )
+            .expect("preview");
+        let frame = &preview["frame"];
+        assert!((frame["widthMm"].as_f64().expect("width") - 297.0).abs() < 0.01);
+        assert_eq!(frame["landscape"], true);
+        assert_eq!(preview["page"]["number"], 1);
+        assert_eq!(preview["page"]["rows"][0][1][3], "row 1");
+        // The page count is estimated, not counted: no pass over 70,000 lines.
+        let footer = preview["page"]["footer"][0][3].as_str().expect("footer");
+        assert!(footer.starts_with("Page 1 of "), "{footer}");
+        // A setup the core refuses is reported, not shown.
+        assert!(core
+            .execute_command(
+                "file.printPreview",
+                context,
+                serde_json::json!({ "expectedRevision": "0", "setup": { "fontSize": 99 } }),
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn print_asks_above_a_thousand_pages_and_refuses_above_five_thousand() {
+        let application_data = tempfile::tempdir().expect("application data");
+        let folder = tempfile::tempdir().expect("folder");
+        let core = NulisCore::with_session_root(application_data.path().into());
+        let context = open_rows(&core, folder.path(), 70_000);
+        assert_eq!(
+            run_print(&core, &context, false)["needsConfirmation"],
+            "1148"
+        );
+        let confirmed = run_print(&core, &context, true);
+        assert_eq!(confirmed["printedPages"], "1148");
+
+        let context = open_rows(&core, folder.path(), 400_000);
+        let refused = run_print(&core, &context, true);
+        let error = refused["error"].as_str().expect("refused");
+        assert!(error.contains("at most 5,000 pages"), "{error}");
+        assert!(error.contains("at least 6,558"), "{error}");
     }
 
     #[test]

@@ -9,7 +9,7 @@ use crate::{
     fonts::{FontMetrics, FontRefs, FontSet, RefSource, REGULAR_TTF},
     layout::{cell_width, Gutter, Page, Run, Style},
     palette::{Palette, Rgb},
-    setup::Geometry,
+    setup::{band_layout, Geometry},
     PrintError,
 };
 use pdf_writer::{
@@ -21,7 +21,7 @@ use std::{collections::BTreeSet, fmt::Write as _, io::Write};
 /// Pages per outline entry for long documents.
 const PAGES_PER_OUTLINE_ITEM: u64 = 100;
 /// Marks a wrapped row in the gutter.
-const CONTINUATION_MARKER: char = '↪';
+pub(crate) const CONTINUATION_MARKER: char = '↪';
 
 const CATALOG: Ref = Ref::new(1);
 const PAGE_TREE: Ref = Ref::new(2);
@@ -315,24 +315,8 @@ impl<W: Write> PdfWriter<W> {
         top: f32,
         color: Rgb,
     ) -> Result<(), PrintError> {
-        let columns = self.geometry.columns;
-        let width = |text: &str| text.chars().map(cell_width).sum::<u32>();
-        let fit = |text: &str| {
-            text.chars()
-                .take(usize::try_from(columns).unwrap_or(0))
-                .collect::<String>()
-        };
-        let [left, center, right] = parts.each_ref().map(|part| fit(part));
-        if !left.is_empty() {
-            self.draw_text(content, pen, &left, 0, top, color, false)?;
-        }
-        if !center.is_empty() {
-            let column = columns.saturating_sub(width(&center)) / 2;
-            self.draw_text(content, pen, &center, column, top, color, false)?;
-        }
-        if !right.is_empty() {
-            let column = columns.saturating_sub(width(&right));
-            self.draw_text(content, pen, &right, column, top, color, false)?;
+        for (column, text) in band_layout(self.geometry.columns, parts) {
+            self.draw_text(content, pen, &text, column, top, color, false)?;
         }
         Ok(())
     }

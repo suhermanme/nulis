@@ -1,5 +1,5 @@
 /** Versioned JSON-compatible values mirrored from nulis-core's public IPC DTOs. */
-export const IPC_PROTOCOL_VERSION = 40 as const;
+export const IPC_PROTOCOL_VERSION = 41 as const;
 
 export interface ThemeRecord {
   schema?: string;
@@ -227,6 +227,54 @@ export interface PdfExportReport {
   needsConfirmation?: string;
   error?: string;
   result?: PdfExportResult;
+  /** Pages laid out by `file.printStart`, as a decimal string. */
+  printedPages?: string;
+}
+
+/** Text at a cell of the page grid: column, cells, style index, text. */
+export type PrintPiece = [number, number, number, string];
+
+/** What every printed page shares (`nulis_print::PageFrame`). Lengths are points from the top-left corner. */
+export interface PrintPageFrame {
+  widthMm: number;
+  heightMm: number;
+  paperWidthMm: number;
+  paperHeightMm: number;
+  landscape: boolean;
+  marginLeftPt: number;
+  headerTopPt: number;
+  bodyTopPt: number;
+  footerTopPt: number;
+  fontSizePt: number;
+  lineHeightPt: number;
+  cellPt: number;
+  columns: number;
+  rows: number;
+  hasHeader: boolean;
+  hasFooter: boolean;
+  background: string | null;
+  ruleColor: string;
+  styles: Array<{ color: string; bold: boolean }>;
+}
+
+/** One laid-out page (`nulis_print::PrintedPage`). */
+export interface PrintedPage {
+  number: number;
+  header: PrintPiece[];
+  footer: PrintPiece[];
+  rows: PrintPiece[][];
+  /** Rows that are a rule between two printed ranges. */
+  rules: number[];
+}
+
+/** A batch from `print.pages`; each page is JSON text. */
+export interface PrintPagesBatch {
+  printId: number;
+  title: string;
+  frame: PrintPageFrame;
+  total: number;
+  start: number;
+  pages: string[];
 }
 
 export interface DocumentSummary {

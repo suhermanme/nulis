@@ -9,7 +9,7 @@ import { emitTo, listen } from "@tauri-apps/api/event";
 import { App } from "./App";
 import type { CustomizationDocument, ExecuteCommandRequest, WorkbenchSession } from "./contracts";
 import {
-  closeWindowAfterSave, executeCommand, listCommands, openFindWindow, openHelpWindow, openResultsWindow, openSettingsWindow,
+  closeWindowAfterSave, executeCommand, listCommands, openFindWindow, openHelpWindow, openPrintWindow, openResultsWindow, openSettingsWindow,
   setToolsMenu, takeLaunchPaths,
 } from "./ipc";
 import { DEFAULT_EDITOR_PREFERENCES } from "./preferences";
@@ -48,6 +48,7 @@ vi.mock("./ipc", () => ({
   openHelpWindow: vi.fn().mockResolvedValue(undefined),
   openFindWindow: vi.fn().mockResolvedValue(undefined),
   openResultsWindow: vi.fn().mockResolvedValue(undefined),
+  openPrintWindow: vi.fn().mockResolvedValue(undefined),
   takeLaunchPaths: vi.fn().mockResolvedValue([]),
   setToolsMenu: vi.fn().mockResolvedValue(undefined),
 }));
@@ -420,7 +421,10 @@ test("Export to PDF suggests a .pdf name and reports the pages written", async (
   }));
   await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
     id: "file.exportPdfStart", context: { windowId: "main", documentId: "document-1" },
-    arguments: { expectedRevision: "3", path: "/tmp/notes.pdf", date: expect.any(String) as string, confirmed: false, scope: "document" },
+    arguments: {
+      expectedRevision: "3", path: "/tmp/notes.pdf", date: expect.any(String) as string, confirmed: false, scope: "document",
+      setup: expect.objectContaining({ fontSize: 9, lineNumbers: true }) as unknown, colors: { kind: "print" },
+    },
   }));
   expect(await screen.findByText(/Exported 12 pages to notes\.pdf; 2 characters the print font lacks are left blank/))
     .toBeInTheDocument();
@@ -450,6 +454,113 @@ test("a very large export asks first and runs again once confirmed", async () =>
     .filter(([request]) => request.id === "file.exportPdfStart")
     .map(([request]) => (request.arguments as { confirmed: boolean }).confirmed);
   expect(starts).toEqual([false, true]);
+});
+
+async function chooseFileMenuItem(name: RegExp) {
+  fireEvent.click(screen.getByRole("button", { name: "Open File menu" }));
+  fireEvent.click(screen.getByRole("menuitem", { name }));
+}
+
+async function openNewDocument(name: string, revision = "0") {
+  window.localStorage.removeItem("nulis.printSettings.v1");
+  responses["file.new"] = [{ documentId: "document-1", name, byteLen: "5", revision, encoding: "utf8" }];
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  fireEvent.click(screen.getByRole("button", { name: "New text file" }));
+  await screen.findByText(`${name} editor`);
+}
+
+test("Print lays out pages in the core, then opens Print Preview on them", async () => {
+  await openNewDocument("notes.md", "4");
+  responses["file.printStart"] = [{ jobId: 5 }];
+  responses["file.exportPdfProgress"] = [exportReport({ printedPages: "3" })];
+
+  await chooseFileMenuItem(/^Print…/);
+
+  expect(await screen.findByText("notes.md: 3 pages ready to print")).toBeInTheDocument();
+  expect(executeCommand).toHaveBeenCalledWith({
+    id: "file.printStart", context: { windowId: "main", documentId: "document-1" },
+    arguments: {
+      expectedRevision: "4", date: expect.any(String) as string, confirmed: false, scope: "document",
+      setup: expect.objectContaining({ fontSize: 9 }) as unknown, colors: { kind: "print" },
+    },
+  });
+  expect(openPrintWindow).toHaveBeenCalledWith({ kind: "pages" });
+});
+
+test("Print says when a document is too long to print", async () => {
+  await openNewDocument("huge.log");
+  responses["file.printStart"] = [{ jobId: 1 }];
+  responses["file.exportPdfProgress"] = [exportReport({
+    error: "Print takes at most 5,000 pages, and this needs at least 6,558; use Export to PDF instead",
+  })];
+
+  await chooseFileMenuItem(/^Print…/);
+
+  expect(await screen.findByText(/at most 5,000 pages.*use Export to PDF instead/)).toBeInTheDocument();
+  expect(openPrintWindow).not.toHaveBeenCalled();
+});
+
+test("Page Setup previews the first page, saves the settings, and exports with them", async () => {
+  await openNewDocument("notes.md");
+  const frame = {
+    widthMm: 210, heightMm: 297, paperWidthMm: 210, paperHeightMm: 297, landscape: false, marginLeftPt: 42, headerTopPt: 42,
+    bodyTopPt: 60, footerTopPt: 800, fontSizePt: 9, lineHeightPt: 11.7, cellPt: 5.4, columns: 94, rows: 60,
+    hasHeader: true, hasFooter: true, background: null, ruleColor: "#777777", styles: [{ color: "#111111", bold: false }],
+  };
+  responses["file.printPreview"] = Array.from({ length: 10 }, () => ({
+    frame, page: { number: 1, header: [], footer: [], rows: [[[4, 11, 0, "first line"]]], rules: [] },
+  }));
+
+  await chooseFileMenuItem(/^Page Setup…/);
+  const dialog = await screen.findByRole("dialog", { name: "Page Setup" });
+  expect(await within(dialog).findByText("first line")).toBeInTheDocument();
+  fireEvent.change(within(dialog).getByLabelText("Orientation"), { target: { value: "landscape" } });
+  fireEvent.change(within(dialog).getByLabelText("Colors"), { target: { value: "blackAndWhite" } });
+  fireEvent.change(within(dialog).getByLabelText("Margins"), { target: { value: "custom" } });
+  fireEvent.change(within(dialog).getByRole("spinbutton", { name: "Left" }), { target: { value: "30" } });
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
+    id: "file.printPreview",
+    arguments: expect.objectContaining({
+      setup: expect.objectContaining({ orientation: "landscape" }) as unknown,
+      colors: { kind: "blackAndWhite" },
+    }) as unknown,
+  })));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+  expect(screen.queryByRole("dialog", { name: "Page Setup" })).not.toBeInTheDocument();
+  const saved = JSON.parse(window.localStorage.getItem("nulis.printSettings.v1") ?? "{}") as {
+    setup: { orientation: string; margins: { left: number; top: number } }; colors: string;
+  };
+  expect(saved.setup.orientation).toBe("landscape");
+  expect(saved.setup.margins).toMatchObject({ left: 30, top: 15 });
+  expect(saved.colors).toBe("blackAndWhite");
+
+  responses["file.exportPdfStart"] = [{ jobId: 3 }];
+  responses["file.exportPdfProgress"] = [exportReport({ result: { path: "/tmp/notes.pdf", pages: "1", missingGlyphs: "0", bytes: "9" } })];
+  vi.mocked(save).mockResolvedValueOnce("/tmp/notes.pdf");
+  await chooseFileMenuItem(/^Export to PDF/);
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
+    id: "file.exportPdfStart",
+    arguments: expect.objectContaining({
+      setup: expect.objectContaining({ orientation: "landscape" }) as unknown,
+      colors: { kind: "blackAndWhite" },
+    }) as unknown,
+  })));
+});
+
+test("Page Setup reports a setup the core refuses and will not save it", async () => {
+  await openNewDocument("notes.md");
+  vi.mocked(executeCommand).mockImplementation((request: ExecuteCommandRequest) => {
+    if (request.id === "file.printPreview") return Promise.reject(new Error("the margins leave too little room for text"));
+    const queue = responses[request.id];
+    return Promise.resolve(queue?.length ? queue.shift() : null) as never;
+  });
+  await chooseFileMenuItem(/^Page Setup…/);
+  const dialog = await screen.findByRole("dialog", { name: "Page Setup" });
+  expect(await within(dialog).findByRole("alert")).toHaveTextContent("too little room");
+  expect(within(dialog).getByRole("button", { name: "Save" })).toBeDisabled();
+  fireEvent.keyDown(dialog, { key: "Escape" });
+  expect(screen.queryByRole("dialog", { name: "Page Setup" })).not.toBeInTheDocument();
 });
 
 test("asks before closing an unsaved document and honors cancel or discard", async () => {

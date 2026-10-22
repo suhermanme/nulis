@@ -7,9 +7,9 @@ Written 2026-10-21 at the end of a session, for the next one. Read this first, t
 - **Branch `m36-print`**, on top of `main` (`c58f9d2`, Nulis 0.3.0); `git log --oneline main..m36-print` lists its commits. Not merged and not pushed. The working tree was clean when this note was written.
 - **M36** (Print Preview spike, commands, font) and **M37** (`nulis-print`, Export to PDF) are done and were checked by hand on macOS.
 - **M38** (export job with progress and Cancel, large-export question, selection, hex dump, font fallback, highlight windows) is done and was checked in the app on macOS on 2026-10-22 (results in `M38_HANDOVER.md`). One bug found there (exported PDFs got mode `0600`) is fixed.
-- **M39** and **M40** have not started.
-- Printing is **development builds only**: `PRINT_COMMANDS_ENABLED` is `cfg!(debug_assertions)` in `crates/nulis-core/src/lib.rs` and `import.meta.env.DEV` in `apps/desktop/src/commands.ts`. `PRINT_MENU_ENABLED` in `apps/desktop/src-tauri/src/lib.rs` follows the core. A release build shows none of it.
-- IPC protocol 40.
+- **M39** (Print from the core's pages, Page Setup dialog, Markdown preview print, printing in every build) has its code and tests done (2026-10-22, `M39_HANDOVER.md`). **The check in the app is still to do.** **M40** has not started.
+- Printing is in **every build** since M39 (the development-only switches were removed).
+- IPC protocol 41.
 - Last full check (all passed):
   - `cargo fmt --all -- --check`
   - `cargo clippy --workspace --all-targets -- -D warnings`
@@ -76,7 +76,9 @@ npx tauri build --debug --bundles app --config '{"build":{"beforeBuildCommand":"
 
 The app is `target/debug/bundle/macos/Nulis.app`. It uses the same user data, so back up first.
 
-## Next: M39, Print and Page Setup
+## M39, Print and Page Setup (code done; check in the app next)
+
+What was built and what to check: `M39_HANDOVER.md`. The plan below is kept for reference; step 1 stores the values in local storage instead (see the handover's decisions), and step 6 (Windows and Linux) is still open.
 
 Plan §3.2 and §3.6. Suggested order:
 

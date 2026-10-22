@@ -25,6 +25,14 @@ pub(crate) const REGULAR_TTF: &[u8] = include_bytes!(
 pub(crate) const BOLD_TTF: &[u8] =
     include_bytes!("../../../apps/desktop/src/assets/fonts/jetbrains-mono/JetBrainsMono-Bold.ttf");
 
+/// Whether the bundled regular font has a glyph for `character`.
+pub(crate) fn bundled_has_glyph(character: char) -> bool {
+    static FACE: OnceLock<Option<ttf_parser::Face<'static>>> = OnceLock::new();
+    FACE.get_or_init(|| ttf_parser::Face::parse(REGULAR_TTF, 0).ok())
+        .as_ref()
+        .is_some_and(|face| face.glyph_index(character).is_some())
+}
+
 /// Most fallback fonts one PDF embeds.
 const MAX_FALLBACK_FONTS: usize = 16;
 

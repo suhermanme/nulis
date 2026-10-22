@@ -1,4 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { keepFocusInDialog } from "./dialogFocus";
+import { PageSetupDialog } from "./PageSetupDialog";
+import { colorChoice, loadPrintSettings, savePrintSettings, type PrintSettings } from "./printSettings";
 import { isTauri } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
@@ -12,6 +15,8 @@ import type {
   CustomizationDocument,
   DocumentSummary,
   PdfExportReport,
+  PrintPageFrame,
+  PrintedPage,
   EditorPreferences,
   FolderCompareResult,
   LanguageDescriptor,
@@ -54,7 +59,7 @@ import {
   FIND_EVENTS, FindReplacePanel, ResultsWindow, type FindContext, type FindMessage, type FindTab, type MatchTarget, type ResultList,
 } from "./FindReplacePanel";
 import { Icon, IconButton, iconForCommand, type IconName } from "./icons";
-import { EDITOR_ACTIONS, FIND_WINDOW_COMMANDS, LINE_ENDING_LABELS, PALETTE_COMMANDS, PRINT_COMMANDS_ENABLED, shortcutLabel, type EditorActionName } from "./commands";
+import { EDITOR_ACTIONS, FIND_WINDOW_COMMANDS, LINE_ENDING_LABELS, PALETTE_COMMANDS, shortcutLabel, type EditorActionName } from "./commands";
 import {
   closeWindowAfterSave, configureNativeMenu, executeCommand, getApplicationInfo, listCommands, openFindWindow, openHelpWindow, openPrintWindow, openResultsWindow, openSettingsWindow, takeLaunchPaths, type HelpTopic,
   setToolsMenu,
@@ -249,20 +254,6 @@ function comparablePath(path: string): string {
   return path.replaceAll("\\", "/").replace(/\/+$/, "");
 }
 
-function keepFocusInDialog(event: ReactKeyboardEvent<HTMLElement>) {
-  if (event.key !== "Tab") return;
-  const controls = Array.from(event.currentTarget.querySelectorAll<HTMLElement>(
-    "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled)"));
-  if (controls.length === 0) return;
-  if (event.shiftKey && document.activeElement === controls[0]) {
-    event.preventDefault();
-    controls[controls.length - 1].focus();
-  } else if (!event.shiftKey && document.activeElement === controls[controls.length - 1]) {
-    event.preventDefault();
-    controls[0].focus();
-  }
-}
-
 /** Asks for a file's new name; focus returns to where it was when it closes. */
 function RenameDialog({ name, busy, onSubmit, onCancel }: {
   name: string; busy: boolean; onSubmit(name: string): void; onCancel(): void;
@@ -301,8 +292,11 @@ const EXPORT_POLL_MS = 150;
 /** What an export covers; `hexDump` is the hexadecimal editor's view of the bytes. */
 type ExportScope = "document" | "selection" | "hexDump";
 
-/** The document an export reads and the file it writes. */
-interface ExportTarget { documentId: string; name: string; revision: string; path: string; scope: ExportScope }
+/**
+ * The document an export or a print reads. An export writes `path`; a print
+ * (`kind: "print"`) lays out pages for the Print Preview window.
+ */
+interface ExportTarget { kind: "pdf" | "print"; documentId: string; name: string; revision: string; path: string; scope: ExportScope }
 
 export function App() {
   const desktopShell = isTauri();
@@ -404,7 +398,11 @@ export function App() {
   const [busyDecision, setBusyDecision] = useState(false);
   const [closeFlow, setCloseFlow] = useState<CloseFlow>(null);
   const [status, setStatus] = useState("Connecting to the Nulis core…");
-  const [exportJob, setExportJob] = useState<{ jobId: number; name: string; percent: number } | null>(null);
+  const [exportJob, setExportJob] = useState<{ jobId: number; kind: ExportTarget["kind"]; name: string; percent: number } | null>(null);
+  const [printSettings, setPrintSettings] = useState<PrintSettings>(loadPrintSettings);
+  const [pageSetupOpen, setPageSetupOpen] = useState(false);
+  /** The document whose Markdown preview is showing in the active pane. */
+  const [markdownViewing, setMarkdownViewing] = useState<string | null>(null);
   const [largeExport, setLargeExport] = useState<(ExportTarget & { estimatedPages: string }) | null>(null);
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
@@ -835,7 +833,7 @@ export function App() {
     if (!document) return;
     // In the hexadecimal editor the PDF is a dump of the bytes.
     const scope: ExportScope = viewModes[document.documentId] === "hex" ? "hexDump" : requested;
-    if (exportJob) { setStatus("An export to PDF is already running"); return; }
+    if (exportJob) { setStatus(exportJob.kind === "print" ? "Pages are being prepared for printing" : "An export to PDF is already running"); return; }
     const suffix = scope === "selection" ? " (selection)" : scope === "hexDump" ? " (hex)" : "";
     const stem = `${document.name.replace(/\.[^.\\/]+$/, "") || "Untitled"}${suffix}`;
     const folder = document.sourcePath ? document.sourcePath.slice(0, Math.max(document.sourcePath.lastIndexOf("/"), document.sourcePath.lastIndexOf("\\")) + 1) : "";
@@ -846,27 +844,68 @@ export function App() {
         filters: [{ name: "PDF", extensions: ["pdf"] }],
       });
       if (!destination) { setStatus("Export cancelled"); return; }
-      await runExport({ documentId: document.documentId, name: document.name, revision: document.revision, path: destination, scope }, false);
+      await runExport({ kind: "pdf", documentId: document.documentId, name: document.name, revision: document.revision, path: destination, scope }, false);
     } catch (error: unknown) {
       setStatus(errorMessage(error, "Could not export to PDF"));
     }
   };
 
-  /** Runs an export job, showing its progress, and reports how it ended. */
+  /** The page setup and colors the core lays pages out with. */
+  const printArguments = (settings: PrintSettings = printSettings) => ({
+    setup: settings.setup,
+    colors: colorChoice(settings.colors, activeTheme),
+    date: new Date().toLocaleDateString(undefined, { dateStyle: "long" }),
+  });
+
+  /** Prints the active document: its Markdown preview when that is showing, else pages laid out by the core. */
+  const printDocument = async () => {
+    const document = activeDocument;
+    if (!document) { setStatus("Open a document to print"); return; }
+    if (exportJob) { setStatus(exportJob.kind === "print" ? "Pages are being prepared for printing" : "An export to PDF is already running"); return; }
+    try {
+      if (markdownViewing === document.documentId && viewModes[document.documentId] !== "hex") {
+        await openPrintWindow({ kind: "markdown", documentId: document.documentId, title: document.name });
+        setStatus(`Print Preview shows ${document.name}`);
+        return;
+      }
+      const scope: ExportScope = viewModes[document.documentId] === "hex" ? "hexDump" : "document";
+      await runExport({ kind: "print", documentId: document.documentId, name: document.name, revision: document.revision, path: "", scope }, false);
+    } catch (error: unknown) {
+      setStatus(errorMessage(error, "Could not print"));
+    }
+  };
+
+  /** The first page of the active document for the Page Setup preview. */
+  const previewFirstPage = async (settings: PrintSettings) => {
+    const document = activeDocument;
+    if (!document) throw new Error("Open a document to preview its first page");
+    return executeCommand<{ frame: PrintPageFrame; page: PrintedPage }>({
+      id: "file.printPreview",
+      context: { windowId: "main", documentId: document.documentId },
+      arguments: {
+        expectedRevision: document.revision,
+        ...printArguments(settings),
+        scope: viewModes[document.documentId] === "hex" ? "hexDump" : "document",
+      },
+    });
+  };
+
+  /** Runs an export or print job, showing its progress, and reports how it ended. */
   const runExport = async (target: ExportTarget, confirmed: boolean) => {
+    const printing = target.kind === "print";
     const { jobId } = await executeCommand<{ jobId: number }>({
-      id: "file.exportPdfStart",
+      id: printing ? "file.printStart" : "file.exportPdfStart",
       context: { windowId: "main", documentId: target.documentId },
       arguments: {
         expectedRevision: target.revision,
-        path: target.path,
-        date: new Date().toLocaleDateString(undefined, { dateStyle: "long" }),
+        ...(printing ? {} : { path: target.path }),
+        ...printArguments(),
         confirmed,
         scope: target.scope,
       },
     });
-    setExportJob({ jobId, name: target.name, percent: 0 });
-    setStatus(`Exporting ${target.name} to PDF…`);
+    setExportJob({ jobId, kind: target.kind, name: target.name, percent: 0 });
+    setStatus(printing ? `Preparing ${target.name} for printing…` : `Exporting ${target.name} to PDF…`);
     let report: PdfExportReport;
     try {
       for (;;) {
@@ -877,18 +916,22 @@ export function App() {
         if (report.done) break;
         const { done, total } = report.progress;
         const percent = BigInt(total) > 0n ? Number((BigInt(done) * 100n) / BigInt(total)) : 0;
-        setExportJob({ jobId, name: target.name, percent });
+        setExportJob({ jobId, kind: target.kind, name: target.name, percent });
       }
     } finally {
       setExportJob(null);
     }
     if (report.needsConfirmation) {
       setLargeExport({ ...target, estimatedPages: report.needsConfirmation });
-      setStatus("Export waiting for your answer");
+      setStatus(printing ? "Print waiting for your answer" : "Export waiting for your answer");
     } else if (report.cancelled) {
-      setStatus("Export to PDF cancelled");
+      setStatus(printing ? "Print cancelled" : "Export to PDF cancelled");
     } else if (report.error) {
       setStatus(report.error);
+    } else if (report.printedPages) {
+      const pages = report.printedPages === "1" ? "1 page" : `${Number(report.printedPages).toLocaleString()} pages`;
+      await openPrintWindow({ kind: "pages" });
+      setStatus(`${target.name}: ${pages} ready to print`);
     } else if (report.result) {
       const { result } = report;
       const name = result.path.split(/[\\/]/).pop() ?? result.path;
@@ -1780,10 +1823,11 @@ export function App() {
     "file.rename": requestRenameFile,
     "file.revealInPlaces": revealInPlaces,
     "file.quickOpen": openQuickOpen,
-    "file.print": () => {
-      void openPrintWindow().catch((error: unknown) => setStatus(errorMessage(error, "Could not open Print Preview")));
+    "file.print": () => { void printDocument(); },
+    "file.pageSetup": () => {
+      if (!activeDocument) { setStatus("Open a document to set up its pages"); return; }
+      setPageSetupOpen(true);
     },
-    "file.pageSetup": () => setStatus("Page Setup is not finished yet"),
     "file.exportPdf": () => { void exportPdf("document"); },
     "file.exportSelectionPdf": () => { void exportPdf("selection"); },
     "edit.pasteFromHistory": openClipboardHistory,
@@ -2139,20 +2183,18 @@ export function App() {
   ] as const).filter(([command]) => !customization.menu.some((entry) => entry.kind === "command" && entry.command === command))
     .map(([command, label, disabled]) => ({ label, disabled, onSelect: () => runById(command) }));
   fileMenu.push({ kind: "separator" }, ...fileExtras);
-  if (PRINT_COMMANDS_ENABLED) {
-    const hasSelection = Boolean(caret && caret.documentId === activeDocument?.documentId && caret.selectedBytes !== "0");
-    const printItems: MenuItem[] = ([
-      ["file.exportPdf", "Export to PDF…"],
-      ["file.exportSelectionPdf", "Export Selection to PDF…"],
-      ["file.pageSetup", "Page Setup…"],
-      ["file.print", "Print…"],
-    ] as const).filter(([command]) => !customization.menu.some((entry) => entry.kind === "command" && entry.command === command))
-      .map(([command, label]) => ({
-        label, disabled: !activeDocument || (command === "file.exportSelectionPdf" && !hasSelection), onSelect: () => runById(command),
-        ...(command === "file.print" ? { shortcut: shortcutLabel("Primary+Alt+P") } : {}),
-      }));
-    fileMenu.push({ kind: "separator" }, ...printItems);
-  }
+  const hasSelection = Boolean(caret && caret.documentId === activeDocument?.documentId && caret.selectedBytes !== "0");
+  const printItems: MenuItem[] = ([
+    ["file.exportPdf", "Export to PDF…"],
+    ["file.exportSelectionPdf", "Export Selection to PDF…"],
+    ["file.pageSetup", "Page Setup…"],
+    ["file.print", "Print…"],
+  ] as const).filter(([command]) => !customization.menu.some((entry) => entry.kind === "command" && entry.command === command))
+    .map(([command, label]) => ({
+      label, disabled: !activeDocument || (command === "file.exportSelectionPdf" && !hasSelection), onSelect: () => runById(command),
+      ...(command === "file.print" ? { shortcut: shortcutLabel("Primary+Alt+P") } : {}),
+    }));
+  fileMenu.push({ kind: "separator" }, ...printItems);
   if (!customization.menu.some((entry) => entry.kind === "command" && entry.command === "workbench.closeFile")) {
     fileMenu.push({ kind: "separator" }, {
       label: "Close File", shortcut: shortcutFor("workbench.closeFile"), disabled: !activeDocument,
@@ -2293,6 +2335,7 @@ export function App() {
             ...current, [document.documentId]: !(current[document.documentId] ?? lineChangeDefault),
           }))}
           onCaret={active ? (position) => setCaret(position ? { ...position, documentId: document.documentId } : null) : undefined}
+          onMarkdownView={active ? (viewing) => setMarkdownViewing(viewing ? document.documentId : null) : undefined}
           onToggleReadOnly={() => void toggleReadOnly(document.documentId)}
           onToggleHexMode={() => toggleViewMode(document.documentId)}
           onCopyPath={() => copyPath(document)}
@@ -2442,7 +2485,8 @@ export function App() {
       <footer className="statusbar"><span className="status-indicator" aria-hidden="true" />
         <span role="status">{status}</span>
         {exportJob ? <span className="status-progress">
-          <progress max={100} value={exportJob.percent} aria-label={`Exporting ${exportJob.name} to PDF`} />
+          <progress max={100} value={exportJob.percent}
+            aria-label={exportJob.kind === "print" ? `Preparing ${exportJob.name} for printing` : `Exporting ${exportJob.name} to PDF`} />
           <span>{exportJob.percent}%</span>
           <button type="button" className="status-action" onClick={cancelExport}>Cancel</button>
         </span> : null}
@@ -2602,22 +2646,33 @@ export function App() {
           </div>
         </section>
       </div> : null}
+      {pageSetupOpen ? <PageSetupDialog initial={printSettings} preview={previewFirstPage}
+        onCancel={() => setPageSetupOpen(false)}
+        onSave={(settings) => {
+          setPrintSettings(settings);
+          savePrintSettings(settings);
+          setPageSetupOpen(false);
+          setStatus("Page Setup saved");
+        }} /> : null}
       {largeExport ? <div className="decision-backdrop">
         <section className="decision-dialog" role="dialog" aria-modal="true" aria-labelledby="large-export-title"
           onKeyDown={(event) => {
             keepFocusInDialog(event);
-            if (event.key === "Escape") { setLargeExport(null); setStatus("Export cancelled"); }
+            if (event.key === "Escape") { setLargeExport(null); setStatus(largeExport.kind === "print" ? "Print cancelled" : "Export cancelled"); }
           }}>
-          <h2 id="large-export-title">Export {Number(largeExport.estimatedPages).toLocaleString()} pages?</h2>
-          <p>{largeExport.name} makes a PDF of at least {Number(largeExport.estimatedPages).toLocaleString()} pages,
-            more if long lines wrap. A PDF this large takes a while to write.</p>
+          <h2 id="large-export-title">{largeExport.kind === "print" ? "Print" : "Export"} {Number(largeExport.estimatedPages).toLocaleString()} pages?</h2>
+          <p>{largeExport.kind === "print"
+            ? <>{largeExport.name} prints on at least {Number(largeExport.estimatedPages).toLocaleString()} pages,
+              more if long lines wrap. Preparing this many pages takes a while.</>
+            : <>{largeExport.name} makes a PDF of at least {Number(largeExport.estimatedPages).toLocaleString()} pages,
+              more if long lines wrap. A PDF this large takes a while to write.</>}</p>
           <div className="decision-actions">
-            <button autoFocus type="button" onClick={() => { setLargeExport(null); setStatus("Export cancelled"); }}>Cancel</button>
+            <button autoFocus type="button" onClick={() => { setLargeExport(null); setStatus(largeExport.kind === "print" ? "Print cancelled" : "Export cancelled"); }}>Cancel</button>
             <button className="primary" type="button" onClick={() => {
               const target = largeExport;
               setLargeExport(null);
-              void runExport(target, true).catch((error: unknown) => setStatus(errorMessage(error, "Could not export to PDF")));
-            }}>Export</button>
+              void runExport(target, true).catch((error: unknown) => setStatus(errorMessage(error, target.kind === "print" ? "Could not print" : "Could not export to PDF")));
+            }}>{largeExport.kind === "print" ? "Print" : "Export"}</button>
           </div>
         </section>
       </div> : null}

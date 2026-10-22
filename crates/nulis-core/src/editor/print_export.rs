@@ -33,6 +33,10 @@ pub const HIGHLIGHT_LOOKBACK_BYTES: u64 = 16 * 1024;
 /// Bytes scanned per step when counting lines.
 const LINE_COUNT_WINDOW_BYTES: u64 = 4 * 1024 * 1024;
 
+/// Documents up to this size have their lines counted for the Page Setup
+/// preview's gutter; larger ones are previewed without counting.
+pub const PREVIEW_COUNT_BYTES: u64 = 8 * 1024 * 1024;
+
 /// Asks before exporting more pages than this, unless confirmed.
 pub const LARGE_EXPORT_PAGES: u64 = 1_000;
 
@@ -120,6 +124,48 @@ pub struct PdfExportRequest {
     pub scope: ExportScope,
 }
 
+impl PdfExportRequest {
+    fn layout(&self) -> PrintRequest {
+        PrintRequest {
+            expected_revision: self.expected_revision,
+            setup: self.setup.clone(),
+            colors: self.colors.clone(),
+            date: self.date.clone(),
+            confirm_above: self.confirm_above,
+            max_pages: None,
+            scope: self.scope,
+        }
+    }
+}
+
+/// What to lay out for Print.
+#[derive(Clone, Debug)]
+pub struct PrintRequest {
+    pub expected_revision: u64,
+    pub setup: PageSetup,
+    pub colors: ColorChoice,
+    /// The date for `{date}`, already formatted by the desktop.
+    pub date: String,
+    /// Ask first ([`EditorError::ExportNeedsConfirmation`]) above this many pages.
+    pub confirm_above: Option<u64>,
+    /// Refuse more pages than this.
+    pub max_pages: Option<u64>,
+    pub scope: ExportScope,
+}
+
+/// Most pages Print lays out: the Print Preview window holds every page.
+pub const MAX_PRINT_PAGES: u64 = 5_000;
+
+/// A document laid out for the Print Preview window.
+#[derive(Clone, Debug)]
+pub struct PrintedDocument {
+    pub title: String,
+    pub frame: nulis_print::PageFrame,
+    /// Each page as JSON (a [`nulis_print::PrintedPage`]), so a finished
+    /// layout is held compactly until the window reads it.
+    pub pages: Vec<String>,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PdfExportResult {
@@ -148,7 +194,7 @@ impl DocumentManager {
         request: &PdfExportRequest,
         observer: &dyn ExportObserver,
     ) -> Result<PdfExportResult, EditorError> {
-        let (name, source_path) = self.print_identity(document_id, request.expected_revision)?;
+        let (_, source_path) = self.print_identity(document_id, request.expected_revision)?;
         if !request.path.is_absolute() {
             return Err(EditorError::Export("choose where to save the PDF".into()));
         }
@@ -165,7 +211,103 @@ impl DocumentManager {
             .parent()
             .filter(|directory| directory.is_dir())
             .ok_or_else(|| EditorError::Export("the folder for the PDF does not exist".into()))?;
-        let base = ExportBase {
+        let (mut source, options) = self.print_source(document_id, &request.layout(), observer)?;
+        write_pdf(directory, &request.path, &mut source, &options)
+    }
+
+    /// Lays out the document as it is at `expected_revision`, unsaved edits
+    /// included, as pages for the Print Preview window.
+    ///
+    /// # Errors
+    /// Returns an error for a stale revision, an edit made during the
+    /// layout, an unusable page setup, or more pages than
+    /// `request.max_pages`.
+    pub fn print_pages(
+        &self,
+        document_id: &DocumentId,
+        request: &PrintRequest,
+        observer: &dyn ExportObserver,
+    ) -> Result<PrintedDocument, EditorError> {
+        let (mut source, options) = self.print_source(document_id, request, observer)?;
+        let limit = request.max_pages.unwrap_or(u64::MAX);
+        let mut pages = Vec::new();
+        let frame = nulis_print::print_pages(&mut source, &options, |page| {
+            if page.number > limit {
+                return Err(PrintError::Setup(too_many_pages(limit, page.number)));
+            }
+            pages.push(
+                serde_json::to_string(&page)
+                    .map_err(|error| PrintError::Source(error.to_string()))?,
+            );
+            Ok(())
+        })
+        .map_err(export_error)?;
+        Ok(PrintedDocument {
+            title: options.title,
+            frame,
+            pages,
+        })
+    }
+
+    /// The first page of the document for the Page Setup preview. It is
+    /// quick whatever the document's size: only the first page is laid out,
+    /// and `{pages}` shows an estimate. In a document over
+    /// [`PREVIEW_COUNT_BYTES`] the line numbers are not counted, so the
+    /// gutter is as wide as for ten million lines.
+    ///
+    /// # Errors
+    /// Returns an error for a stale revision or an unusable page setup.
+    pub fn print_preview(
+        &self,
+        document_id: &DocumentId,
+        request: &PrintRequest,
+    ) -> Result<(nulis_print::PageFrame, nulis_print::PrintedPage), EditorError> {
+        let request = PrintRequest {
+            confirm_above: None,
+            max_pages: None,
+            ..request.clone()
+        };
+        let (len, _) = self.length_and_revision(document_id)?;
+        let (mut source, mut options) =
+            if request.scope == ExportScope::HexDump || len <= PREVIEW_COUNT_BYTES {
+                self.print_source(document_id, &request, &Unobserved)?
+            } else {
+                self.uncounted_source(document_id, &request, len)?
+            };
+        let rows = match &source {
+            PrintSource::Text(text) => text.ranges.iter().map(|range| range.lines).sum(),
+            PrintSource::Hex(_) => options.last_line,
+        };
+        options.fields.pages = Some(
+            nulis_print::estimate_pages(&options.setup, rows, options.last_line)
+                .map_err(export_error)?,
+        );
+        let frame = nulis_print::page_frame(&options).map_err(export_error)?;
+        let mut first = None;
+        let outcome = nulis_print::print_pages(&mut source, &options, |page| {
+            first = Some(page);
+            // Stop after the first page.
+            Err(PrintError::Cancelled)
+        });
+        match (outcome, first) {
+            (_, Some(page)) => Ok((frame, page)),
+            (Err(error), None) => Err(export_error(error)),
+            (Ok(_), None) => Err(EditorError::Export("there is nothing to preview".into())),
+        }
+    }
+
+    /// The whole document as one range, without counting its lines first.
+    fn uncounted_source<'a>(
+        &'a self,
+        document_id: &DocumentId,
+        request: &PrintRequest,
+        len: u64,
+    ) -> Result<(PrintSource<'a>, ExportOptions), EditorError> {
+        let (name, source_path) = self.print_identity(document_id, request.expected_revision)?;
+        let last_line = 9_999_999;
+        let options = ExportOptions {
+            setup: request.setup.clone(),
+            palette: request.colors.palette().map_err(export_error)?,
             fields: BandFields {
                 path: source_path
                     .as_ref()
@@ -174,27 +316,74 @@ impl DocumentManager {
                 date: request.date.clone(),
                 pages: None,
             },
+            title: name,
+            last_line,
+            fallback_fonts: false,
+        };
+        let source = DocumentLines {
+            manager: self,
+            document_id: document_id.clone(),
+            revision: request.expected_revision,
+            ranges: vec![PrintRange {
+                start: 0,
+                end: len,
+                first_line: 1,
+                lines: last_line,
+                drop_final_empty: false,
+            }],
+            index: 0,
+            cursor: None,
+            separator_pending: false,
+            observer: &Unobserved,
+            progress: ExportProgress::default(),
+            passes: 0,
+            counting_pages: false,
+            scanned: 0,
+            range_bytes: len,
+            finished_bytes: 0,
+        };
+        Ok((PrintSource::Text(source), options))
+    }
+
+    /// The lines `request` covers and how to lay them out, after checking
+    /// the revision and asking about (or refusing) very many pages.
+    fn print_source<'a>(
+        &'a self,
+        document_id: &DocumentId,
+        request: &PrintRequest,
+        observer: &'a dyn ExportObserver,
+    ) -> Result<(PrintSource<'a>, ExportOptions), EditorError> {
+        let (name, source_path) = self.print_identity(document_id, request.expected_revision)?;
+        let fields = BandFields {
+            path: source_path
+                .as_ref()
+                .map_or_else(|| name.clone(), |path| path.display().to_string()),
+            file: name.clone(),
+            date: request.date.clone(),
+            pages: None,
+        };
+        let base = ExportBase {
+            fields,
             palette: request.colors.palette().map_err(export_error)?,
             title: name,
             counting_pages: request.setup.header.uses_page_count()
                 || request.setup.footer.uses_page_count(),
-            directory: directory.to_path_buf(),
         };
         if request.scope == ExportScope::HexDump {
-            self.export_hex_dump(document_id, request, observer, base)
+            self.hex_source(document_id, request, observer, base)
         } else {
-            self.export_text(document_id, request, observer, base)
+            self.text_source(document_id, request, observer, base)
         }
     }
 
     /// The hexadecimal dump: 16 bytes a row, without line numbers.
-    fn export_hex_dump(
-        &self,
+    fn hex_source<'a>(
+        &'a self,
         document_id: &DocumentId,
-        request: &PdfExportRequest,
-        observer: &dyn ExportObserver,
+        request: &PrintRequest,
+        observer: &'a dyn ExportObserver,
         base: ExportBase,
-    ) -> Result<PdfExportResult, EditorError> {
+    ) -> Result<(PrintSource<'a>, ExportOptions), EditorError> {
         let (len, _) = self.length_and_revision(document_id)?;
         let rows = len.div_ceil(HEX_ROW_BYTES).max(1);
         let setup = PageSetup {
@@ -205,7 +394,7 @@ impl DocumentManager {
         };
         let estimated_pages =
             nulis_print::estimate_pages(&setup, rows, rows).map_err(export_error)?;
-        check_size(request.confirm_above, estimated_pages)?;
+        check_size(request, estimated_pages)?;
         let progress = ExportProgress {
             total: len * (1 + u64::from(base.counting_pages)),
             estimated_pages,
@@ -220,7 +409,7 @@ impl DocumentManager {
             last_line: rows,
             fallback_fonts: true,
         };
-        let mut source = HexLines {
+        let source = HexLines {
             manager: self,
             document_id: document_id.clone(),
             revision: request.expected_revision,
@@ -231,17 +420,17 @@ impl DocumentManager {
             passes: 0,
             counting_pages: base.counting_pages,
         };
-        write_pdf(&base.directory, &request.path, &mut source, &options)
+        Ok((PrintSource::Hex(source), options))
     }
 
     /// The text of the whole document or of the selections.
-    fn export_text(
-        &self,
+    fn text_source<'a>(
+        &'a self,
         document_id: &DocumentId,
-        request: &PdfExportRequest,
-        observer: &dyn ExportObserver,
+        request: &PrintRequest,
+        observer: &'a dyn ExportObserver,
         base: ExportBase,
-    ) -> Result<PdfExportResult, EditorError> {
+    ) -> Result<(PrintSource<'a>, ExportOptions), EditorError> {
         let counting_pages = base.counting_pages;
         let spans = self.print_spans(document_id, request.expected_revision, request.scope)?;
         let scanned = spans.last().map_or(0, |span| span.1);
@@ -261,7 +450,7 @@ impl DocumentManager {
             + u64::try_from(ranges.len().saturating_sub(1)).unwrap_or(0);
         progress.estimated_pages =
             nulis_print::estimate_pages(&request.setup, rows, last_line).map_err(export_error)?;
-        check_size(request.confirm_above, progress.estimated_pages)?;
+        check_size(request, progress.estimated_pages)?;
         progress.done = scanned;
         progress.total = scanned + range_bytes * (1 + u64::from(counting_pages));
         observer.report(progress);
@@ -273,7 +462,7 @@ impl DocumentManager {
             last_line,
             fallback_fonts: true,
         };
-        let mut source = DocumentLines {
+        let source = DocumentLines {
             manager: self,
             document_id: document_id.clone(),
             revision: request.expected_revision,
@@ -289,7 +478,7 @@ impl DocumentManager {
             range_bytes,
             finished_bytes: 0,
         };
-        write_pdf(&base.directory, &request.path, &mut source, &options)
+        Ok((PrintSource::Text(source), options))
     }
 
     /// The document's name and file, checking it is still at `revision`.
@@ -584,19 +773,73 @@ struct ExportBase {
     palette: nulis_print::Palette,
     title: String,
     counting_pages: bool,
-    directory: PathBuf,
 }
 
 /// Bytes per row of a hexadecimal dump, as in the hexadecimal editor.
 const HEX_ROW_BYTES: u64 = 16;
 
-/// Refuses with [`EditorError::ExportNeedsConfirmation`] above `limit` pages.
-fn check_size(limit: Option<u64>, estimated_pages: u64) -> Result<(), EditorError> {
-    match limit {
+/// Refuses above `request.max_pages`, and asks first
+/// ([`EditorError::ExportNeedsConfirmation`]) above `request.confirm_above`.
+fn check_size(request: &PrintRequest, estimated_pages: u64) -> Result<(), EditorError> {
+    if let Some(limit) = request.max_pages.filter(|limit| estimated_pages > *limit) {
+        return Err(EditorError::Export(too_many_pages(limit, estimated_pages)));
+    }
+    match request.confirm_above {
         Some(limit) if estimated_pages > limit => {
             Err(EditorError::ExportNeedsConfirmation { estimated_pages })
         }
         _ => Ok(()),
+    }
+}
+
+/// Why Print refuses a document that needs at least `pages` pages.
+fn too_many_pages(limit: u64, pages: u64) -> String {
+    format!(
+        "Print takes at most {} pages, and this needs at least {}; use Export to PDF instead",
+        grouped(limit),
+        grouped(pages)
+    )
+}
+
+/// `1234567` as `1,234,567`.
+fn grouped(number: u64) -> String {
+    let digits = number.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (index, digit) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(digit);
+    }
+    out
+}
+
+/// Either kind of printed lines.
+enum PrintSource<'a> {
+    Text(DocumentLines<'a>),
+    Hex(HexLines<'a>),
+}
+
+impl LineSource for PrintSource<'_> {
+    fn rewind(&mut self) -> Result<(), PrintError> {
+        match self {
+            Self::Text(source) => source.rewind(),
+            Self::Hex(source) => source.rewind(),
+        }
+    }
+
+    fn next_lines(&mut self, highlight: bool) -> Result<Option<Vec<SourceLine>>, PrintError> {
+        match self {
+            Self::Text(source) => source.next_lines(highlight),
+            Self::Hex(source) => source.next_lines(highlight),
+        }
+    }
+
+    fn page_written(&mut self, number: u64) {
+        match self {
+            Self::Text(source) => source.page_written(number),
+            Self::Hex(source) => source.page_written(number),
+        }
     }
 }
 
@@ -1177,6 +1420,39 @@ mod tests {
                 & 0o777
         };
         assert_eq!(mode(&path), mode(&plain));
+    }
+
+    #[test]
+    fn print_stops_when_wrapped_lines_need_more_pages_than_allowed() {
+        // 50 lines fit on one page, but each wraps onto three rows.
+        let line = "word ".repeat(40);
+        let text = format!("{line}\n").repeat(50);
+        let (_root, manager, id) = document(&text);
+        let request = super::PrintRequest {
+            expected_revision: 0,
+            setup: nulis_print::PageSetup {
+                syntax_highlighting: false,
+                ..nulis_print::PageSetup::default()
+            },
+            colors: nulis_print::ColorChoice::Print,
+            date: String::new(),
+            confirm_above: None,
+            max_pages: Some(2),
+            scope: ExportScope::Document,
+        };
+        let error = manager
+            .print_pages(&id, &request, &Unobserved)
+            .expect_err("too many pages");
+        assert!(error.to_string().contains("at least 3"), "{error}");
+        let allowed = super::PrintRequest {
+            max_pages: Some(5),
+            ..request
+        };
+        let printed = manager
+            .print_pages(&id, &allowed, &Unobserved)
+            .expect("pages");
+        assert_eq!(printed.pages.len(), 3);
+        assert_eq!(printed.title, "lines.txt");
     }
 
     #[test]
