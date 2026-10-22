@@ -1378,7 +1378,12 @@ fn open_print_dialog(window: &tauri::WebviewWindow, paper: PrintPaper) -> Result
 
 /// `WebKitGTK` opens the print dialog on the default paper, portrait, and
 /// shrinks a landscape page onto it. This opens the same dialog with the
-/// Print Preview's paper and orientation already chosen.
+/// Print Preview's paper already chosen.
+///
+/// A landscape orientation in the page setup makes `WebKitGTK` print blank
+/// pages (seen with 2.50 on Ubuntu 26.04), so a landscape page is given as
+/// an upright custom paper of the turned size. The page margins are 0: the
+/// Print Preview's pages carry their own.
 #[cfg(target_os = "linux")]
 fn print_on_linux(window: &tauri::WebviewWindow, paper: PrintPaper) -> Result<(), String> {
     window
@@ -1387,17 +1392,16 @@ fn print_on_linux(window: &tauri::WebviewWindow, paper: PrintPaper) -> Result<()
             use webkit2gtk::PrintOperationExt;
             let view = webview.inner();
             let size = linux_paper_size(paper);
-            let orientation = if paper.landscape {
-                gtk::PageOrientation::Landscape
-            } else {
-                gtk::PageOrientation::Portrait
-            };
             let setup = gtk::PageSetup::new();
             setup.set_paper_size(&size);
-            setup.set_orientation(orientation);
+            setup.set_orientation(gtk::PageOrientation::Portrait);
+            setup.set_top_margin(0.0, gtk::Unit::Mm);
+            setup.set_bottom_margin(0.0, gtk::Unit::Mm);
+            setup.set_left_margin(0.0, gtk::Unit::Mm);
+            setup.set_right_margin(0.0, gtk::Unit::Mm);
             let settings = gtk::PrintSettings::new();
             settings.set_paper_size(&size);
-            settings.set_orientation(orientation);
+            settings.set_orientation(gtk::PageOrientation::Portrait);
             let operation = webkit2gtk::PrintOperation::new(&view);
             operation.set_page_setup(&setup);
             operation.set_print_settings(&settings);
@@ -1409,34 +1413,39 @@ fn print_on_linux(window: &tauri::WebviewWindow, paper: PrintPaper) -> Result<()
         .map_err(|error| error.to_string())
 }
 
-/// The named GTK paper for the sizes Page Setup offers, so the dialog and
-/// the printer recognize them; any other size as a custom one.
+/// The paper for a page as the Print Preview laid it out: the named GTK
+/// paper for an upright page of a size Page Setup offers, so the dialog and
+/// the printer recognize it, and otherwise a custom paper of the page's
+/// size (a landscape page turned upright).
 #[cfg(target_os = "linux")]
 fn linux_paper_size(paper: PrintPaper) -> gtk::PaperSize {
-    const NAMED: [(&str, f64, f64); 5] = [
-        ("iso_a4", 210.0, 297.0),
-        ("na_letter", 215.9, 279.4),
-        ("na_legal", 215.9, 355.6),
-        ("iso_a3", 297.0, 420.0),
-        ("iso_a5", 148.0, 210.0),
+    const NAMED: [(&str, &str, f64, f64); 5] = [
+        ("iso_a4", "A4", 210.0, 297.0),
+        ("na_letter", "Letter", 215.9, 279.4),
+        ("na_legal", "Legal", 215.9, 355.6),
+        ("iso_a3", "A3", 297.0, 420.0),
+        ("iso_a5", "A5", 148.0, 210.0),
     ];
-    NAMED
-        .iter()
-        .find(|(_, width, height)| {
-            (paper.width_mm - width).abs() < 0.5 && (paper.height_mm - height).abs() < 0.5
-        })
-        .map_or_else(
-            || {
-                gtk::PaperSize::new_custom(
-                    "nulis-page-setup",
-                    "Page Setup",
-                    paper.width_mm,
-                    paper.height_mm,
-                    gtk::Unit::Mm,
-                )
-            },
-            |(name, _, _)| gtk::PaperSize::new(Some(name)),
-        )
+    let known = NAMED.iter().find(|&&(_, _, width, height)| {
+        (paper.width_mm - width).abs() < 0.5 && (paper.height_mm - height).abs() < 0.5
+    });
+    match (known, paper.landscape) {
+        (Some(&(name, _, _, _)), false) => gtk::PaperSize::new(Some(name)),
+        (known, landscape) => {
+            let label = known.map_or("Page Setup", |&(_, label, _, _)| label);
+            let (width, height) = if landscape {
+                (paper.height_mm, paper.width_mm)
+            } else {
+                (paper.width_mm, paper.height_mm)
+            };
+            let display = if landscape {
+                format!("{label} landscape")
+            } else {
+                label.to_owned()
+            };
+            gtk::PaperSize::new_custom("nulis-page", &display, width, height, gtk::Unit::Mm)
+        }
+    }
 }
 
 /// macOS prints on the paper of the last print job and ignores the page's
