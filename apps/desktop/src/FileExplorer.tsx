@@ -235,7 +235,7 @@ export function FileExplorer({
     </div>
     {tab === "open" ? <div className="workspace-tree" role="tree" aria-label="Open files">
       {documents.length === 0 ? <p className="tree-limit">No files are open.</p> : documents.map((document) => (
-        <button type="button" key={document.documentId} title={document.sourcePath ?? document.remoteUri ?? document.name}
+        <button type="button" key={document.documentId} title={document.sourcePath ?? document.name}
           className={`tree-row file${document.documentId === activeDocumentId ? " home" : ""}`}
           onContextMenu={(event) => { event.preventDefault(); onDocumentMenu?.(document.documentId, event.clientX, event.clientY); }}
           onClick={() => onShowDocument(document.documentId)}>

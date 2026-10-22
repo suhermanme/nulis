@@ -15,7 +15,7 @@ export interface HelpSection {
 
 const SECTION_ICONS: Record<string, IconName> = {
   "Getting Started": "general", "Files": "document", "Tabs and Workspaces": "workspace", "Editing": "edit",
-  "Search": "find", "Languages and Encodings": "language", "Tools": "validate", "File View and Remote": "folders",
+  "Search": "find", "Languages and Encodings": "language", "Tools": "validate", "File View": "folders",
   "Automation": "automation", "Plugins": "plugins", "Building Plugins": "symbols", "Settings and Themes": "settings",
   "Keyboard Shortcuts": "keyboard", "Limits": "column", "About and License": "security",
 };

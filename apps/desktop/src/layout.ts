@@ -246,7 +246,7 @@ export function resizeActivePane(tab: WorkTab, delta: number): WorkTab {
 /** Stable session identity for a document, or null when it cannot be restored. */
 export function documentReference(document: DocumentSummary): string | null {
   if (document.sourcePath) return `path:${document.sourcePath}`;
-  if (!document.remoteUri && document.recoveryId) return `recovery:${document.recoveryId}`;
+  if (document.recoveryId) return `recovery:${document.recoveryId}`;
   return null;
 }
 

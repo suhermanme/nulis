@@ -1,5 +1,5 @@
 /** Versioned JSON-compatible values mirrored from nulis-core's public IPC DTOs. */
-export const IPC_PROTOCOL_VERSION = 41 as const;
+export const IPC_PROTOCOL_VERSION = 42 as const;
 
 export interface ThemeRecord {
   schema?: string;
@@ -285,7 +285,6 @@ export interface DocumentSummary {
   encoding: TextEncoding;
   dirty?: boolean;
   sourcePath?: string;
-  remoteUri?: string;
   /** Stable checkpoint identity; lets an untitled tab keep its place across restarts. */
   recoveryId?: string;
   /** The language the document is highlighted as. */
@@ -323,32 +322,6 @@ export interface RecoveryCandidate {
   sourcePath: string | null;
   sourceChanged?: boolean;
   byteLen: string;
-}
-
-export interface RemoteProfile {
-  id: string;
-  label: string;
-  host: string;
-  port: number;
-  username: string;
-  rootPath: string;
-  credentialId: string;
-  hostKeySha256: string;
-}
-
-export type RemoteEntryKind = "directory" | "file" | "symlink" | "other";
-
-export interface RemoteEntry {
-  name: string;
-  path: string;
-  kind: RemoteEntryKind;
-  byteLen?: string;
-}
-
-export interface RemoteDirectory {
-  path: string;
-  entries: RemoteEntry[];
-  truncated: boolean;
 }
 
 export interface TerminalSummary {
@@ -551,7 +524,7 @@ export interface WorkbenchSession {
   activeLayout: string | null;
   sidebarVisible: boolean;
   sidebarWidth: number;
-  activePanel: "files" | "search" | "remote";
+  activePanel: "files" | "search";
   viewModes: Record<string, "text" | "hex">;
 }
 

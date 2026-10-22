@@ -149,8 +149,6 @@ pub struct DocumentSummary {
     pub dirty: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_path: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub remote_uri: Option<String>,
     /// Stable checkpoint identity, present once the document can be recovered.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recovery_id: Option<String>,
@@ -695,7 +693,6 @@ struct EditorSession {
     source_path: Option<PathBuf>,
     source_fingerprint: Option<FileFingerprint>,
     original_path: Option<PathBuf>,
-    remote_uri: Option<String>,
     additions_path: Option<PathBuf>,
     recovery_id: Option<String>,
     document: Document,
@@ -888,7 +885,6 @@ impl DocumentManager {
             encoding: TextEncoding::Utf8,
             dirty: !starts_clean,
             source_path: None,
-            remote_uri: None,
             recovery_id: Some(recovery_id.clone()),
             language_id: language_id.as_str().to_owned(),
             read_only: false,
@@ -905,7 +901,6 @@ impl DocumentManager {
                     source_path: None,
                     source_fingerprint,
                     original_path: Some(original_path),
-                    remote_uri: None,
                     additions_path: Some(additions_path),
                     recovery_id: Some(recovery_id),
                     document,
@@ -1068,7 +1063,6 @@ impl DocumentManager {
             source_path: Some(path.to_path_buf()),
             source_fingerprint,
             original_path: None,
-            remote_uri: None,
             additions_path: Some(additions_path),
             recovery_id: None,
             document,
@@ -1091,73 +1085,11 @@ impl DocumentManager {
         Ok(summary)
     }
 
-    /// Opens a remote immutable source without routing its bytes through IPC.
-    /// Edits use the same disk-backed append store as local source documents.
-    ///
-    /// # Errors
-    /// Returns an error if persistent session storage cannot be created.
-    pub fn open_remote(
-        &self,
-        name: String,
-        remote_uri: String,
-        source: std::sync::Arc<dyn ReadAt>,
-    ) -> Result<DocumentSummary, EditorError> {
-        fs::create_dir_all(&self.session_root).map_err(|error| EditorError::io(&error))?;
-        let temporary = tempfile::Builder::new()
-            .prefix("document-")
-            .suffix(".add")
-            .tempfile_in(&self.session_root)
-            .map_err(|error| EditorError::io(&error))?;
-        let (temporary_file, additions_path) = temporary
-            .keep()
-            .map_err(|error| EditorError::io(&error.error))?;
-        drop(temporary_file);
-        let additions = match DiskAppendStore::open(&additions_path) {
-            Ok(additions) => additions,
-            Err(error) => {
-                let _ = fs::remove_file(&additions_path);
-                return Err(EditorError::io(&error));
-            }
-        };
-        let number = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
-        let id = DocumentId(format!("document-{number}"));
-        let language_id = self.languages.detect_path(Path::new(&name));
-        let session = EditorSession {
-            name,
-            source_path: None,
-            source_fingerprint: None,
-            original_path: None,
-            remote_uri: Some(remote_uri),
-            additions_path: Some(additions_path),
-            recovery_id: None,
-            document: Document::new(
-                PieceTable::new(source, Box::new(additions)),
-                DEFAULT_HISTORY_BUDGET,
-            ),
-            encoding: TextEncoding::Utf8,
-            language_id,
-            selections: vec![Selection::caret(0)],
-            rectangular_selection: None,
-            preferred_scalar_columns: vec![None],
-            bookmarks: BTreeSet::new(),
-            bookmark_undo: VecDeque::new(),
-            bookmark_redo: VecDeque::new(),
-            changes: ChangeTracker::default(),
-            navigation_index: SparseNavigationIndex::default(),
-        };
-        let result = summary(&id, &session);
-        self.sessions
-            .lock()
-            .map_err(|_| EditorError::StateUnavailable)?
-            .insert(id, session);
-        Ok(result)
-    }
-
     /// Saves a local file-backed document to its current path using atomic
     /// replacement and the fingerprint captured by the previous open/save.
     ///
     /// # Errors
-    /// Returns an error for an untitled/remote document, stale revision,
+    /// Returns an error for an untitled document, stale revision,
     /// concurrent destination change, or storage failure.
     pub fn save(
         &self,
@@ -1232,7 +1164,6 @@ impl DocumentManager {
         );
         session.source_path = Some(destination.to_path_buf());
         session.source_fingerprint = Some(saved);
-        session.remote_uri = None;
         session.language_id = self.languages.detect_path(destination);
         rebase_saved_session(session, &self.session_root, destination)?;
         Ok(summary(document_id, session))
@@ -1257,7 +1188,9 @@ impl DocumentManager {
             .original_path
             .as_ref()
             .or(session.source_path.as_ref())
-            .ok_or_else(|| EditorError::Recovery("remote documents cannot be recovered".into()))?;
+            .ok_or_else(|| {
+                EditorError::Recovery("the document has no file to recover from".into())
+            })?;
         let additions = session
             .additions_path
             .as_ref()
@@ -1414,7 +1347,6 @@ impl DocumentManager {
                 Some(record.source_fingerprint)
             },
             original_path: record.untitled.then_some(record.source_path),
-            remote_uri: None,
             additions_path: Some(record.additions_path),
             recovery_id: Some(recovery_id.to_owned()),
             document,
@@ -4089,7 +4021,6 @@ fn summary(document_id: &DocumentId, session: &EditorSession) -> DocumentSummary
             .source_path
             .as_ref()
             .map(|path| path.to_string_lossy().into_owned()),
-        remote_uri: session.remote_uri.clone(),
         recovery_id: session.recovery_id.clone(),
         language_id: session.language_id.as_str().to_owned(),
         read_only: session.document.is_read_only(),

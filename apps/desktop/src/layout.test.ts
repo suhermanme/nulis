@@ -118,11 +118,11 @@ test("sessions store stable references and restore independently of missing docu
   const documents: DocumentSummary[] = [
     { documentId: "document-1", name: "a.txt", byteLen: "0", revision: "0", encoding: "utf8", sourcePath: "/p/a.txt" },
     { documentId: "document-2", name: "Untitled 2", byteLen: "3", revision: "1", encoding: "utf8", recoveryId: "document-abc" },
-    { documentId: "document-3", name: "remote", byteLen: "3", revision: "0", encoding: "utf8", remoteUri: "sftp://x/y" },
+    { documentId: "document-3", name: "Untitled 3", byteLen: "3", revision: "0", encoding: "utf8" },
   ];
   const workspace = { ...must(groupTabs(tab(1, "document-1"), "pane-1", "right", tab(2, "document-2"), "Workspace")), name: "monitoring" };
   const stored = tabsToSession([workspace, tab(3, "document-3"), tab(4, `${PENDING_PREFIX}document-xyz`)], documents);
-  // Remote documents cannot be restored and never reach the session.
+  // A document with neither a file nor a recovery copy cannot be restored and never reaches the session.
   expect(stored.documents).toEqual(["path:/p/a.txt", "recovery:document-abc", "recovery:document-xyz"]);
   expect(stored.layouts.map((item) => item.id)).toEqual(["tab-1", "tab-4"]);
   expect(stored.layouts[0]).toMatchObject({

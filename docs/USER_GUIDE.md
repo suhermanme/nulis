@@ -16,8 +16,8 @@ From top to bottom, the window has these parts.
 | --- | --- |
 | Title bar | The **Nulis** brand (click it to open the About page), the main toolbar, and the **Commands** button at the far right. |
 | Main toolbar | Icon buttons with a caption under each: New, Open, Save, Close, Undo, Redo, Split Right, Split Down, Sidebar, Automation, Plugins, and Settings. Validate, Beautify, and Minify appear here while a JSON or XML document is focused. Buttons that do not fit move into an overflow menu. |
-| Activity bar | The narrow column on the left: **Files** and **Remote** choose what the side bar shows. Search is in the Find and Replace window (**Ctrl/⌘ F**). **Symbols** is reserved for a later version and is disabled; use the symbols list in the editor toolbar instead. |
-| Side bar | File View or remote browsing. Hide or show it with the Sidebar button. Drag its edge to resize it. |
+| Activity bar | The narrow column on the left: **Files** shows or hides File View in the side bar. Search is in the Find and Replace window (**Ctrl/⌘ F**). **Symbols** is reserved for a later version and is disabled; use the symbols list in the editor toolbar instead. |
+| Side bar | File View. Hide or show it with the Sidebar button. Drag its edge to resize it. |
 | Tab strip | One tab per open file or workspace, the **+** button for a new tab, and on the right the buttons for split view, document comparison, folder comparison, the terminal, and the hexadecimal editor. |
 | Editor toolbar | Tools for the focused document: find, Go To, bookmarks, Transform, encoding, View As, symbols, word wrap, column editing, folding, line change indicators, the document map, the **EDIT** / **READ ONLY** mode button, and the insert/overwrite indicator. |
 | Editor | The text (or hexadecimal) view, with line numbers and the change-indicator lane in the gutter. |
@@ -68,7 +68,7 @@ When no file is open at startup, Nulis shows a welcome screen with buttons for a
 | Save | **Ctrl/⌘ S**, the **Save** toolbar button, or **File ▸ Save**. |
 | Save under a new name | **Ctrl/⌘ Shift S** or **File ▸ Save As…**. |
 | Save every changed file | **File ▸ Save All**. A file that has never been saved asks where to save it; cancelling skips that file. |
-| Rename the file | **File ▸ Rename File…** renames the file in its folder. Unsaved changes stay unsaved, and the text is not reloaded. A name that is already taken is refused. Untitled and remote files cannot be renamed this way. |
+| Rename the file | **File ▸ Rename File…** renames the file in its folder. Unsaved changes stay unsaved, and the text is not reloaded. A name that is already taken is refused. Untitled files cannot be renamed this way. |
 | Find the file on disk | **File ▸ Show in Places** opens File View on the **Places** tab with the folders above the file expanded and the file highlighted. |
 | Close the file | **Ctrl/⌘ W**, the **Close** toolbar button, the **×** on the tab, or **File ▸ Close File**. |
 | Close every file | **File ▸ Close All Files**. Nulis asks about each file with unsaved changes; **Cancel** stops and keeps the remaining tabs. |
@@ -93,7 +93,7 @@ Nulis notices when another program changes or removes a file you have open. It c
 - **Changed:** choose **Reload** to show the new version, or **Keep Mine** to keep the text in the editor. With unsaved edits, the button reads **Discard Edits and Reload**; keeping yours means the next Save replaces the other program's changes.
 - **Deleted or moved:** **Keep Open** keeps the text so you can save it again; **Close** closes it.
 
-Each change is asked about once. To reload at any time, choose **File ▸ Reload from Disk**, right-click the text and choose **Reload from Disk**, or use the command palette. If the document has unsaved edits, Nulis asks before discarding them. Reloading keeps the tab and caret position; undo history and line change markers start over. Remote (SFTP) documents are not checked.
+Each change is asked about once. To reload at any time, choose **File ▸ Reload from Disk**, right-click the text and choose **Reload from Disk**, or use the command palette. If the document has unsaved edits, Nulis asks before discarding them. Reloading keeps the tab and caret position; undo history and line change markers start over.
 
 ### Sessions and recovery
 
@@ -490,7 +490,7 @@ The hexadecimal view reads only the bytes on screen, so it works on files of any
 
 Click the terminal button at the right of the tab strip to open a terminal below the editor. It runs your default shell. Click the button again to close it.
 
-## File View and Remote
+## File View
 
 ### File View
 
@@ -505,17 +505,6 @@ Click **Files** in the activity bar. File View has three tabs.
 Folders are read only when you expand them, so browsing a large disk stays fast. Type a pattern such as `*.md; *.txt` in the filter field to show only matching files, and use the button beside it to show hidden files and folders. Click a file to open it.
 
 **File ▸ Show in Places** goes the other way: it opens the **Places** tab with every folder above the focused file expanded, and highlights the file.
-
-### Remote files (SFTP)
-
-Click **Remote** in the activity bar to browse a server over SFTP.
-
-1. Fill in a profile: an ID and label of your choice, the host, user name, port, and the root path to start in.
-2. Enter the server's **host key fingerprint**, as SSH prints it: `SHA256:` followed by 43 letters, digits, `+`, and `/`. Nulis connects only if the server presents exactly this key. To get it, run `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on the server, or compare with the fingerprint `ssh` showed the first time you connected. Nulis checks the server's ED25519 key when it has one, as `ssh` does; if the key does not match, the message names the key type and the fingerprint the server presented. The hexadecimal form (64 digits, colons allowed) is accepted too.
-3. Enter the password and press **Save**. The password is stored in the operating system's keychain, never in a settings file.
-4. Press **Connect**, browse the folders, and click a file to open it.
-
-Remote files open read-only: you can view, search, and copy from them.
 
 ## Automation
 

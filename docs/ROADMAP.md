@@ -12,7 +12,7 @@
 | M07 | scalable hex editing | Complete locally; hosted platform input validation continues under M14 |
 | M08 | workspace, explorer, palette, layouts, sessions | Complete locally; hosted platform validation continues under M14 |
 | M09 | diff, merge, binary/folder compare | Complete locally; hosted platform and large-corpus validation continue under M14 |
-| M10 | remote providers, credentials, terminal | Complete locally; hosted keychain, SFTP interoperability, and PTY validation continue under M14 |
+| M10 | remote providers, credentials, terminal | Complete locally; remote providers and credentials removed on 2026-10-22 (the terminal stays) |
 | M11 | macros and sandboxed scripting | Complete locally; hosted platform validation continues under M14 |
 | M12 | plugin host, permissions, SDK stabilization | Complete locally; hosted platform validation continues under M14 |
 | M13 | customization and complete theme system | Complete locally; hosted platform/native-menu validation continues under M14 |

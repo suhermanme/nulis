@@ -756,42 +756,6 @@ test("Replace in Files previews, asks for confirmation, then reports each file",
   expect(screen.getByRole("tab", { name: /Second/ })).toHaveAccessibleName(/unsaved|modified|•/i);
 });
 
-test("stores remote credentials separately from persisted SFTP profile metadata", async () => {
-  // Typed as OpenSSH prints it; the core stores it as hex.
-  const typedFingerprint = "SHA256:67C81qIlWGDaV1sM2jKJr1jRag9Wwk6wTTNf8Di0+Ww";
-  const saved = {
-    id: "staging", label: "Staging", host: "example.test", port: 22,
-    username: "developer", rootPath: "/srv/app", credentialId: "staging.password",
-    hostKeySha256: "ab".repeat(32),
-  };
-  responses["remote.listProfiles"] = [[], [saved]];
-  responses["remote.setCredential"] = [null];
-  responses["remote.saveProfile"] = [saved];
-
-  render(<App />);
-  await screen.findByText("Nulis 0.1.0");
-  fireEvent.click(screen.getByRole("button", { name: "Remote" }));
-  fireEvent.change(screen.getByRole("textbox", { name: "Profile ID" }), { target: { value: "staging" } });
-  fireEvent.change(screen.getByRole("textbox", { name: "Profile label" }), { target: { value: "Staging" } });
-  fireEvent.change(screen.getByRole("textbox", { name: "Remote host" }), { target: { value: "example.test" } });
-  fireEvent.change(screen.getByRole("textbox", { name: "Remote username" }), { target: { value: "developer" } });
-  fireEvent.change(screen.getByRole("textbox", { name: "Remote root path" }), { target: { value: "/srv/app" } });
-  fireEvent.change(screen.getByRole("textbox", { name: "SHA-256 host key fingerprint" }), {
-    target: { value: typedFingerprint },
-  });
-  fireEvent.change(screen.getByLabelText("Remote password"), { target: { value: "secret-value" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save" }));
-
-  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
-    id: "remote.setCredential", context: { windowId: "main" },
-    arguments: { credentialId: "staging.password", secret: "secret-value" },
-  }));
-  expect(executeCommand).toHaveBeenCalledWith({
-    id: "remote.saveProfile", context: { windowId: "main" }, arguments: { ...saved, hostKeySha256: typedFingerprint },
-  });
-  expect(await screen.findByRole("option", { name: "Staging" })).toBeInTheDocument();
-});
-
 test("opens a bounded workspace tree lazily and routes files through the workspace command", async () => {
   vi.mocked(open).mockResolvedValueOnce("/tmp/project");
   responses["workspace.open"] = [{ root: "/tmp/project", name: "project" }];

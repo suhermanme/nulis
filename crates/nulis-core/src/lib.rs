@@ -56,11 +56,6 @@ pub use nulis_plugin_host::{
     PluginCommandContribution, PluginError, PluginGrant, PluginPermission, PluginSummary,
     PLUGIN_API_VERSION,
 };
-use nulis_remote::RemoteService;
-pub use nulis_remote::{
-    RemoteDirectory, RemoteEntry, RemoteEntryKind, RemoteProfile, RemoteProfileId,
-    RemoteProviderDescriptor,
-};
 pub use nulis_settings::{
     AppearanceSettings, CustomizationDocument, Keybinding, MenuEntry, CUSTOMIZATION_SCHEMA_VERSION,
 };
@@ -84,7 +79,7 @@ use nulis_automation::{
     CURRENT_REVISION_ARGUMENT,
 };
 
-pub const IPC_PROTOCOL_VERSION: u32 = 41;
+pub const IPC_PROTOCOL_VERSION: u32 = 42;
 pub const PRODUCT_NAME: &str = "Nulis";
 pub const APPLICATION_ID: &str = "com.nulis.editor";
 const MAX_SCRIPT_MESSAGES: usize = 100;
@@ -154,7 +149,6 @@ pub struct NulisCore {
     documents: Arc<DocumentManager>,
     workspace: Arc<WorkspaceService>,
     session_store: Arc<SessionStore>,
-    remote: Arc<RemoteService>,
     terminals: Arc<TerminalManager>,
     automation: Mutex<AutomationState>,
     plugins: Mutex<PluginState>,
@@ -170,7 +164,6 @@ impl std::fmt::Debug for NulisCore {
             .field("documents", &self.documents)
             .field("workspace", &self.workspace)
             .field("session_store", &self.session_store)
-            .field("remote", &self.remote)
             .field("terminals", &self.terminals)
             .field("automation", &self.automation)
             .field("plugins", &self.plugins)
@@ -211,10 +204,6 @@ impl NulisCore {
     ) -> Self {
         let mut commands = CommandRegistry::default();
         let session_store = Arc::new(SessionStore::new(session_root.join("workbench.json")));
-        let remote = Arc::new(
-            RemoteService::open(session_root.join("remote-profiles.json"))
-                .expect("remote profile store path is valid"),
-        );
         let automation = Mutex::new(AutomationState {
             recorder: MacroRecorder::default(),
             macro_store: MacroStore::new(session_root.join("macros.json")),
@@ -289,7 +278,6 @@ impl NulisCore {
         register_workspace_commands(&mut commands, &workspace, &documents);
         register_session_commands(&mut commands, &session_store);
         register_workbench_commands(&mut commands);
-        register_remote_commands(&mut commands, &remote, &documents);
         register_terminal_commands(&mut commands, &terminals);
         register_automation_commands(&mut commands);
         register_plugin_commands(&mut commands);
@@ -307,7 +295,6 @@ impl NulisCore {
             documents,
             workspace,
             session_store,
-            remote,
             terminals,
             automation,
             plugins,
@@ -1877,33 +1864,6 @@ struct OpenWorkspaceFileArguments {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct RemoteProfileArguments {
-    profile_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct RemotePathArguments {
-    profile_id: String,
-    #[serde(default)]
-    path: String,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct RemoteCredentialArguments {
-    credential_id: String,
-    secret: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-struct RemoteCredentialIdArguments {
-    credential_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct TerminalWriteArguments {
     terminal_id: TerminalId,
     bytes: Vec<u8>,
@@ -2172,140 +2132,6 @@ fn register_workspace_commands(
                     .close()
                     .map_err(|error| CommandError::Failed(error.to_string()))?;
                 Ok(Value::Null)
-            },
-        )
-        .expect("built-in command is unique");
-}
-
-#[allow(clippy::too_many_lines)] // Registrations stay together as one auditable capability boundary.
-fn register_remote_commands(
-    commands: &mut CommandRegistry,
-    remote: &Arc<RemoteService>,
-    documents: &Arc<DocumentManager>,
-) {
-    let service = Arc::clone(remote);
-    commands
-        .register(
-            CommandDescriptor::new("remote.providers", "Remote Providers", "Remote")
-                .expect("built-in command ID is valid"),
-            move |_context, _arguments| {
-                serde_json::to_value(service.providers())
-                    .map_err(|error| serialization_command_error(&error))
-            },
-        )
-        .expect("built-in command is unique");
-
-    let service = Arc::clone(remote);
-    commands
-        .register(
-            CommandDescriptor::new("remote.listProfiles", "List Remote Profiles", "Remote")
-                .expect("built-in command ID is valid"),
-            move |_context, _arguments| {
-                let result = service.list_profiles().map_err(remote_command_error)?;
-                serde_json::to_value(result).map_err(|error| serialization_command_error(&error))
-            },
-        )
-        .expect("built-in command is unique");
-
-    let service = Arc::clone(remote);
-    commands
-        .register(
-            CommandDescriptor::new("remote.saveProfile", "Save Remote Profile", "Remote")
-                .expect("built-in command ID is valid"),
-            move |_context, arguments| {
-                let profile: RemoteProfile = parse_arguments(arguments)?;
-                let result = service
-                    .save_profile(profile)
-                    .map_err(remote_command_error)?;
-                serde_json::to_value(result).map_err(|error| serialization_command_error(&error))
-            },
-        )
-        .expect("built-in command is unique");
-
-    let service = Arc::clone(remote);
-    commands
-        .register(
-            CommandDescriptor::new("remote.deleteProfile", "Delete Remote Profile", "Remote")
-                .expect("built-in command ID is valid"),
-            move |_context, arguments| {
-                let arguments: RemoteProfileArguments = parse_arguments(arguments)?;
-                let id =
-                    RemoteProfileId::parse(arguments.profile_id).map_err(remote_command_error)?;
-                service.delete_profile(&id).map_err(remote_command_error)?;
-                Ok(Value::Null)
-            },
-        )
-        .expect("built-in command is unique");
-
-    let service = Arc::clone(remote);
-    commands
-        .register(
-            CommandDescriptor::new("remote.setCredential", "Store Remote Credential", "Remote")
-                .expect("built-in command ID is valid"),
-            move |_context, arguments| {
-                let arguments: RemoteCredentialArguments = parse_arguments(arguments)?;
-                let mut secret = arguments.secret.into_bytes();
-                let result = service.set_credential(&arguments.credential_id, &secret);
-                secret.fill(0);
-                result.map_err(remote_command_error)?;
-                Ok(Value::Null)
-            },
-        )
-        .expect("built-in command is unique");
-
-    let service = Arc::clone(remote);
-    commands
-        .register(
-            CommandDescriptor::new(
-                "remote.deleteCredential",
-                "Delete Remote Credential",
-                "Remote",
-            )
-            .expect("built-in command ID is valid"),
-            move |_context, arguments| {
-                let arguments: RemoteCredentialIdArguments = parse_arguments(arguments)?;
-                service
-                    .delete_credential(&arguments.credential_id)
-                    .map_err(remote_command_error)?;
-                Ok(Value::Null)
-            },
-        )
-        .expect("built-in command is unique");
-
-    let service = Arc::clone(remote);
-    commands
-        .register(
-            CommandDescriptor::new("remote.list", "List Remote Directory", "Remote")
-                .expect("built-in command ID is valid"),
-            move |_context, arguments| {
-                let arguments: RemotePathArguments = parse_arguments(arguments)?;
-                let id =
-                    RemoteProfileId::parse(arguments.profile_id).map_err(remote_command_error)?;
-                let result = service
-                    .list(&id, &arguments.path)
-                    .map_err(remote_command_error)?;
-                serde_json::to_value(result).map_err(|error| serialization_command_error(&error))
-            },
-        )
-        .expect("built-in command is unique");
-
-    let service = Arc::clone(remote);
-    let manager = Arc::clone(documents);
-    commands
-        .register(
-            CommandDescriptor::new("remote.openFile", "Open Remote File", "Remote")
-                .expect("built-in command ID is valid"),
-            move |_context, arguments| {
-                let arguments: RemotePathArguments = parse_arguments(arguments)?;
-                let id =
-                    RemoteProfileId::parse(arguments.profile_id).map_err(remote_command_error)?;
-                let opened = service
-                    .open_file(&id, &arguments.path)
-                    .map_err(remote_command_error)?;
-                let result = manager
-                    .open_remote(opened.name, opened.uri, opened.source)
-                    .map_err(|error| editor_command_error(&error))?;
-                serde_json::to_value(result).map_err(|error| serialization_command_error(&error))
             },
         )
         .expect("built-in command is unique");
@@ -3888,11 +3714,6 @@ fn editor_command_error(error: &EditorError) -> CommandError {
 }
 
 #[allow(clippy::needless_pass_by_value)] // `Result::map_err` transfers ownership.
-fn remote_command_error(error: nulis_remote::RemoteError) -> CommandError {
-    CommandError::Failed(error.to_string())
-}
-
-#[allow(clippy::needless_pass_by_value)] // `Result::map_err` transfers ownership.
 fn terminal_command_error(error: nulis_terminal::TerminalError) -> CommandError {
     CommandError::Failed(error.to_string())
 }
@@ -4615,7 +4436,7 @@ mod tests {
     }
 
     #[test]
-    fn scripts_cannot_request_terminal_or_remote_commands() {
+    fn scripts_cannot_request_terminal_commands() {
         let core = NulisCore::default();
         let result = core.execute_command(
             "automation.saveScript",
@@ -4956,41 +4777,6 @@ mod tests {
                 serde_json::json!({ "expectedRevision": "0" }),
             )
             .is_err());
-    }
-
-    #[test]
-    fn remote_profile_metadata_is_exposed_through_capability_commands() {
-        let directory = tempfile::tempdir().expect("tempdir");
-        let core = NulisCore::with_session_root(directory.path().into());
-        let profile = serde_json::json!({
-            "id": "staging",
-            "label": "Staging",
-            "host": "staging.example.test",
-            "port": 22,
-            "username": "developer",
-            "rootPath": "/srv/app",
-            "credentialId": "staging.password",
-            "hostKeySha256": "ab".repeat(32),
-        });
-        core.execute_command(
-            "remote.saveProfile",
-            CommandContext::default(),
-            profile.clone(),
-        )
-        .expect("save profile");
-        let profiles = core
-            .execute_command(
-                "remote.listProfiles",
-                CommandContext::default(),
-                Value::Null,
-            )
-            .expect("list profiles");
-        assert_eq!(profiles.as_array().expect("profiles"), &[profile]);
-        let providers = core
-            .execute_command("remote.providers", CommandContext::default(), Value::Null)
-            .expect("list providers");
-        assert_eq!(providers[0]["scheme"], "sftp");
-        assert_eq!(providers[0]["canWrite"], false);
     }
 
     #[test]

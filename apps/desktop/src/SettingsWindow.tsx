@@ -463,7 +463,7 @@ export function SettingsWindow({
         <button type="button" onClick={() => onMainAction("workbench.openPlugins")}>Manage Plugins…</button>
       </fieldset>
       <fieldset className="settings-group"><legend>Security</legend>
-        <p className="settings-help">This window can read and store customization, list themes and plugins, and import a theme chosen in the system file picker. It has no access to open documents, the file system, the terminal, or remote profiles.</p>
+        <p className="settings-help">This window can read and store customization, list themes and plugins, and import a theme chosen in the system file picker. It has no access to open documents, the file system, or the terminal.</p>
       </fieldset>
     </>,
   };

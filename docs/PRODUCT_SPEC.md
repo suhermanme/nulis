@@ -13,7 +13,7 @@ Priority order is data integrity, architectural correctness, bounded-memory larg
 - Developers editing source trees, comparing files, using terminals, and automating repeatable work.
 - Operators inspecting multi-gigabyte logs with streaming search.
 - Data and firmware users editing binary files and fixed-width records.
-- Power users using multiple selections, rectangular operations, remote files, themes, commands, and plugins.
+- Power users using multiple selections, rectangular operations, themes, commands, and plugins.
 
 ## Non-negotiable requirements
 

@@ -319,7 +319,7 @@ impl WorkbenchSession {
         if !(MIN_SIDEBAR_WIDTH..=MAX_SIDEBAR_WIDTH).contains(&self.sidebar_width) {
             return Err(SessionError::SidebarWidth(self.sidebar_width));
         }
-        if !matches!(self.active_panel.as_str(), "files" | "search" | "remote") {
+        if !matches!(self.active_panel.as_str(), "files" | "search") {
             return Err(SessionError::ActivePanel(self.active_panel.clone()));
         }
         if let Some(mode) = self
@@ -364,7 +364,7 @@ impl SessionStore {
         let value: serde_json::Value = serde_json::from_slice(&bytes)
             .map_err(|error| SessionError::Malformed(error.to_string()))?;
         let malformed = |error: serde_json::Error| SessionError::Malformed(error.to_string());
-        let session: WorkbenchSession = match value
+        let mut session: WorkbenchSession = match value
             .get("schemaVersion")
             .and_then(serde_json::Value::as_u64)
         {
@@ -373,6 +373,10 @@ impl SessionStore {
                 .into(),
             _ => serde_json::from_value(value).map_err(malformed)?,
         };
+        // The Remote panel was removed; a session saved with it open shows Files.
+        if session.active_panel == "remote" {
+            session.active_panel = "files".into();
+        }
         session.validate()?;
         Ok(session)
     }
@@ -510,6 +514,16 @@ mod tests {
     }
 
     #[test]
+    fn a_session_saved_with_the_removed_remote_panel_opens_on_files() {
+        let root = tempfile::tempdir().expect("session root");
+        let store = SessionStore::new(root.path().join("workbench.json"));
+        let mut saved = serde_json::to_value(WorkbenchSession::default()).expect("json");
+        saved["activePanel"] = "remote".into();
+        std::fs::write(root.path().join("workbench.json"), saved.to_string()).expect("write");
+        assert_eq!(store.load().expect("load").active_panel, "files");
+    }
+
+    #[test]
     fn session_round_trip_preserves_names_documents_and_nested_layout() {
         let root = tempfile::tempdir().expect("session root");
         let store = SessionStore::new(root.path().join("workbench.json"));
@@ -519,7 +533,7 @@ mod tests {
         let session = WorkbenchSession {
             workspace_root: Some("/project".into()),
             sidebar_width: 320,
-            active_panel: "remote".into(),
+            active_panel: "search".into(),
             view_modes: BTreeMap::from([(b.into(), "hex".into())]),
             ..session_with(
                 split(

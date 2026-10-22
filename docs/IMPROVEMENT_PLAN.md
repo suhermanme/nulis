@@ -53,7 +53,7 @@ Status values: **Done** (implemented and reachable), **Partial** (some behavior 
 5. **Several core features have no menu path.** Find/replace, bookmarks, transforms, word wrap, encoding, and language are only in the editor toolbar; there is no native Edit-level, Search, or Format menu content beyond the platform defaults.
 6. **Line endings are invisible.** There is no detection display, conversion, or show-whitespace/show-line-endings view.
 7. **Navigation gaps:** no find next/previous when the find bar is closed, no jump to matching bracket (pairs are already computed), no back/forward caret history, no next/previous change (LCI data already exists), no Replace in Files, word count lacks words/lines.
-8. Many larger reference features **already exist** in Nulis: compare, hex editor, column mode, macros, scripting, terminal, remote (SFTP read-only), themes, bookmarks, JSON/XML tools, document map, line change indicator, workspace splits.
+8. Many larger reference features **already exist** in Nulis: compare, hex editor, column mode, macros, scripting, terminal, themes, bookmarks, JSON/XML tools, document map, line change indicator, workspace splits.
 
 ## 4. Feature comparison
 
@@ -69,8 +69,8 @@ Complexity: S (≤1 day), M (2–4 days), L (≥1 week). Value: H/M/L. Rec. = re
 | Open… | Native open | `file.open`, Primary+O | Done | – | – | – |
 | Quick Open… | Type a path/name to open a file | palette lists commands only; explorer filter | Partial | M | M | M28 |
 | Close / Close All Files / Close All Except This | Close one/all/others with save prompts | `workbench.closeFile`; tab menu "Close All Files Except This"; no Close All | Partial | S | M | M27 |
-| FTP ▸ Browser / Open from / Account Manager (S02) | Browse and open remote files, manage accounts | `remote.*` SFTP read-only, saved profiles, keychain | Partial | – | – | – |
-| FTP ▸ Save to FTP | Write back to remote | read-only by design (`FEATURE_PARITY.md`) | Missing | L | M | Defer (security review) |
+| FTP ▸ Browser / Open from / Account Manager (S02) | Browse and open remote files, manage accounts | none (read-only SFTP was removed on 2026-10-22) | Missing | – | – | Not planned |
+| FTP ▸ Save to FTP | Write back to remote | none | Missing | – | – | Not planned |
 | Revert to Saved | Discard edits, reload from disk | none | Missing | S | M | M23 (Reload) |
 | Save / Save As | Atomic save | `file.save`, `file.saveAs` | Done | – | – | – |
 | Save All | Save every dirty document | none | Missing | S | M | M27 |

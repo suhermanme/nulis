@@ -25,7 +25,7 @@ test("Help search finds the features added in M27–M30", () => {
   expect(sections("Quick Open")).toEqual(expect.arrayContaining(["Files", "Keyboard Shortcuts", "Limits"]));
   expect(sections("Paste from History")).toEqual(expect.arrayContaining(["Editing", "Limits"]));
   expect(sections("Convert Line Endings")).toEqual(["Languages and Encodings"]);
-  expect(sections("Show in Places")).toEqual(expect.arrayContaining(["Files", "File View and Remote"]));
+  expect(sections("Show in Places")).toEqual(expect.arrayContaining(["Files", "File View"]));
   expect(sections("batik")).toEqual(expect.arrayContaining(["About and License"]));
 });
 

@@ -134,7 +134,6 @@ Each release also has a `SHA256SUMS.txt` to check the downloads: `sha256sum -c S
 - **Markdown preview** with GitHub-style syntax and local images.
 - **Print and Export to PDF**, with a Page Setup dialog (paper, margins, font size, colors, line numbers, header and footer) and a live preview. Printed pages and the PDF match line for line. Large files export in the background with progress and Cancel; a selection or a hex dump can be exported too, and Markdown in View mode prints formatted.
 - **Integrated terminal** running the platform's default shell.
-- **Remote files** over SFTP, read-only, with pinned host keys and passwords kept in the operating system's keychain.
 
 ### Workbench
 
@@ -161,7 +160,6 @@ Known limits:
 - Nulis is developed on macOS. On Windows only some features have been checked by hand so far, and on Linux none have; CI covers the rest.
 - The macOS app is ad-hoc signed but not notarized, and the Windows installer is not code-signed, so both systems ask once before the first launch (see [Installing](#installing)).
 - Encoding support is limited to UTF-8 and Windows-1252, without automatic detection.
-- Remote (SFTP) files are read-only.
 - XML validation checks well-formedness only, not DTDs or schemas.
 - Testing with screen readers (VoiceOver, NVDA, Orca) has not been done yet.
 
@@ -215,7 +213,6 @@ Nulis is a Rust core with a thin desktop shell. The core has no dependency on th
                      nulis-hex               nulis-theme
                      nulis-diff              nulis-settings
                      nulis-filesystem
-                     nulis-remote
                      nulis-terminal
                      nulis-platform
 ```
@@ -251,7 +248,6 @@ A document is a **piece table**: an immutable, randomly accessible original file
 | `nulis-print` | Page layout for Print and PDF, the streaming PDF writer, and fonts. |
 | `nulis-diff` | Text, binary, and folder comparison. |
 | `nulis-filesystem` | Folders, the Places tree, and session persistence. |
-| `nulis-remote` | SFTP profiles, host key pinning, and remote reads. |
 | `nulis-terminal` | Pseudoterminal sessions. |
 | `nulis-platform` | Operating-system specifics. |
 | `nulis-settings` | Layered settings and customization storage. |
@@ -299,7 +295,7 @@ THIRD_PARTY_LICENSES.md  Licenses of dependencies
 | [Node.js](https://nodejs.org) | 20 or later |
 | npm | 10 or later |
 
-A C compiler, `perl`, and `make` are also needed on macOS and Linux, because OpenSSL is compiled into the application; they come with the Xcode Command Line Tools and with `build-essential`. Windows uses the system's own cryptography and needs neither.
+A C compiler is also needed, for the Tree-sitter parsers. It comes with the Xcode Command Line Tools on macOS, `build-essential` on Linux, and the Visual Studio Build Tools that Rust needs on Windows.
 
 Each platform also needs what Tauri 2 needs:
 
@@ -355,7 +351,7 @@ macOS builds are ad-hoc signed; Windows and Linux builds are not signed. [docs/R
 
 ### What a shipped build depends on
 
-Users install nothing besides Nulis. The core, the interface, the themes, the help, and OpenSSL are all inside the executable. The only outside component is the operating system's web engine:
+Users install nothing besides Nulis. The core, the interface, the themes, and the help are all inside the executable. The only outside component is the operating system's web engine:
 
 | Platform | Web engine | For the user |
 | --- | --- | --- |
@@ -412,7 +408,7 @@ Nulis keeps its data in the operating system's application-data directory for th
 | Windows | `%APPDATA%\com.nulis.editor\` |
 | Linux | `~/.local/share/com.nulis.editor/` |
 
-It holds the session (open files and layout), customization (appearance, shortcuts, menu, toolbar), installed themes and plugins, recovery checkpoints, and the edit buffers of open documents. Passwords for remote profiles are stored in the operating system's keychain, not in these files. A few display preferences are kept in the webview's local storage.
+It holds the session (open files and layout), customization (appearance, shortcuts, menu, toolbar), installed themes and plugins, recovery checkpoints, and the edit buffers of open documents. A few display preferences are kept in the webview's local storage.
 
 ## Extending Nulis
 
@@ -426,7 +422,6 @@ It holds the session (open files and layout), customization (appearance, shortcu
 - The webview runs under a strict content security policy: no remote scripts, no inline scripts, no frames.
 - The interface can reach the system only through the adapter's commands, which validate every argument. The Settings window has its own, smaller allowlist.
 - Plugins and scripts are denied by default. Each must be approved, approval is bound to the exact content, and a plugin runs in a separate process with resource limits.
-- Remote connections require a pinned SHA-256 host key.
 - Markdown preview does not render raw HTML.
 - Folder operations do not follow symbolic links out of the opened folder.
 

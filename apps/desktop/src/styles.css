@@ -194,25 +194,6 @@ kbd { padding: 2px 6px; border: 1px solid #373e48; border-radius: 4px; color: #b
 .search-results strong { overflow: hidden; font-size: 11px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .search-results span { flex: none; color: var(--muted); font: 9px ui-monospace, "SFMono-Regular", Consolas, monospace; }
 
-.remote-panel { display: flex; flex-direction: column; gap: 8px; height: 100%; min-height: 0; padding: 0 10px 10px; }
-.remote-panel > .panel-heading { margin: 0 -10px; }
-.remote-panel select, .remote-form input {
-  width: 100%; min-width: 0; height: 28px; padding: 5px 8px; border: 1px solid #3b434e;
-  border-radius: 4px; outline: 0; color: #e4e0da; background: #101318; font-size: 10px;
-}
-.remote-form { display: grid; gap: 6px; }
-.remote-form > div { display: grid; grid-template-columns: minmax(0, 1fr) 70px; gap: 6px; }
-.remote-form > .remote-actions { grid-template-columns: repeat(2, 1fr); }
-.remote-actions button, .remote-browser button {
-  min-height: 27px; border: 1px solid #3b434e; border-radius: 4px; color: #cbd0d6;
-  background: #1b2027; font-size: 10px; text-align: left; cursor: pointer;
-}
-.remote-actions button { text-align: center; }
-.remote-browser { min-height: 0; padding-top: 7px; overflow-y: auto; border-top: 1px solid var(--border); }
-.remote-browser button { display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 3px; padding: 4px 7px; }
-.remote-browser button:hover:not(:disabled) { border-color: #5a6470; }
-.remote-browser button:disabled { opacity: .45; cursor: default; }
-.remote-browser small, .remote-browser p { color: var(--muted); font-size: 9px; }
 
 .macro-panel {
   position: fixed; z-index: 40; top: 48px; right: 12px; width: min(390px, calc(100vw - 24px));
@@ -808,19 +789,6 @@ kbd { padding: 2px 6px; border: 1px solid #373e48; border-radius: 4px; color: #b
 kbd,
 .workspace-search-options button,
 .findbar button,
-.remote-actions button,
-.remote-browser button,
-.macro-form > button,
-.macro-recording > button,
-.macro-list button,
-.editor-toolbar button,
-.editor-toolbar select,
-.split-document-picker select,
-.editor-mode,
-.hex-toolbar button,
-.hex-toolbar input {
-  border-color: var(--border); color: var(--ui-text); background: var(--raised);
-}
 .tree-icon, .tree-size, .tree-loading, .tree-limit,
 .selection-count, .hex-toolbar, .palette-results small { color: var(--muted); }
 .activitybar button > .icon, .empty-explorer, .empty-explorer button { border-color: var(--border); }
@@ -835,12 +803,11 @@ kbd,
   background: color-mix(in srgb, var(--ui-text) 5%, transparent);
 }
 .tree-row:disabled { color: var(--muted); opacity: .65; }
-.workspace-search > input, .findbar input, .remote-panel select, .remote-form input,
+.workspace-search > input, .findbar input,
 .macro-form input, .command-palette > input {
   border-color: var(--border); color: var(--editor-fg); background: var(--editor-bg);
 }
 .search-results > button, .macro-list > div { border-bottom-color: var(--border); }
-.remote-browser button:hover:not(:disabled), .welcome-actions button:hover { border-color: var(--accent); }
 .macro-panel, .command-palette { border-color: var(--border); color: var(--ui-text); background: var(--panel); }
 .lede, .foundation-stats dd { color: var(--muted); }
 .welcome-actions button { border-color: var(--border); }

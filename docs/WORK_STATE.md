@@ -18,7 +18,7 @@ Problems found while using the application there, fixed on every platform: typed
 
 ## Self-contained builds (implemented locally)
 
-`ssh2` is built with `vendored-openssl` on macOS and Linux only (a target-specific dependency in `nulis-remote`), so OpenSSL is compiled into the executable there. Enabling the feature for every target would also build OpenSSL on Windows, where libssh2 uses WinCNG and does not need it. Before this, the macOS release binary linked to Homebrew's `/usr/local/opt/openssl@4` and would not start on a machine without it; `otool -L` now lists only system frameworks and `/usr/lib`. Building now needs `perl` and `make` on macOS and Linux.
+Remote (SFTP) was removed on 2026-10-22, and with it `ssh2`, libssh2, OpenSSL, and `keyring`, so nothing is compiled from OpenSSL any more. Every build is still self-contained apart from the system web engine.
 
 ## Status bar and Read-Only mode (implemented locally, IPC v26)
 
@@ -139,6 +139,8 @@ Implemented and locally verified:
 - Regressions for unknown macro fields, argument byte/depth bounds, recorder overflow, atomic macro/script persistence, approval revocation after edits, live-revision replay, cancellation, stop-on-failure ordering, desktop recording/playback/script approval, deny-by-default authorization, excessive grants, exact command grants, unsafe command exclusion, bounded JSON, host-call/output/operation exhaustion, module rejection, and cross-thread script cancellation during both evaluation and host calls.
 
 ## M10 — Remote providers, credentials, and terminal complete locally
+
+*Remote (SFTP) and its credential storage were removed on 2026-10-22; the terminal remains. The notes below are the record of M10 as built.*
 
 Implemented and locally verified:
 

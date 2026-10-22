@@ -41,7 +41,6 @@ import { rankMatches } from "./quickOpen";
 import { HexViewport } from "./HexViewport";
 import { CompareView } from "./CompareView";
 import { FolderCompareView } from "./FolderCompareView";
-import { RemotePanel } from "./RemotePanel";
 import { HelpWindow } from "./HelpWindow";
 import licenseText from "../../../LICENSE?raw";
 import { TerminalPanel } from "./TerminalPanel";
@@ -113,7 +112,7 @@ import {
   type ViewOptions,
 } from "./preferences";
 
-const NAV_ITEMS = ["Files", "Symbols", "Remote"] as const;
+const NAV_ITEMS = ["Files", "Symbols"] as const;
 const EXPLORER_ENTRY_LIMIT = 500;
 const MAX_LOADED_WORKSPACE_DIRECTORIES = 256;
 const NATIVE_MENU_EVENT = "nulis://menu-command";
@@ -137,7 +136,7 @@ const TOOLBAR_CAPTIONS: Record<string, string> = {
   "tools.minify": "Minify", "workspace.rename": "Rename", "workspace.ungroup": "Ungroup",
 };
 const NAV_ICONS: Record<typeof NAV_ITEMS[number], IconName> = {
-  Files: "files", Symbols: "symbols", Remote: "remote",
+  Files: "files", Symbols: "symbols",
 };
 
 /** A dirty-document prompt may be one step of quitting or of closing a tab. */
@@ -354,7 +353,7 @@ export function App() {
     const [first] = binary;
     if (first) setStatus(`${first.name} is a ${first.binaryFormat}: shown read-only in the hexadecimal editor`);
   }, [documents]);
-  const [activePanel, setActivePanel] = useState<"files" | "remote">("files");
+  const [activePanel, setActivePanel] = useState<"files">("files");
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [sidebarWidth, setSidebarWidth] = useState(260);
   const [resizingSidebar, setResizingSidebar] = useState(false);
@@ -441,8 +440,8 @@ export function App() {
         setPreferences(loadedCustomization.appearance);
         setSidebarVisible(restored.sidebarVisible);
         setSidebarWidth(restored.sidebarWidth);
-        // Older sessions may name the removed Search panel.
-        setActivePanel(restored.activePanel === "remote" ? "remote" : "files");
+        // Older sessions may name the removed Search and Remote panels; Files is the only one now.
+        setActivePanel("files");
 
         if (restored.workspaceRoot) {
           try {
@@ -551,7 +550,7 @@ export function App() {
 
   useEffect(() => {
     if (!sessionReady) return;
-    const recoverable = documents.filter((document) => document.dirty && !document.remoteUri);
+    const recoverable = documents.filter((document) => document.dirty);
     if (recoverable.length === 0) return;
     const timeout = window.setTimeout(() => {
       for (const document of recoverable) {
@@ -681,7 +680,7 @@ export function App() {
     });
   };
   const addDocument = (created: DocumentSummary) => {
-    if (created.sourcePath && !created.remoteUri) rememberRecent(created.sourcePath);
+    if (created.sourcePath) rememberRecent(created.sourcePath);
     setDocuments((current) => current.some(
       (document) => document.documentId === created.documentId,
     ) ? current : [...current, created]);
@@ -739,7 +738,7 @@ export function App() {
         void closeWindowAfterSave().catch((error: unknown) => setStatus(errorMessage(error, "Could not close window")));
         return;
       }
-      for (const document of documents.filter((item) => item.dirty && !item.remoteUri)) {
+      for (const document of documents.filter((item) => item.dirty)) {
         void executeCommand({
           id: "recovery.checkpoint",
           context: { windowId: "main", documentId: document.documentId }, arguments: {},
@@ -1239,10 +1238,9 @@ export function App() {
   /** Saves every document with unsaved changes; untitled ones ask where to save. */
   const saveAll = async () => {
     const dirty = documents.filter((document) => document.dirty);
-    const local = dirty.filter((document) => !document.remoteUri);
     if (dirty.length === 0) { setStatus("All files are saved"); return; }
     let saved = 0;
-    for (const document of local) {
+    for (const document of dirty) {
       if (await saveDocumentFor(document, false)) saved += 1;
     }
     const left = dirty.length - saved;
@@ -1275,8 +1273,8 @@ export function App() {
   };
   const requestRenameFile = () => {
     if (!activeDocument) { setStatus("No active document"); return; }
-    if (activeDocument.remoteUri || !activeDocument.sourcePath) {
-      setStatus(activeDocument.remoteUri ? "Remote files cannot be renamed here" : "Save the document before renaming it");
+    if (!activeDocument.sourcePath) {
+      setStatus("Save the document before renaming it");
       return;
     }
     setRenameTarget({ documentId: activeDocument.documentId, name: activeDocument.name });
@@ -1329,7 +1327,7 @@ export function App() {
       });
   };
   const revealInPlaces = () => {
-    const path = activeDocument?.remoteUri ? undefined : activeDocument?.sourcePath;
+    const path = activeDocument?.sourcePath;
     if (!path) { setStatus("Only a saved file on this computer can be shown in Places"); return; }
     setActivePanel("files");
     setSidebarVisible(true);
@@ -1984,7 +1982,7 @@ export function App() {
 
   /** File ▸ Reload from Disk: asks first when unsaved edits would be lost. */
   const requestReload = (document: DocumentSummary | null | undefined) => {
-    if (!document?.sourcePath || document.remoteUri) { setStatus("Only a file on this computer can be reloaded"); return; }
+    if (!document?.sourcePath) { setStatus("Only a file on this computer can be reloaded"); return; }
     if (document.dirty) setExternalPrompt({ kind: "confirmReload", document });
     else void reloadDocument(document.documentId, false);
   };
@@ -2169,11 +2167,11 @@ export function App() {
   // Reload and Close File are always offered, even in a customized menu that omits them.
   if (!customization.menu.some((entry) => entry.kind === "command" && entry.command === "file.reload")) {
     fileMenu.push({ kind: "separator" }, {
-      label: "Reload from Disk", disabled: !activeDocument?.sourcePath || Boolean(activeDocument.remoteUri),
+      label: "Reload from Disk", disabled: !activeDocument?.sourcePath,
       onSelect: () => runById("file.reload"),
     });
   }
-  const localFile = Boolean(activeDocument?.sourcePath) && !activeDocument?.remoteUri;
+  const localFile = Boolean(activeDocument?.sourcePath);
   const fileExtras: MenuItem[] = ([
     ["file.quickOpen", "Quick Open…", false],
     ["file.openRecent", "Open Recent…", recentFiles.length === 0],
@@ -2272,7 +2270,7 @@ export function App() {
     const seen = new Set<string>();
     const entries: Array<PickerItem & { name: string; path: string; open(): Promise<unknown> | void }> = [];
     for (const document of documents) {
-      const path = document.sourcePath ?? document.remoteUri ?? document.name;
+      const path = document.sourcePath ?? document.name;
       seen.add(path);
       entries.push({ key: `open:${document.documentId}`, title: document.name, detail: "Open", tooltip: path,
         name: document.name, path, open: () => showDocument(document.documentId) });
@@ -2341,7 +2339,7 @@ export function App() {
           onCopyPath={() => copyPath(document)}
           onClipboardText={rememberClipboard}
           insertRequest={active ? insertRequest : undefined}
-          onReload={document.sourcePath && !document.remoteUri ? () => requestReload(document) : undefined}
+          onReload={document.sourcePath ? () => requestReload(document) : undefined}
           onOpenFind={active ? openFindPanel : undefined}
           searchRequest={active ? searchRequest : undefined}
           editorAction={active ? editorAction : undefined}
@@ -2407,8 +2405,8 @@ export function App() {
 
       <aside className="activitybar" aria-label="Primary navigation">
         {NAV_ITEMS.map((item) => {
-          const panel = item.toLowerCase() as "files" | "remote";
-          const available = item === "Files" || item === "Remote";
+          const panel = "files" as const;
+          const available = item === "Files";
           const selected = available && activePanel === panel && sidebarVisible;
           return <button
             className={selected ? "active" : ""} type="button" key={item}
@@ -2422,9 +2420,8 @@ export function App() {
         })}
       </aside>
 
-      <section className="sidebar" aria-label={activePanel === "remote" ? "Remote" : "Explorer"}>
-        {activePanel === "remote" ? <RemotePanel onOpen={addDocument} onStatus={setStatus} />
-        : <FileExplorer tab={explorerTab} onTab={(next) => { setExplorerTab(next); saveExplorerTab(next); }}
+      <section className="sidebar" aria-label="Explorer">
+        <FileExplorer tab={explorerTab} onTab={(next) => { setExplorerTab(next); saveExplorerTab(next); }}
           documents={documents} activeDocumentId={activeDocumentId} onShowDocument={showDocument}
           onOpenPath={(path) => void openPath(path)} onStatus={setStatus} onDocumentMenu={openDocumentMenu}
           reveal={placesReveal}
@@ -2442,7 +2439,7 @@ export function App() {
             <button type="button" onClick={() => void openWorkspace()}>Open Folder</button>
             <button type="button" onClick={() => void openFile()}>Open File</button>
           </div>}
-        </>} />}
+        </>} />
         <div className="sidebar-resizer" role="separator" aria-label="Resize sidebar"
           aria-orientation="vertical" onPointerDown={() => setResizingSidebar(true)} />
       </section>

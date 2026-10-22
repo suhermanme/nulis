@@ -4,7 +4,7 @@ Nulis itself is licensed under the GNU General Public License, version 3 or (at 
 
 Dependencies are accepted under licenses that can be combined with GPL version 3: MIT, Apache-2.0, BSD-style, ISC, Zlib, Boost, Unicode, Unlicense, MPL-2.0, and similar. A dependency offered under several licenses is used under one that is compatible.
 
-GPL version 3 was chosen over version 2 because the locked dependency graph contains crates that require Apache-2.0 (`tao`, `dpi`, `openssl`, `gethostname`, `sync_wrapper`), and the Free Software Foundation considers Apache-2.0 compatible with GPL version 3 but not with version 2. A new dependency under a license that cannot be combined with GPL version 3 (for example GPL-2.0-only) requires a recorded licensing decision before adoption.
+GPL version 3 was chosen over version 2 because the locked dependency graph contains crates that require Apache-2.0 (`tao`, `dpi`, `gethostname`, `sync_wrapper`), and the Free Software Foundation considers Apache-2.0 compatible with GPL version 3 but not with version 2. A new dependency under a license that cannot be combined with GPL version 3 (for example GPL-2.0-only) requires a recorded licensing decision before adoption.
 
 Initial direct dependencies:
 
@@ -22,10 +22,6 @@ Initial direct dependencies:
 | Tree-sitter / tree-sitter-language | bounded incremental parsing and language ABI | MIT |
 | tree-sitter-json | built-in JSON grammar | MIT |
 | tree-sitter-python | built-in Python grammar | MIT |
-| ssh2 | SFTP and SSH transport | Apache-2.0 / MIT |
-| libssh2 (compiled in by ssh2) | SSH protocol implementation | BSD-3-Clause |
-| OpenSSL 3 (compiled in on macOS and Linux) | cryptography for SSH | Apache-2.0 |
-| keyring | platform credential storage | Apache-2.0 / MIT |
 | portable-pty | cross-platform pseudoterminal sessions | MIT |
 | Rhai | reduced embedded automation-script evaluator | Apache-2.0 / MIT |
 | rustix | plugin worker address-space limit on Linux | Apache-2.0 / MIT |

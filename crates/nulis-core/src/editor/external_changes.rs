@@ -90,7 +90,6 @@ impl DocumentManager {
             .map_err(|_| EditorError::StateUnavailable)?;
         let mut changes = sessions
             .iter()
-            .filter(|(_, session)| session.remote_uri.is_none())
             .filter_map(|(id, session)| {
                 let path = session.source_path.as_ref()?;
                 let expected = session.source_fingerprint.as_ref()?;
@@ -132,7 +131,6 @@ impl DocumentManager {
         let path = session
             .source_path
             .clone()
-            .filter(|_| session.remote_uri.is_none())
             .ok_or(EditorError::SavePathRequired)?;
         session.source_fingerprint = fingerprint(&path).map_err(|error| EditorError::io(&error))?;
         Ok(summary(document_id, session))
@@ -167,7 +165,6 @@ impl DocumentManager {
             session
                 .source_path
                 .clone()
-                .filter(|_| session.remote_uri.is_none())
                 .ok_or(EditorError::SavePathRequired)?
         };
         // Opened outside the lock: the file may be large or slow to reach.

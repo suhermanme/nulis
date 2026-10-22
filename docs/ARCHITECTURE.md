@@ -85,13 +85,11 @@ Merge arrows copy one exact byte range between opaque open documents. The target
 
 Folder comparison belongs to `nulis-filesystem`. It canonicalizes two dialog-selected roots, walks at most 10,000 regular files/directories per side in deterministic order, never follows symlinks, and compares equal-length file content in 64 KiB chunks. Only differences cross IPC, capped at 5,000 by the core and 1,000 by the desktop. Identical-file, compared-file, skipped-symlink, and truncation counts remain explicit.
 
-## Remote and terminal boundary (M10)
-
-`nulis-remote` owns the initial read-only SFTP provider. Profile JSON contains only validated connection metadata and an opaque credential identifier; passwords are stored through the native platform keychain. Every connection performs SSH handshake and exact pinned SHA-256 host-key comparison before password authentication. Remote paths are normalized relative to a profile root, parent traversal and NUL bytes are rejected, directory results stop at 1,000 entries, and symlinks are visible but not traversable. An opened SFTP file implements the shared `ReadAt` interface with synchronized seek/read operations, so the existing piece table, disk append buffer, search, syntax, text, and hexadecimal viewports work without materializing or sending the source through IPC. IPC protocol v10 identifies remote resources with non-secret `sftp://<profile>/<path>` URIs; the provider advertises that writes are unavailable.
+## Terminal boundary (M10)
 
 `nulis-terminal` owns native pseudoterminals and their child processes. The command DTO carries a program plus a separate argument vector, working directory, environment map, and dimensions; it never accepts a shell command string. Omitting the program selects the platform's default interactive shell. The manager caps sessions at 16, validates aggregate argument/environment data, accepts at most 64 KiB per input, serves at most 64 KiB per read, and retains a 1 MiB cursor-addressed output ring per session. A reader thread is the only unbounded-duration operation, completed sessions are polled without blocking, resize maps to the PTY master, and close/drop kills remaining children.
 
-The React Remote sidebar and xterm.js panel call only these centralized commands. xterm is loaded on demand and keeps a 5,000-line presentation scrollback; native output remains authoritative and bounded. Tauri exposes no shell, process, filesystem, or network plugin capability to the webview for either feature.
+The xterm.js panel calls only these centralized commands. (M10 also added a read-only SFTP provider, `nulis-remote`; it was removed on 2026-10-22.) xterm is loaded on demand and keeps a 5,000-line presentation scrollback; native output remains authoritative and bounded. Tauri exposes no shell, process, filesystem, or network plugin capability to the webview for it.
 
 ## Automation boundary (M11)
 
@@ -101,7 +99,7 @@ The macro library is capped at 128 entries and 1 MiB total, validated on every l
 
 The same crate embeds a pinned Rhai evaluator behind a deliberately reduced language profile. It starts from a raw engine with no standard package or module resolver, while modules, arrays, maps, closures, custom syntax, and script-defined functions are compiled out. Host values cross as bounded JSON strings through eight named `nulis_*` calls. Script requests and host grants are separate values; a grant cannot exceed the request, command calls require exact allowlist entries, and every host call rechecks capability and count budgets before entering trusted code.
 
-Execution has both deterministic operation fuel and elapsed-time limits. A thread-safe cancellation token is observed on every Rhai operation, and trusted host adapters receive an execution guard so bounded native work can poll the same cancellation/deadline state. Output, host JSON, variables, expression depth, interned strings, and string size are capped; the last is derived from the policy's structural-memory budget. The evaluator has no ambient filesystem, network, process, environment, credential, terminal, remote-provider, or module-loading authority.
+Execution has both deterministic operation fuel and elapsed-time limits. A thread-safe cancellation token is observed on every Rhai operation, and trusted host adapters receive an execution guard so bounded native work can poll the same cancellation/deadline state. Output, host JSON, variables, expression depth, interned strings, and string size are capped; the last is derived from the policy's structural-memory budget. The evaluator has no ambient filesystem, network, process, environment, credential, terminal, or module-loading authority.
 
 The script library is capped at 64 entries and 4 MiB, validated on every load/save, and atomically persisted separately from grants. Editing a definition revokes its grant. IPC protocol v13 exposes list/get/save/delete, approve/revoke, run, and cancellation through the central command boundary. Core adapters provide only bounded current-document reads/edits, symlink-safe workspace listing and existing-file atomic writes, immutable effective settings, collected messages, and the macro-safe editor-command allowlist. The desktop Automation panel makes requests and approval state visible and returns script output without giving the webview native filesystem or process authority.
 
@@ -111,7 +109,7 @@ The script library is capped at 64 entries and 4 MiB, validated on every load/sa
 
 Every activation runs in a fresh child process by launching the Nulis executable in worker mode before the desktop event loop. The worker embeds a pinned Boa engine without `boa_runtime`, Node/Web APIs, module loading, native IPC, or host callbacks. Its bootstrap exposes only command registration and a serializable message request. Source, arguments, returned JSON, operations, commands, message sizes, loops, recursion, stack, and wall time are bounded; parent-side cancellation and timeout kill the child. A worker crash or protocol error cannot unwind through the core process. OS-enforced memory quotas remain an M14 hardening item.
 
-The trusted core requires exact-digest approval before exposing a contribution or launching a worker, checks runtime registrations against the manifest, and authorizes every returned operation against the separate grant before applying it. API v1 deliberately grants only `showMessage`; plugin code has no document, workspace, terminal, remote, credential, process, network, or arbitrary command authority. IPC protocol v14 exposes lifecycle controls and bounded summaries to the desktop Plugins manager. Approved contributions join the central palette, while startup activation occurs once after session restoration.
+The trusted core requires exact-digest approval before exposing a contribution or launching a worker, checks runtime registrations against the manifest, and authorizes every returned operation against the separate grant before applying it. API v1 deliberately grants only `showMessage`; plugin code has no document, workspace, terminal, credential, process, network, or arbitrary command authority. IPC protocol v14 exposes lifecycle controls and bounded summaries to the desktop Plugins manager. Approved contributions join the central palette, while startup activation occurs once after session restoration.
 
 ## Customization and theme boundary (M13)
 
@@ -150,7 +148,7 @@ IPC protocol v24 adds whole-machine browsing and broader language support. `plac
 - `nulis-core`: command registry, opaque document sessions, and application-facing orchestration.
 - `nulis-settings`: schema-backed layered settings plus bounded, atomic customization persistence.
 - `nulis-search`, `nulis-syntax`, `nulis-hex`, `nulis-diff`: algorithms consuming public document/read interfaces.
-- `nulis-filesystem`, `nulis-remote`, `nulis-terminal`, `nulis-platform`: capability-oriented operating-system/service edges.
+- `nulis-filesystem`, `nulis-terminal`, `nulis-platform`: capability-oriented operating-system/service edges.
 - `nulis-automation`, `nulis-plugin-host`: versioned constrained extension execution.
 - `nulis-theme`: complete semantic tokens plus validated built-in/user theme catalogs.
 

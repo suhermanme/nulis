@@ -99,7 +99,7 @@ const SETTINGS_MIN_SIZE: (u32, u32) = (640, 420);
 const MIN_VISIBLE_FRAME: (i64, i64) = (160, 120);
 
 /// Everything the Settings webview may ask the core to do. It receives no
-/// document, workspace, file system, terminal, remote, or automation authority.
+/// document, workspace, file system, terminal, or automation authority.
 const SETTINGS_COMMANDS: &[&str] = &[
     "customization.state",
     "customization.saveChecked",

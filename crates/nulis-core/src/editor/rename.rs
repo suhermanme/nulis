@@ -12,7 +12,7 @@ pub const MAX_FILE_NAME_BYTES: usize = 255;
 
 impl DocumentManager {
     /// Renames the document's file to `name` in the same folder and returns
-    /// the updated summary. Refuses untitled and remote documents, names with
+    /// the updated summary. Refuses untitled documents, names with
     /// path separators, an existing destination (except a change of letter
     /// case only), and a file that changed on disk since it was opened.
     ///
@@ -32,11 +32,6 @@ impl DocumentManager {
         let session = sessions
             .get_mut(document_id)
             .ok_or_else(|| EditorError::UnknownDocument(document_id.clone()))?;
-        if session.remote_uri.is_some() {
-            return Err(EditorError::Rename(
-                "remote files cannot be renamed here".into(),
-            ));
-        }
         let source = session
             .source_path
             .clone()
