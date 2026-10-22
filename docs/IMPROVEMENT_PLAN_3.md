@@ -1,6 +1,6 @@
 # Improvement plan 3: Print, Page Setup, and Export to PDF (M36–M40)
 
-**Status:** approved 2026-10-21. Open questions answered (§7): Quick Open keeps Primary+P and Print uses Primary+Alt+P; the bundled font is JetBrains Mono; rendered Markdown to PDF and Print All are deferred. Progress will live in `IMPLEMENTATION_TRACKER.md`; handovers in `docs/handover/`.
+**Status:** complete; released in Nulis 0.4.0 (2026-10-23). Approved 2026-10-21. Open questions answered (§7): Quick Open keeps Primary+P and Print uses Primary+Alt+P; the bundled font is JetBrains Mono; rendered Markdown to PDF and Print All are deferred. Progress will live in `IMPLEMENTATION_TRACKER.md`; handovers in `docs/handover/`.
 **Date:** 2026-10-21, against commit `c58f9d2` (Nulis 0.3.0).
 **Milestone numbering:** continues `IMPROVEMENT_PLAN_2.md` (M31–M35 are complete), so this plan starts at M36.
 

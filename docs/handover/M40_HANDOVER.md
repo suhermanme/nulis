@@ -21,5 +21,5 @@ Plan: `IMPROVEMENT_PLAN_3.md` §4 (M40). Status: done 2026-10-22; `m36-print` me
 
 ## Open
 
-- Windows (test VM) and Linux by hand: paper size in the print dialog, fonts, page breaks; Linux font fallback when only CFF CJK fonts are installed.
-- Release: bump to 0.4.0, run `RELEASE.md`, tag, push.
+- Done: Windows 11 and Ubuntu 26.04 checked by hand on test VMs (results in `M39_HANDOVER.md`), and Nulis 0.4.0 released on 2026-10-23.
+- Linux font fallback when only CFF CJK fonts are installed (the Ubuntu VM has Droid Sans Fallback, a TrueType font, so it was not seen).

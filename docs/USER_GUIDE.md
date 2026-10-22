@@ -132,7 +132,9 @@ What gets printed depends on the view:
 - **Markdown in View mode:** **Print…** prints the formatted preview on white paper, within the Page Setup margins and without a header or footer. **Export to PDF…** always exports the Markdown source.
 - **Hexadecimal editor:** Print and Export to PDF produce a hex dump: the offset, 16 bytes, and their characters on each row, without line numbers.
 
-Above 1,000 pages, Nulis asks before going on. **Print** stops at 5,000 pages; for longer documents use **Export to PDF…**, which has no page limit.
+Above 1,000 pages, Nulis asks before going on. **Print** stops at 5,000 pages; for longer documents use **Export to PDF…**, which has no page limit. The number of pages depends on Page Setup: a larger font, wider margins, or landscape paper fit fewer lines on a page, so the same file takes more pages.
+
+**The paper in the print dialog.** On macOS and Linux, the system print dialog opens on the paper and orientation chosen in Page Setup. On Linux a landscape page shows there as a paper such as *A4 landscape* with *Portrait* selected; leave it that way. On Windows, choose the same paper in the print dialog.
 
 #### Page Setup
 

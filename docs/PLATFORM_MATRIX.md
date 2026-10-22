@@ -1,6 +1,6 @@
 # Platform test matrix
 
-What has been verified on each operating system, and how. Update it when a check is run by hand; keep entries to what was actually observed. Last updated 2026-10-20, for Nulis 0.3.0.
+What has been verified on each operating system, and how. Update it when a check is run by hand; keep entries to what was actually observed. Last updated 2026-10-23, for Nulis 0.4.0.
 
 ## Automated (every push to `main` and every release tag)
 

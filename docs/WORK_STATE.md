@@ -1,8 +1,8 @@
 # Work state
 
-## Plan 3: print and Export to PDF (M36–M40, complete)
+## Nulis 0.4.0 (plan 3, M36–M40)
 
-Merged into `main` 2026-10-22, not yet released (notes: `release-notes/v0.4.0.md`). Print (pages laid out by the core, in a Print Preview window), Page Setup with a live preview, Export to PDF (whole document, selection, hex dump), progress and Cancel, and fallback fonts; printing is in every build since M39. M36–M40 are done and checked on macOS; Windows and Linux are untried. Where to resume, how to run a test build without losing the user's session, and the next tasks: `handover/PLAN3_RESUME.md`.
+Released 2026-10-23. Print (pages laid out by the core, shown in a Print Preview window, then the system dialog), Page Setup with a live first-page preview, and Export to PDF (whole document, selection, hex dump) with progress, Cancel, and fallback fonts; formatted Markdown printing. Remote (SFTP) was removed. Checked by hand on macOS 15, Windows 11, and Ubuntu 26.04 test VMs; fixes from that check: Linux landscape (passed to WebKitGTK as upright custom paper), Windows' own print header and footer (margins as repeated padding), and Print's error wording. IPC protocol 42. Scope, decisions, and verification: `IMPROVEMENT_PLAN_3.md`, `handover/M36_HANDOVER.md` to `M40_HANDOVER.md`, and `handover/PLAN3_RESUME.md`; the user-facing summary is `release-notes/v0.4.0.md`.
 
 ## Nulis 0.3.0 (plan 2, M31–M35)
 
