@@ -65,9 +65,10 @@ Back up the user data first (see `PLAN3_RESUME.md`). Then:
 - **Linux printed landscape pages shrunk onto portrait paper:** WebKitGTK opened its dialog on the default paper. Fixed: Print opens the GTK dialog itself with the paper set (`print_on_linux` in `src-tauri/src/lib.rs`, with `gtk` and `webkit2gtk` at wry's versions). A landscape orientation in the GTK page setup makes WebKitGTK 2.50 print blank pages (reproduced with a Python GI script on the Ubuntu VM), so a landscape page is passed as an upright custom paper of the turned size, with zero page margins.
 - **Windows added its own header and footer** (date, title, `tauri.localhost` address, page number) to Markdown prints, in the `@page` margins. Fixed: where the engine repeats padding on each page (`box-decoration-break: clone`, Chromium), the page margin is 0 and the margins are that padding (checked with Chrome 155: no header or footer, 15 mm kept at the top of every page). Code pages already print with no page margin.
 - The Print error over 5,000 pages said "Could not export to PDF"; it now says "Could not print".
+- Rechecked after the fixes: Windows prints Markdown without the browser's header and footer, margins kept (2026-10-22); Ubuntu prints landscape at full size on A4 landscape paper (2026-10-23).
 
 ## Open
 
-- Windows and Linux: paper size (only macOS sets it before the dialog), fonts, and page breaks in WebView2 and WebKitGTK.
+- Windows: the paper is not set before the print dialog (macOS and Linux set it).
 - User guide and in-app Help: done 2026-10-22 (`USER_GUIDE.md` ▸ Files ▸ Printing and PDF, the Print shortcut, and two limits; Help is built from the guide).
 - `settings.schema.json` and the release notes: M40.
