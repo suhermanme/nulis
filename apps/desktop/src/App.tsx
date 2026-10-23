@@ -112,7 +112,7 @@ import {
   type ViewOptions,
 } from "./preferences";
 
-const NAV_ITEMS = ["Files", "Symbols"] as const;
+const NAV_ITEMS = ["Files"] as const;
 const EXPLORER_ENTRY_LIMIT = 500;
 const MAX_LOADED_WORKSPACE_DIRECTORIES = 256;
 const NATIVE_MENU_EVENT = "nulis://menu-command";
@@ -136,7 +136,7 @@ const TOOLBAR_CAPTIONS: Record<string, string> = {
   "tools.minify": "Minify", "workspace.rename": "Rename", "workspace.ungroup": "Ungroup",
 };
 const NAV_ICONS: Record<typeof NAV_ITEMS[number], IconName> = {
-  Files: "files", Symbols: "symbols",
+  Files: "files",
 };
 
 /** A dirty-document prompt may be one step of quitting or of closing a tab. */
@@ -2406,13 +2406,11 @@ export function App() {
       <aside className="activitybar" aria-label="Primary navigation">
         {NAV_ITEMS.map((item) => {
           const panel = "files" as const;
-          const available = item === "Files";
-          const selected = available && activePanel === panel && sidebarVisible;
+          const selected = activePanel === panel && sidebarVisible;
           return <button
             className={selected ? "active" : ""} type="button" key={item}
-            disabled={!available || !sessionReady} aria-pressed={selected}
+            disabled={!sessionReady} aria-pressed={selected}
             onClick={() => {
-              if (!available) return;
               if (activePanel === panel && sidebarVisible) setSidebarVisible(false);
               else { setActivePanel(panel); setSidebarVisible(true); }
             }}

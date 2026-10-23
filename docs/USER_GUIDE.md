@@ -16,7 +16,7 @@ From top to bottom, the window has these parts.
 | --- | --- |
 | Title bar | The **Nulis** brand (click it to open the About page), the main toolbar, and the **Commands** button at the far right. |
 | Main toolbar | Icon buttons with a caption under each: New, Open, Save, Close, Undo, Redo, Split Right, Split Down, Sidebar, Automation, Plugins, and Settings. Validate, Beautify, and Minify appear here while a JSON or XML document is focused. Buttons that do not fit move into an overflow menu. |
-| Activity bar | The narrow column on the left: **Files** shows or hides File View in the side bar. Search is in the Find and Replace window (**Ctrl/⌘ F**). **Symbols** is reserved for a later version and is disabled; use the symbols list in the editor toolbar instead. |
+| Activity bar | The narrow column on the left: **Files** shows or hides File View in the side bar. Search is in the Find and Replace window (**Ctrl/⌘ F**). |
 | Side bar | File View. Hide or show it with the Sidebar button. Drag its edge to resize it. |
 | Tab strip | One tab per open file or workspace, the **+** button for a new tab, and on the right the buttons for split view, document comparison, folder comparison, the terminal, and the hexadecimal editor. |
 | Editor toolbar | Tools for the focused document: find, Go To, bookmarks, Transform, encoding, View As, symbols, word wrap, column editing, folding, line change indicators, the document map, the **EDIT** / **READ ONLY** mode button, and the insert/overwrite indicator. |
@@ -304,7 +304,7 @@ These are in the **Format** menu and the command palette. Each change is one und
 | Next / previous bookmark | **F2** / **Shift F2**. |
 | Remove all bookmarks | The clear-bookmarks button. |
 | Fold or unfold a region | Click the small triangle beside the line number, or use the **Fold** button for the region at the caret. |
-| Jump to a symbol | Choose it from the symbols list in the editor toolbar (functions, classes, headings, and similar, depending on the language). |
+| Jump to a symbol | Choose it from the symbols list in the editor toolbar. Today only JSON fills it (object keys in the visible part of the file); other languages show an empty list. |
 
 Matching brackets are highlighted when the caret is next to one.
 
