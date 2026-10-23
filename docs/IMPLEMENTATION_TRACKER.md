@@ -33,7 +33,7 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 | M39 Print window and Page Setup dialog | Complete (macOS checked 2026-10-22; Windows/Linux pending) | `handover/M39_HANDOVER.md` |
 | M40 Docs and release | Complete 2026-10-22 | `handover/M40_HANDOVER.md` |
 | M41 Language capabilities: audit and design | Completed 2026-10-23 (approved) | this tracker, "Plan 4" section |
-| M42 Language catalog and capability contracts | Completed 2026-10-23 (app check pending) | `handover/M42_HANDOVER.md` |
+| M42 Language catalog and capability contracts | Completed 2026-10-23 (checked in the app on macOS) | `handover/M42_HANDOVER.md` |
 | M43 First-party migration (tools, Markdown preview) | Not Started | — |
 | M44 Core auto-indentation | Not Started | — |
 | M45 Shared autocomplete | Not Started | — |
@@ -77,7 +77,7 @@ Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language 
 
 ### M42 — Language catalog and capability contracts
 
-**Status:** Completed 2026-10-23 (automated checks on macOS; not yet tried in the running app). Handover: `handover/M42_HANDOVER.md`.
+**Status:** Completed 2026-10-23; checked in the app on macOS by the owner the same day. Handover: `handover/M42_HANDOVER.md`.
 
 | Task | Status |
 | --- | --- |
@@ -93,7 +93,7 @@ Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language 
 
 **Acceptance:** golden test unchanged (passes against the new precedence); a user association overrides a built-in one; plugin conflicts resolve deterministically and are reported; unregistered languages fall back to Plain Text keeping the ID; register/unregister tested; View As survives a restart (desktop test); no visible UI change other than View As being remembered.
 
-**Verification (macOS, 2026-10-23):** `cargo fmt --all -- --check` clean; `cargo clippy --workspace --all-targets -- -D warnings` clean; `cargo test --workspace` 373 passed (was 345: nulis-syntax 22 unit + 4 golden, nulis-language 8, nulis-settings 7, nulis-core 170, nulis-filesystem +1); `npm run lint` and `npm run typecheck` clean; Vitest 22 files, 192 tests passed (was 191). Not tried in the running app; CI not run (branch not pushed, by the owner's choice).
+**Verification (macOS, 2026-10-23):** `cargo fmt --all -- --check` clean; `cargo clippy --workspace --all-targets -- -D warnings` clean; `cargo test --workspace` 373 passed (was 345: nulis-syntax 22 unit + 4 golden, nulis-language 8, nulis-settings 7, nulis-core 170, nulis-filesystem +1); `npm run lint` and `npm run typecheck` clean; Vitest 22 files, 192 tests passed (was 191). **App check (macOS dev build, 2026-10-23, by the owner):** `*.h` mapped to C++ in `settings.json` opened `widget.h` as C++; View As ▸ Markdown on a `.txt` file survived quitting and restarting (the session held `languages`); everyday files opened with the same languages as before; the Symbols button is gone. User data was backed up before and restored after. CI not run (branch not pushed, by the owner's choice).
 
 **Files changed:** `crates/nulis-syntax/src/lib.rs`, `crates/nulis-syntax/tests/detection_golden.rs` (new), `crates/nulis-language/` (new crate), `crates/nulis-settings/src/lib.rs`, `crates/nulis-core/src/lib.rs`, `crates/nulis-core/src/editor.rs`, `crates/nulis-core/src/editor/{line_ops,rename,print_export}.rs`, `crates/nulis-filesystem/src/session.rs`, `apps/desktop/src/{contracts.ts,App.tsx,EditorViewport.tsx,App.test.tsx}`, `Cargo.toml`, `Cargo.lock`, docs (`ARCHITECTURE.md`, `USER_GUIDE.md`, `README.md`, `settings.schema.json`, plan, matrix, this tracker).
 
