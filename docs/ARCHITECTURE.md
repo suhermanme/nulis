@@ -149,6 +149,10 @@ IPC protocol v24 adds whole-machine browsing and broader language support. `plac
 
 `settings.json` (schema 1) is stored beside the customization file and loaded at start; a broken file is reported by `settings.state` and the editor starts with defaults. `settings.saveChecked` stores a validated document against a revision and re-applies user values, `"[language]"` sections, and file associations. IPC protocol v43 adds `languageOverride` to document summaries and an optional `languages` map to the workbench session (omitted when empty, so 0.4.0 still reads sessions without overrides); the desktop re-applies those choices on start.
 
+## Built-in providers (M43)
+
+The JSON, XML/XSL, YAML, and plist tools and the Markdown preview are built-in providers registered in a `CapabilityRegistry` owned by the `DocumentManager` (`crates/nulis-core/src/builtin_providers.rs`); the algorithms stay in `format_tools`, `yaml_tools`, and `plist_tools`. Each document session caches its resolved `DocumentCapabilities` (Validate, Beautify, Minify labels, whether Beautify may lose data, preview kind), refreshed when the document opens, on View As, Rename, and Save As, and when settings change switches; summaries send it to the interface, which builds the toolbar, palette, native Tools menu, the YAML consent flow, and the Markdown Edit/View switch from it, never from language IDs. Tool calls go through `CapabilityRegistry::call`. Messages are built from provider labels, so the 0.4.0 wording is unchanged (`crates/nulis-core/tests/tool_golden.rs`). IPC protocol v44: summaries carry `capabilities` instead of `tool`, validation reports drop `tool`, `language.set` returns the summary, `language.capabilities` and `editor.summaries` are new, and the Settings window may call `settings.state`, `settings.saveChecked`, and `language.capabilities`.
+
 ## Crate boundaries
 
 - `nulis-document`: 64-bit positions, document-facing contracts; M01 owns mutations and snapshots.

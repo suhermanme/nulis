@@ -4,8 +4,8 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 
 ## Current state
 
-- **Current milestone:** M42 complete (2026-10-23); next is M43 (first-party migration). M41 approved 2026-10-23 with every plan §7 recommendation accepted. Branch `feat/language-capabilities`. **To resume plan 4, read the "Plan 4" section below.** Plan 3 is complete and released in Nulis 0.4.0 (2026-10-23).
-- **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 5 of 5 milestones completed (M31–M35); plan 3: 5 of 5 completed (M36–M40, in Nulis 0.4.0); plan 4: 2 of 8 (M41, M42)
+- **Current milestone:** M43 complete (2026-10-23); next is M44 (core auto-indentation). M41 approved 2026-10-23 with every plan §7 recommendation accepted. Branch `feat/language-capabilities`. **To resume plan 4, read the "Plan 4" section below.** Plan 3 is complete and released in Nulis 0.4.0 (2026-10-23).
+- **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 5 of 5 milestones completed (M31–M35); plan 3: 5 of 5 completed (M36–M40, in Nulis 0.4.0); plan 4: 3 of 8 (M41–M43)
 - **Baseline before M19 (commit `66853e1`):** `cargo test -p nulis-core` 86 passed; desktop Vitest 11 files, 115 tests passed.
 
 | Milestone | Status | Handover |
@@ -34,7 +34,7 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 | M40 Docs and release | Complete 2026-10-22 | `handover/M40_HANDOVER.md` |
 | M41 Language capabilities: audit and design | Completed 2026-10-23 (approved) | this tracker, "Plan 4" section |
 | M42 Language catalog and capability contracts | Completed 2026-10-23 (checked in the app on macOS) | `handover/M42_HANDOVER.md` |
-| M43 First-party migration (tools, Markdown preview) | Not Started | — |
+| M43 First-party migration (tools, Markdown preview) | Completed 2026-10-23 (app check pending) | `handover/M43_HANDOVER.md` |
 | M44 Core auto-indentation | Not Started | — |
 | M45 Shared autocomplete | Not Started | — |
 | M46 Expand bundled coverage | Not Started | — |
@@ -107,20 +107,37 @@ Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language 
 
 ### M43 — First-party migration
 
-**Status:** Not Started. **Depends on:** M42 (done).
+**Status:** Completed 2026-10-23 (automated checks on macOS; not yet tried in the running app). Handover: `handover/M43_HANDOVER.md`.
 
 | Task | Status |
 | --- | --- |
-| Golden tests for every tool message, caret target and output (commit first) | Not Started |
-| JSON, XML/XSL, YAML, plist as `Validator`/`Formatter` providers; remove `ToolKind` matching | Not Started |
-| Replace TS `ToolKind`, `TOOL_LABELS`, native `TOOL_SETS` with the capability descriptor | Not Started |
-| Markdown as `PreviewProvider`; UI renderer registry replaces `languageId === "markdown"` | Not Started |
-| Settings ▸ Languages capability switches | Not Started |
-| Disable/re-enable and provider-failure tests | Not Started |
+| Golden tests for every tool message, caret target and output (commit first) | Completed (`7665d03`, 26 documents) |
+| JSON, XML/XSL, YAML, plist as `Validator`/`Formatter` providers; remove `ToolKind` matching | Completed |
+| Replace TS `ToolKind`, `TOOL_LABELS`, native `TOOL_SETS` with the capability descriptor | Completed |
+| Markdown as `PreviewProvider`; Edit/View switch reads the capability | Completed (map tones stay keyed to the Markdown language, see decisions) |
+| Settings ▸ Languages capability switches | Completed |
+| Disable/re-enable and provider-failure tests | Completed (core test reaches open documents; panic containment tested in `nulis-language`) |
+| View As refreshes tools at once (known issue from M42) | Completed (`language.set` returns the summary) |
+
+**Acceptance:** every tool message, location, note, and output is identical (golden test unchanged apart from the replaced `tool` fields); switching Beautify and Minify off for JSON hides them everywhere and leaves the document untouched, switching back restores them, also for open documents; a Markdown document without its preview has no Edit/View switch.
+
+**Verification (macOS, 2026-10-23):** fmt and clippy (`-D warnings`) clean; `cargo test --workspace` 374 passed; lint and typecheck clean; Vitest 22 files, 195 tests passed (was 192). Not tried in the running app; CI not run (branch not pushed).
+
+**Files changed:** `crates/nulis-language/src/{lib,tests}.rs` (`may_lose_data`, `replace_disabled`, `Deserialize` kinds), `crates/nulis-core/src/builtin_providers.rs` (new), `crates/nulis-core/src/{editor,lib,format_tools}.rs`, `crates/nulis-core/tests/{tool_golden.rs,golden/tools.json}` (new), `crates/nulis-core/Cargo.toml`, `apps/desktop/src-tauri/src/lib.rs`, `apps/desktop/src/{contracts.ts,ipc.ts,App.tsx,EditorViewport.tsx,SettingsWindow.tsx}` and tests, docs.
+
+**Decisions and visible changes:**
+- Native Tools menu: an unavailable item now reads just "Validate", "Beautify", or "Minify" (0.4.0 showed a disabled "Minify JSON" for every non-JSON document).
+- When a tool is not available, the status bar says "Minify is not available for this document" (and likewise for Validate and Beautify) instead of listing the four formats.
+- Validation reports no longer carry `tool`; the interface never read it.
+- New messages for new situations only: "Validate is not available for JSON documents" (and Beautify) when the user switched it off.
+- The document map's Markdown colors still follow the Markdown language, not the preview switch: they are highlighting, not preview.
+- Kept on purpose (golden): YAML Beautify with tags says "Invalid YAML: Beautify cannot keep YAML tags…" although the YAML is valid; worth rewording in a later milestone with a release note.
+
+**Known issues:** associations are still edited in `settings.json` by hand (Settings shows them read-only).
 
 ### M44 — Core auto-indentation
 
-**Status:** Not Started. **Depends on:** M42 (settings), owner answer §7.1.
+**Status:** Not Started. **Depends on:** M42 (settings, done), owner answer §7.1 (given: `full`).
 
 | Task | Status |
 | --- | --- |

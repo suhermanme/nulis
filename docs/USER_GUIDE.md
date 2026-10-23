@@ -15,7 +15,7 @@ From top to bottom, the window has these parts.
 | Part | What it is for |
 | --- | --- |
 | Title bar | The **Nulis** brand (click it to open the About page), the main toolbar, and the **Commands** button at the far right. |
-| Main toolbar | Icon buttons with a caption under each: New, Open, Save, Close, Undo, Redo, Split Right, Split Down, Sidebar, Automation, Plugins, and Settings. Validate, Beautify, and Minify appear here while a JSON or XML document is focused. Buttons that do not fit move into an overflow menu. |
+| Main toolbar | Icon buttons with a caption under each: New, Open, Save, Close, Undo, Redo, Split Right, Split Down, Sidebar, Automation, Plugins, and Settings. Validate, Beautify, and Minify appear here while a document that has them is focused (JSON, XML, YAML, property lists). Buttons that do not fit move into an overflow menu. |
 | Activity bar | The narrow column on the left: **Files** shows or hides File View in the side bar. Search is in the Find and Replace window (**Ctrl/⌘ F**). |
 | Side bar | File View. Hide or show it with the Sidebar button. Drag its edge to resize it. |
 | Tab strip | One tab per open file or workspace, the **+** button for a new tab, and on the right the buttons for split view, document comparison, folder comparison, the terminal, and the hexadecimal editor. |
@@ -478,7 +478,9 @@ When the focused document is JSON, XML (XSL counts as XML), YAML, or a property 
 | **Beautify** | Re-indents the document with two spaces. It is one undo step. An invalid document is not changed; you are shown where the problem is instead. |
 | **Minify** (JSON only) | Removes all whitespace that has no meaning. |
 
-The buttons and menu items name the kind of document, for example **Validate YAML** or **Beautify plist**.
+The buttons and menu items name the kind of document, for example **Validate YAML** or **Beautify plist**. Choosing another language with **View As** updates them at once.
+
+You can switch any of these tools, and the Markdown preview, off for one language in **Settings ▸ Languages ▸ Language features**: untick it and press **Apply**. The tool disappears from the toolbar, the Tools menu, and the palette, also for documents that are already open; their text is not changed. The same page lists your `files.associations` and marks any that Nulis ignored.
 
 Details worth knowing:
 

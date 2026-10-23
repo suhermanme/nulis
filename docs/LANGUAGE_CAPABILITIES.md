@@ -60,22 +60,29 @@ pub struct ProviderInfo {
 }
 
 /// Whole-document input for tools. The core reads and decodes it (8 MiB cap,
-/// document encoding) exactly as `tool_source` does today.
-pub struct DocumentText<'a> { pub language: &'a LanguageId, pub text: &'a str, pub revision: u64 }
+/// document encoding) before the call.
+pub struct DocumentText<'a> { pub language: &'a LanguageId, pub text: &'a str }
 
+// As implemented in M43 (crates/nulis-language):
 pub trait Validator: Send + Sync {
-    fn validate(&self, input: &DocumentText, budget: &Budget) -> Result<Vec<Diagnostic>, ProviderError>;
+    /// Ok(None) = valid; Ok(Some(problem)) = the first problem, at a byte offset into `text`.
+    fn validate(&self, input: &DocumentText) -> Result<Option<TextProblem>, ProviderError>;
 }
-pub struct Diagnostic { pub range: TextRange, pub severity: Severity, pub message: String, pub source: ProviderId }
+pub enum ProviderError { Content(TextProblem) /* the user can fix it */, Refused(String), Failed(String) /* counts toward suspension */ }
 
 pub trait Formatter: Send + Sync {
     fn modes(&self) -> &[FormatMode];               // Beautify, Compact
-    /// What this run would lose (YAML comments, anchors), or why it cannot run (tags).
+    /// True when formatting can drop something; the editor then validates and asks first.
+    fn may_lose_data(&self) -> bool { false }
+    /// What this run would lose (YAML comments, anchors) or why it cannot run (tags).
     fn assess(&self, input: &DocumentText) -> Result<FormatAssessment, ProviderError>;
-    fn format(&self, input: &DocumentText, mode: FormatMode, options: &FormatOptions, budget: &Budget)
-        -> Result<FormatOutcome, ProviderError>;
+    fn format(&self, input: &DocumentText, mode: FormatMode, accept_loss: bool) -> Result<FormatOutcome, ProviderError>;
 }
+pub enum FormatAssessment { Ready, Lossy(String), Unavailable(String) }
 pub enum FormatOutcome { Unchanged, Replaced(String) }   // the core applies it as one revision-checked undo step
+
+// Planned (M47, shared with language servers): ranged diagnostics with severity,
+// several per document, instead of the first problem only.
 
 pub trait IndentProvider: Send + Sync {
     fn on_enter(&self, context: &IndentContext) -> IndentAction;
@@ -147,7 +154,7 @@ For each `(language, kind)` the registry keeps an ordered list of enabled provid
 
 - **Single-provider kinds** (highlight, comment, indentation, format, compact, preview, symbols): the user's choice for that language if set, else the built-in, else the first plugin provider by ID, else the language-server provider, else none.
 - **Merged kinds** (completion, diagnostics, commands): all enabled providers are called; completion results are merged by rank (§6.2) and deduplicated by inserted text; diagnostics keep their source.
-- **Enable/disable** works at three levels: a plugin (all its providers), a capability for a language (`languages.<id>.disabled: ["format"]`), and a single provider. Disabling is immediate and never touches document content.
+- **Enable/disable** works at three levels: a plugin (all its providers), a capability for a language (`"[json]": { "disabledCapabilities": ["format", "compact"] }` in `settings.json`, set from Settings ▸ Languages since M43), and a single provider. Disabling is immediate, reaches open documents, and never touches document content.
 
 ### 5.3 Lifecycle
 
