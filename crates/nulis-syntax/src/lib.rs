@@ -134,15 +134,29 @@ pub struct TokenRule {
     pub token: SyntaxToken,
 }
 
+/// How a module produces its analysis.
+#[derive(Clone, Copy, Debug)]
+enum Scanner {
+    /// No analysis: Plain Text.
+    None,
+    /// A Tree-sitter grammar walked with the module's node rules.
+    Grammar,
+    /// A table-driven lexer.
+    Lexer(&'static lexer::LexerSpec),
+    /// The bounded Markdown line scanner.
+    MarkdownLines,
+}
+
 #[derive(Clone)]
 pub struct LanguageModule {
     descriptor: LanguageDescriptor,
+    scanner: Scanner,
     grammar: Option<Language>,
     token_rules: Vec<TokenRule>,
     fold_node_kinds: Vec<&'static str>,
     symbol_node_kind: Option<&'static str>,
     bracket_node_kinds: Vec<&'static str>,
-    lexer: Option<&'static lexer::LexerSpec>,
+    comments: Option<CommentSyntax>,
 }
 
 impl std::fmt::Debug for LanguageModule {
@@ -150,13 +164,13 @@ impl std::fmt::Debug for LanguageModule {
         formatter
             .debug_struct("LanguageModule")
             .field("descriptor", &self.descriptor)
-            .field("has_grammar", &self.grammar.is_some())
+            .field("scanner", &self.scanner)
             .field("token_rules", &self.token_rules)
             .field("fold_node_kinds", &self.fold_node_kinds)
             .field("symbol_node_kind", &self.symbol_node_kind)
             .field("bracket_node_kinds", &self.bracket_node_kinds)
-            .field("lexer", &self.lexer.map(|spec| spec.id))
-            .finish()
+            .field("comments", &self.comments)
+            .finish_non_exhaustive()
     }
 }
 
@@ -172,31 +186,57 @@ impl LanguageModule {
     ) -> Self {
         Self {
             descriptor,
+            scanner: Scanner::Grammar,
             grammar: Some(grammar),
             token_rules,
             fold_node_kinds,
             symbol_node_kind,
             bracket_node_kinds,
-            lexer: None,
+            comments: None,
         }
     }
 
-    fn lexical(spec: &'static lexer::LexerSpec) -> Self {
-        let owned = |items: &[&str]| items.iter().map(|item| (*item).to_owned()).collect();
+    fn with_scanner(descriptor: LanguageDescriptor, scanner: Scanner) -> Self {
         Self {
-            descriptor: LanguageDescriptor {
-                id: LanguageId(spec.id.into()),
-                display_name: spec.name.into(),
-                extensions: owned(spec.extensions),
-                filenames: owned(spec.filenames),
-            },
+            descriptor,
+            scanner,
             grammar: None,
             token_rules: Vec::new(),
             fold_node_kinds: Vec::new(),
             symbol_node_kind: None,
             bracket_node_kinds: Vec::new(),
-            lexer: Some(spec),
+            comments: None,
         }
+    }
+
+    fn lexical(spec: &'static lexer::LexerSpec) -> Self {
+        let owned = |items: &[&str]| items.iter().map(|item| (*item).to_owned()).collect();
+        let comments = CommentSyntax {
+            line: spec.line_comments.first().copied(),
+            // Markup comments are recognized by the markup scanner itself.
+            block: spec.block_comments.first().copied().or(matches!(
+                spec.mode,
+                lexer::Mode::Markup
+            )
+            .then_some(("<!--", "-->"))),
+        };
+        Self::with_scanner(
+            LanguageDescriptor {
+                id: LanguageId(spec.id.into()),
+                display_name: spec.name.into(),
+                extensions: owned(spec.extensions),
+                filenames: owned(spec.filenames),
+            },
+            Scanner::Lexer(spec),
+        )
+        .with_comments(comments)
+    }
+
+    /// Sets the markers Toggle Comment uses; a syntax with neither marker means none.
+    #[must_use]
+    pub fn with_comments(mut self, comments: CommentSyntax) -> Self {
+        self.comments = (comments.line.is_some() || comments.block.is_some()).then_some(comments);
+        self
     }
 
     #[must_use]
@@ -214,9 +254,97 @@ pub struct CommentSyntax {
     pub block: Option<(&'static str, &'static str)>,
 }
 
+/// Where a language or an association came from. When two associations of
+/// the same kind claim a file, the earlier variant wins, then the lower
+/// plugin ID.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum AssociationSource {
+    /// `files.associations` in the user's settings.
+    User,
+    /// Shipped with Nulis.
+    Builtin,
+    /// Contributed by the plugin with this ID.
+    Plugin(String),
+}
+
+/// What part of a file name an association looks at. Values are lowercase.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum FileMatcher {
+    /// The whole file name (`dockerfile`, `.bashrc`).
+    FileName(String),
+    /// The end of the file name after a dot; may itself contain dots (`d.ts`).
+    Extension(String),
+}
+
+impl FileMatcher {
+    /// Reads a `files.associations` key: `*.ext` or an exact file name.
+    ///
+    /// # Errors
+    /// Returns an error for an empty pattern, a path, or any other wildcard.
+    pub fn parse(pattern: &str) -> Result<Self, SyntaxError> {
+        let invalid = || SyntaxError::InvalidAssociation(pattern.to_owned());
+        let lower = pattern.trim().to_ascii_lowercase();
+        let (matcher, value) = match lower.strip_prefix("*.") {
+            Some(extension) => (Self::Extension(extension.to_owned()), extension.to_owned()),
+            None => (Self::FileName(lower.clone()), lower),
+        };
+        if value.is_empty()
+            || value.len() > 255
+            || value.contains(['*', '?', '/', '\\'])
+            || value.starts_with('.') && matches!(matcher, Self::Extension(_))
+        {
+            return Err(invalid());
+        }
+        Ok(matcher)
+    }
+
+    fn matches(&self, file_name: &str) -> bool {
+        match self {
+            Self::FileName(name) => file_name == name,
+            Self::Extension(extension) => {
+                // `name.ext`: a dot, and something before it, so `.bashrc` has no extension.
+                file_name.len() > extension.len() + 1
+                    && file_name.ends_with(extension.as_str())
+                    && file_name.as_bytes()[file_name.len() - extension.len() - 1] == b'.'
+            }
+        }
+    }
+
+    /// Ranks matches within a tier: file names first, then longer extensions.
+    fn specificity(&self) -> (u8, usize) {
+        match self {
+            Self::FileName(name) => (1, name.len()),
+            Self::Extension(extension) => (0, extension.len()),
+        }
+    }
+}
+
+/// One rule mapping files to a language.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Association {
+    pub matcher: FileMatcher,
+    pub language: LanguageId,
+    pub source: AssociationSource,
+}
+
+/// Several languages claim the same file name or extension.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AssociationConflict {
+    pub matcher: FileMatcher,
+    /// Every claim, in the order they are considered; the first one wins.
+    pub claims: Vec<(LanguageId, AssociationSource)>,
+}
+
+#[derive(Debug)]
+struct RegisteredModule {
+    module: LanguageModule,
+    source: AssociationSource,
+}
+
 #[derive(Debug)]
 pub struct LanguageRegistry {
-    modules: BTreeMap<LanguageId, LanguageModule>,
+    modules: BTreeMap<LanguageId, RegisteredModule>,
+    user_associations: Vec<Association>,
 }
 
 impl Default for LanguageRegistry {
@@ -228,60 +356,154 @@ impl Default for LanguageRegistry {
 impl LanguageRegistry {
     #[must_use]
     pub fn with_builtins() -> Self {
-        let json = json_module();
-        let python = python_module();
-        let markdown = markdown_module();
-        let mut modules = BTreeMap::from([
-            (json.descriptor.id.clone(), json),
-            (python.descriptor.id.clone(), python),
-            (markdown.descriptor.id.clone(), markdown),
-        ]);
-        for spec in lexer::SPECS {
-            let module = LanguageModule::lexical(spec);
-            modules.insert(module.descriptor.id.clone(), module);
+        let mut registry = Self {
+            modules: BTreeMap::new(),
+            user_associations: Vec::new(),
+        };
+        let builtins = [
+            plain_text_module(),
+            json_module(),
+            python_module(),
+            markdown_module(),
+        ]
+        .into_iter()
+        .chain(lexer::SPECS.iter().map(LanguageModule::lexical));
+        for module in builtins {
+            registry.modules.insert(
+                module.descriptor.id.clone(),
+                RegisteredModule {
+                    module,
+                    source: AssociationSource::Builtin,
+                },
+            );
         }
-        Self { modules }
+        registry
     }
 
-    /// Registers a language module.
+    /// Registers a language module from a plugin (or another non-user source).
     ///
     /// # Errors
-    /// Returns an error when a module with the same ID is already registered.
-    pub fn register(&mut self, module: LanguageModule) -> Result<(), SyntaxError> {
+    /// Returns an error when a module with the same ID is already registered,
+    /// or when the source is `User` (users add associations, not languages).
+    pub fn register(
+        &mut self,
+        module: LanguageModule,
+        source: AssociationSource,
+    ) -> Result<(), SyntaxError> {
         let id = module.descriptor.id.clone();
+        if source == AssociationSource::User {
+            return Err(SyntaxError::InvalidAssociation(id.0));
+        }
         if self.modules.contains_key(&id) {
             return Err(SyntaxError::DuplicateLanguage(id));
         }
-        self.modules.insert(id, module);
+        self.modules.insert(id, RegisteredModule { module, source });
         Ok(())
+    }
+
+    /// Removes a language that is not built in, with its file associations.
+    /// Documents keep their language ID; analysis then reports an unknown
+    /// language and the caller falls back to Plain Text.
+    ///
+    /// # Errors
+    /// Returns an error for an unknown or built-in language.
+    pub fn unregister(&mut self, id: &LanguageId) -> Result<LanguageModule, SyntaxError> {
+        match self.modules.remove(id) {
+            None => Err(SyntaxError::UnknownLanguage(id.clone())),
+            Some(registered) if registered.source == AssociationSource::Builtin => {
+                self.modules.insert(id.clone(), registered);
+                Err(SyntaxError::BuiltinLanguage(id.clone()))
+            }
+            Some(registered) => Ok(registered.module),
+        }
+    }
+
+    #[must_use]
+    pub fn contains(&self, id: &LanguageId) -> bool {
+        self.modules.contains_key(id)
+    }
+
+    /// Replaces the user's associations (`files.associations`: pattern to
+    /// language ID). Entries with a bad pattern or an unknown language are
+    /// left out and returned so the caller can report them.
+    pub fn set_user_associations<'a>(
+        &mut self,
+        entries: impl IntoIterator<Item = (&'a str, &'a str)>,
+    ) -> Vec<String> {
+        let mut rejected = Vec::new();
+        self.user_associations.clear();
+        for (pattern, language) in entries {
+            let parsed = FileMatcher::parse(pattern).ok().zip(
+                LanguageId::new(language)
+                    .ok()
+                    .filter(|id| self.modules.contains_key(id)),
+            );
+            match parsed {
+                Some((matcher, language)) => self.user_associations.push(Association {
+                    matcher,
+                    language,
+                    source: AssociationSource::User,
+                }),
+                None => rejected.push(pattern.to_owned()),
+            }
+        }
+        rejected
+    }
+
+    /// Every association: the user's first, then each language's file names
+    /// and extensions.
+    #[must_use]
+    pub fn associations(&self) -> Vec<Association> {
+        let mut all = self.user_associations.clone();
+        for (id, registered) in &self.modules {
+            let descriptor = &registered.module.descriptor;
+            let matchers = descriptor
+                .filenames
+                .iter()
+                .map(|name| FileMatcher::FileName(name.to_ascii_lowercase()))
+                .chain(
+                    descriptor
+                        .extensions
+                        .iter()
+                        .map(|extension| FileMatcher::Extension(extension.to_ascii_lowercase())),
+                );
+            all.extend(matchers.map(|matcher| Association {
+                matcher,
+                language: id.clone(),
+                source: registered.source.clone(),
+            }));
+        }
+        all
+    }
+
+    /// File names and extensions that more than one language claims.
+    #[must_use]
+    pub fn conflicts(&self) -> Vec<AssociationConflict> {
+        let mut claims: BTreeMap<FileMatcher, Vec<(LanguageId, AssociationSource)>> =
+            BTreeMap::new();
+        for association in self.associations() {
+            if association.source != AssociationSource::User {
+                claims
+                    .entry(association.matcher)
+                    .or_default()
+                    .push((association.language, association.source));
+            }
+        }
+        claims
+            .into_iter()
+            .filter(|(_, claims)| claims.len() > 1)
+            .map(|(matcher, mut claims)| {
+                claims.sort_by(|left, right| (&left.1, &left.0).cmp(&(&right.1, &right.0)));
+                AssociationConflict { matcher, claims }
+            })
+            .collect()
     }
 
     /// The comment markers of a language, or `None` when it has none
     /// (plain text, JSON).
     #[must_use]
     pub fn comment_syntax(&self, id: &LanguageId) -> Option<CommentSyntax> {
-        let module = self.modules.get(id)?;
-        let syntax = match (module.lexer, id.as_str()) {
-            (Some(spec), _) => CommentSyntax {
-                line: spec.line_comments.first().copied(),
-                // Markup comments are recognized by the markup scanner itself.
-                block: spec.block_comments.first().copied().or(matches!(
-                    spec.mode,
-                    lexer::Mode::Markup
-                )
-                .then_some(("<!--", "-->"))),
-            },
-            (None, "python") => CommentSyntax {
-                line: Some("#"),
-                block: None,
-            },
-            (None, "markdown") => CommentSyntax {
-                line: None,
-                block: Some(("<!--", "-->")),
-            },
-            (None, _) => return None,
-        };
-        (syntax.line.is_some() || syntax.block.is_some()).then_some(syntax)
+        self.modules.get(id)?.module.comments
     }
 
     #[must_use]
@@ -289,11 +511,15 @@ impl LanguageRegistry {
         let mut descriptors: Vec<_> = self
             .modules
             .values()
-            .map(|module| module.descriptor.clone())
+            .map(|registered| registered.module.descriptor.clone())
             .collect();
-        // Listed the way a picker shows them: by name, after Plain Text.
-        descriptors.sort_by_key(|descriptor| descriptor.display_name.to_lowercase());
-        descriptors.insert(0, plain_text_descriptor());
+        // Listed the way a picker shows them: Plain Text first, then by name.
+        descriptors.sort_by_key(|descriptor| {
+            (
+                descriptor.id.as_str() != PLAIN_TEXT,
+                descriptor.display_name.to_lowercase(),
+            )
+        });
         descriptors
     }
 
@@ -305,36 +531,46 @@ impl LanguageRegistry {
         self.modules.contains_key(&id).then_some(id)
     }
 
+    /// The language a file name selects. In order: the user's associations,
+    /// then exact file names, then the longest matching extension; within a
+    /// step, built-in languages before plugins and plugins by ID. Plain Text
+    /// when nothing matches.
     #[must_use]
     pub fn detect_path(&self, path: &Path) -> LanguageId {
-        let filename = path
+        let file_name = path
             .file_name()
             .and_then(|value| value.to_str())
             .unwrap_or_default()
             .to_ascii_lowercase();
-        let extension = path
-            .extension()
-            .and_then(|value| value.to_str())
-            .unwrap_or_default()
-            .to_ascii_lowercase();
-        self.modules
-            .values()
-            .find(|module| {
-                module
-                    .descriptor
-                    .filenames
-                    .iter()
-                    .any(|item| item == &filename)
-                    || module
-                        .descriptor
-                        .extensions
-                        .iter()
-                        .any(|item| item == &extension)
-            })
-            .map_or_else(
-                || LanguageId("plaintext".into()),
-                |module| module.descriptor.id.clone(),
-            )
+        let best = |associations: &mut dyn Iterator<Item = Association>| {
+            associations
+                .filter(|association| association.matcher.matches(&file_name))
+                .max_by(|left, right| {
+                    left.matcher
+                        .specificity()
+                        .cmp(&right.matcher.specificity())
+                        // Earlier sources and lower IDs win, so they compare greater.
+                        .then_with(|| right.source.cmp(&left.source))
+                        .then_with(|| right.language.cmp(&left.language))
+                })
+                .map(|association| association.language)
+        };
+        // An association to a language removed since it was set is skipped.
+        let user = best(
+            &mut self
+                .user_associations
+                .iter()
+                .filter(|association| self.modules.contains_key(&association.language))
+                .cloned(),
+        );
+        user.or_else(|| {
+            let mut others = self
+                .associations()
+                .into_iter()
+                .filter(|association| association.source != AssociationSource::User);
+            best(&mut others)
+        })
+        .unwrap_or_else(|| LanguageId(PLAIN_TEXT.into()))
     }
 
     /// Parses one bounded source window and derives stable editor features.
@@ -351,42 +587,37 @@ impl LanguageRegistry {
     ) -> Result<SyntaxAnalysis, SyntaxError> {
         let parsed_len = source.len().min(MAX_SYNTAX_BYTES);
         let truncated = source.len() > parsed_len;
-        if language_id.as_str() == "plaintext" {
-            return Ok(SyntaxAnalysis::plain_text(parsed_len, truncated));
-        }
-        if language_id.as_str() == "markdown" {
-            return analyze_markdown(&source[..parsed_len], base_byte, truncated);
-        }
-        let module = self
+        let module = &self
             .modules
             .get(language_id)
-            .ok_or_else(|| SyntaxError::UnknownLanguage(language_id.clone()))?;
-        if let Some(spec) = module.lexer {
-            return Ok(lexer::analyze(
-                spec,
-                &source[..parsed_len],
-                base_byte,
-                base_line,
-                truncated,
-            ));
+            .ok_or_else(|| SyntaxError::UnknownLanguage(language_id.clone()))?
+            .module;
+        let window = &source[..parsed_len];
+        match module.scanner {
+            Scanner::None => Ok(SyntaxAnalysis::plain_text(parsed_len, truncated)),
+            Scanner::MarkdownLines => analyze_markdown(window, base_byte, truncated),
+            Scanner::Lexer(spec) => Ok(lexer::analyze(
+                spec, window, base_byte, base_line, truncated,
+            )),
+            Scanner::Grammar => {
+                analyze_tree_sitter(module, window, base_byte, base_line, truncated)
+            }
         }
-        analyze_tree_sitter(
-            module,
-            &source[..parsed_len],
-            base_byte,
-            base_line,
-            truncated,
-        )
     }
 }
 
-fn plain_text_descriptor() -> LanguageDescriptor {
-    LanguageDescriptor {
-        id: LanguageId("plaintext".into()),
-        display_name: "Plain Text".into(),
-        extensions: Vec::new(),
-        filenames: Vec::new(),
-    }
+const PLAIN_TEXT: &str = "plaintext";
+
+fn plain_text_module() -> LanguageModule {
+    LanguageModule::with_scanner(
+        LanguageDescriptor {
+            id: LanguageId(PLAIN_TEXT.into()),
+            display_name: "Plain Text".into(),
+            extensions: Vec::new(),
+            filenames: Vec::new(),
+        },
+        Scanner::None,
+    )
 }
 
 fn json_module() -> LanguageModule {
@@ -489,23 +720,26 @@ fn python_module() -> LanguageModule {
         None,
         Vec::new(),
     )
+    .with_comments(CommentSyntax {
+        line: Some("#"),
+        block: None,
+    })
 }
 
 fn markdown_module() -> LanguageModule {
-    LanguageModule {
-        descriptor: LanguageDescriptor {
+    LanguageModule::with_scanner(
+        LanguageDescriptor {
             id: LanguageId("markdown".into()),
             display_name: "Markdown".into(),
             extensions: vec!["md".into(), "markdown".into(), "mdown".into()],
             filenames: Vec::new(),
         },
-        grammar: None,
-        token_rules: Vec::new(),
-        fold_node_kinds: Vec::new(),
-        symbol_node_kind: None,
-        bracket_node_kinds: Vec::new(),
-        lexer: None,
-    }
+        Scanner::MarkdownLines,
+    )
+    .with_comments(CommentSyntax {
+        line: None,
+        block: Some(("<!--", "-->")),
+    })
 }
 
 fn analyze_markdown(
@@ -866,6 +1100,10 @@ pub enum SyntaxError {
     DuplicateLanguage(LanguageId),
     #[error("unknown language {0:?}")]
     UnknownLanguage(LanguageId),
+    #[error("language {0:?} is built in and cannot be removed")]
+    BuiltinLanguage(LanguageId),
+    #[error("unsupported file association {0:?}: use *.ext or a file name")]
+    InvalidAssociation(String),
     #[error("language module has no parser grammar")]
     MissingGrammar,
     #[error("Tree-sitter parser setup failed: {0}")]
@@ -1429,5 +1667,217 @@ mod tests {
         assert_eq!(analysis.parsed_bytes, MAX_SYNTAX_BYTES);
         assert_eq!(analysis.highlights.len(), MAX_HIGHLIGHT_SPANS);
         assert!(analysis.truncated);
+    }
+}
+
+#[cfg(test)]
+mod catalog_tests {
+    use super::{
+        AssociationSource, FileMatcher, LanguageDescriptor, LanguageId, LanguageModule,
+        LanguageRegistry, Scanner, SyntaxError,
+    };
+    use std::path::Path;
+
+    fn id(value: &str) -> LanguageId {
+        LanguageId::new(value).expect("valid id")
+    }
+
+    fn plugin_language(language: &str, extensions: &[&str], filenames: &[&str]) -> LanguageModule {
+        LanguageModule::with_scanner(
+            LanguageDescriptor {
+                id: id(language),
+                display_name: language.to_uppercase(),
+                extensions: extensions.iter().map(|item| (*item).to_owned()).collect(),
+                filenames: filenames.iter().map(|item| (*item).to_owned()).collect(),
+            },
+            Scanner::None,
+        )
+    }
+
+    fn plugin(name: &str) -> AssociationSource {
+        AssociationSource::Plugin(name.into())
+    }
+
+    #[test]
+    fn a_user_association_overrides_a_built_in_one() {
+        let mut registry = LanguageRegistry::with_builtins();
+        assert_eq!(registry.detect_path(Path::new("x.h")).as_str(), "c");
+        let rejected = registry.set_user_associations([("*.h", "cpp"), ("Jenkinsfile", "ruby")]);
+        assert_eq!(rejected, Vec::<String>::new());
+        assert_eq!(registry.detect_path(Path::new("src/x.H")).as_str(), "cpp");
+        assert_eq!(
+            registry.detect_path(Path::new("ci/Jenkinsfile")).as_str(),
+            "ruby"
+        );
+        // Other mappings are untouched, and clearing restores the built-in one.
+        assert_eq!(registry.detect_path(Path::new("x.c")).as_str(), "c");
+        registry.set_user_associations([]);
+        assert_eq!(registry.detect_path(Path::new("x.h")).as_str(), "c");
+    }
+
+    #[test]
+    fn bad_patterns_and_unknown_languages_are_rejected_and_reported() {
+        let mut registry = LanguageRegistry::with_builtins();
+        let rejected = registry.set_user_associations([
+            ("*.h", "cpp"),
+            ("src/*.rs", "rust"),
+            ("*", "rust"),
+            ("*.", "rust"),
+            ("*..x", "rust"),
+            ("*.foo", "no-such-language"),
+            ("", "rust"),
+        ]);
+        assert_eq!(rejected, ["src/*.rs", "*", "*.", "*..x", "*.foo", ""]);
+        assert_eq!(registry.detect_path(Path::new("x.h")).as_str(), "cpp");
+        assert!(matches!(
+            FileMatcher::parse("a/b"),
+            Err(SyntaxError::InvalidAssociation(_))
+        ));
+    }
+
+    #[test]
+    fn the_longest_extension_wins_and_file_names_beat_extensions() {
+        let mut registry = LanguageRegistry::with_builtins();
+        registry
+            .register(plugin_language("dts", &["d.ts"], &[]), plugin("acme.dts"))
+            .expect("register");
+        registry
+            .register(
+                plugin_language("special", &[], &["special.ts"]),
+                plugin("acme.special"),
+            )
+            .expect("register");
+        assert_eq!(
+            registry.detect_path(Path::new("index.d.ts")).as_str(),
+            "dts"
+        );
+        assert_eq!(
+            registry.detect_path(Path::new("index.ts")).as_str(),
+            "typescript"
+        );
+        assert_eq!(
+            registry.detect_path(Path::new("special.ts")).as_str(),
+            "special"
+        );
+        // `.d.ts` alone has no name before the extension.
+        assert_eq!(
+            registry.detect_path(Path::new(".d.ts")).as_str(),
+            "typescript"
+        );
+    }
+
+    #[test]
+    fn built_in_claims_beat_plugins_and_plugins_are_ordered_by_id() {
+        let mut registry = LanguageRegistry::with_builtins();
+        registry
+            .register(
+                plugin_language("better-json", &["json"], &[]),
+                plugin("zeta.json"),
+            )
+            .expect("register");
+        registry
+            .register(plugin_language("nim-b", &["nim"], &[]), plugin("beta.nim"))
+            .expect("register");
+        registry
+            .register(plugin_language("nim-a", &["nim"], &[]), plugin("alpha.nim"))
+            .expect("register");
+        assert_eq!(registry.detect_path(Path::new("x.json")).as_str(), "json");
+        assert_eq!(registry.detect_path(Path::new("x.nim")).as_str(), "nim-a");
+
+        let conflicts = registry.conflicts();
+        let json = conflicts
+            .iter()
+            .find(|conflict| conflict.matcher == FileMatcher::Extension("json".into()))
+            .expect("json conflict");
+        assert_eq!(
+            json.claims,
+            [
+                (id("json"), AssociationSource::Builtin),
+                (id("better-json"), plugin("zeta.json"))
+            ]
+        );
+        let nim = conflicts
+            .iter()
+            .find(|conflict| conflict.matcher == FileMatcher::Extension("nim".into()))
+            .expect("nim conflict");
+        assert_eq!(nim.claims[0].0, id("nim-a"));
+
+        // The user settles a conflict with an association.
+        registry.set_user_associations([("*.json", "better-json"), ("*.nim", "nim-b")]);
+        assert_eq!(
+            registry.detect_path(Path::new("x.json")).as_str(),
+            "better-json"
+        );
+        assert_eq!(registry.detect_path(Path::new("x.nim")).as_str(), "nim-b");
+    }
+
+    #[test]
+    fn the_built_in_catalog_has_no_conflicts() {
+        assert_eq!(LanguageRegistry::with_builtins().conflicts(), Vec::new());
+    }
+
+    #[test]
+    fn plugin_languages_can_be_removed_but_built_in_ones_cannot() {
+        let mut registry = LanguageRegistry::with_builtins();
+        registry
+            .register(plugin_language("nim", &["nim"], &[]), plugin("acme.nim"))
+            .expect("register");
+        assert!(matches!(
+            registry.register(plugin_language("nim", &[], &[]), plugin("other")),
+            Err(SyntaxError::DuplicateLanguage(_))
+        ));
+        assert!(matches!(
+            registry.register(plugin_language("mine", &[], &[]), AssociationSource::User),
+            Err(SyntaxError::InvalidAssociation(_))
+        ));
+        assert_eq!(registry.detect_path(Path::new("x.nim")).as_str(), "nim");
+        assert!(registry
+            .descriptors()
+            .iter()
+            .any(|descriptor| descriptor.id == id("nim")));
+
+        registry.unregister(&id("nim")).expect("unregister");
+        assert_eq!(
+            registry.detect_path(Path::new("x.nim")).as_str(),
+            "plaintext"
+        );
+        assert!(matches!(
+            registry.analyze(&id("nim"), b"echo 1", 0, 1),
+            Err(SyntaxError::UnknownLanguage(_))
+        ));
+        assert!(matches!(
+            registry.unregister(&id("json")),
+            Err(SyntaxError::BuiltinLanguage(_))
+        ));
+        assert!(matches!(
+            registry.unregister(&id("nim")),
+            Err(SyntaxError::UnknownLanguage(_))
+        ));
+    }
+
+    #[test]
+    fn a_user_association_to_a_removed_language_is_ignored() {
+        let mut registry = LanguageRegistry::with_builtins();
+        registry
+            .register(plugin_language("nim", &[], &[]), plugin("acme.nim"))
+            .expect("register");
+        assert_eq!(
+            registry.set_user_associations([("*.nimble", "nim")]),
+            Vec::<String>::new()
+        );
+        assert_eq!(registry.detect_path(Path::new("a.nimble")).as_str(), "nim");
+        registry.unregister(&id("nim")).expect("unregister");
+        assert_eq!(
+            registry.detect_path(Path::new("a.nimble")).as_str(),
+            "plaintext"
+        );
+        assert_eq!(
+            registry.set_user_associations([("*.nimble", "nim")]),
+            ["*.nimble"]
+        );
+        assert_eq!(
+            registry.detect_path(Path::new("a.nimble")).as_str(),
+            "plaintext"
+        );
     }
 }
