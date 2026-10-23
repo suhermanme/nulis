@@ -693,7 +693,8 @@ fn json_module() -> LanguageModule {
         LanguageDescriptor {
             id: LanguageId("json".into()),
             display_name: "JSON".into(),
-            extensions: vec!["json".into()],
+            // TypeScript's incremental build information is JSON too.
+            extensions: vec!["json".into(), "tsbuildinfo".into()],
             filenames: vec![".babelrc".into(), ".eslintrc".into()],
         },
         tree_sitter_json::LANGUAGE.into(),

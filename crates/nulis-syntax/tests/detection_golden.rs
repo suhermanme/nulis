@@ -321,6 +321,7 @@ const PATHS: &[(&str, &str)] = &[
     // M46 (approved, release notes): `.jsonc` is JSON with Comments; `Dockerfile.*`
     // and `Containerfile.*` are Dockerfiles; ignore files have their own language.
     ("x.jsonc", "jsonc"),
+    ("tsconfig.tsbuildinfo", "json"),
     ("Dockerfile.dev", "dockerfile"),
     ("ci/Containerfile.prod", "dockerfile"),
     ("Dockerfile", "dockerfile"),
