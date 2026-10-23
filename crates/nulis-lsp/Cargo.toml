@@ -1,0 +1,20 @@
+[package]
+name = "nulis-lsp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[[bin]]
+# A small language server used only by tests; never bundled.
+name = "nulis-fake-lsp"
+path = "src/bin/nulis-fake-lsp.rs"
+test = false

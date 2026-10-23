@@ -11,6 +11,7 @@ members = [
   "crates/nulis-filesystem",
   "crates/nulis-hex",
   "crates/nulis-language",
+  "crates/nulis-lsp",
   "crates/nulis-large-file",
   "crates/nulis-platform",
   "crates/nulis-plugin-host",
