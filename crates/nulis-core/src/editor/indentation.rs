@@ -127,15 +127,15 @@ pub(super) fn detect_document_unit(
 }
 
 /// What is known about the caret's line.
-struct LineContext {
-    line_start: u64,
-    before: String,
-    after: String,
-    previous: Vec<String>,
+pub(super) struct LineContext {
+    pub(super) line_start: u64,
+    pub(super) before: String,
+    pub(super) after: String,
+    pub(super) previous: Vec<String>,
     /// The line ending Enter inserts: this line's, else the one above, else LF.
-    ending: &'static str,
+    pub(super) ending: &'static str,
     /// `before` holds the whole line up to the caret (it was not cut at the limit).
-    complete: bool,
+    pub(super) complete: bool,
 }
 
 fn ending_of(bytes: &[u8]) -> Option<&'static str> {
@@ -150,7 +150,7 @@ fn ending_of(bytes: &[u8]) -> Option<&'static str> {
     }
 }
 
-fn read_line_context(
+pub(super) fn read_line_context(
     table: &PieceTable,
     encoding: TextEncoding,
     start: u64,
@@ -213,11 +213,11 @@ fn read_line_context(
 
 /// One replacement planned for a batch; `caret` is where the caret goes,
 /// counted in bytes from the start of `text`.
-struct PlannedEdit {
-    start: u64,
-    end: u64,
-    text: String,
-    caret: Option<usize>,
+pub(super) struct PlannedEdit {
+    pub(super) start: u64,
+    pub(super) end: u64,
+    pub(super) text: String,
+    pub(super) caret: Option<usize>,
 }
 
 fn overlapping(edits: &[PlannedEdit]) -> bool {
@@ -226,7 +226,10 @@ fn overlapping(edits: &[PlannedEdit]) -> bool {
 
 /// Applies edits (ascending, non-overlapping) as one revision and one undo
 /// step, moving bookmarks and putting a caret where each edit says.
-fn apply_planned(session: &mut EditorSession, edits: &[PlannedEdit]) -> Result<(), EditorError> {
+pub(super) fn apply_planned(
+    session: &mut EditorSession,
+    edits: &[PlannedEdit],
+) -> Result<(), EditorError> {
     let encoded = edits
         .iter()
         .map(|edit| encode_text(session.encoding, &edit.text))
@@ -554,6 +557,9 @@ impl DocumentManager {
             .get_mut(document_id)
             .ok_or_else(|| EditorError::UnknownDocument(document_id.clone()))?;
         validate_revision(session, expected_revision)?;
+        if Self::next_snippet_stop(session) {
+            return Ok(summary(document_id, session));
+        }
         let (unit, tab_width) = self.indent_unit(&session.language_id, session.detected_indent);
         if session.rectangular_selection.is_some() || unit == IndentUnit::Tab {
             drop(sessions);

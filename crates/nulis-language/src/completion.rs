@@ -53,6 +53,17 @@ pub struct CompletionRequest<'a> {
 /// A source of suggestions.
 pub trait CompletionProvider: Send + Sync {
     fn complete(&self, request: &CompletionRequest<'_>) -> Vec<CompletionItem>;
+
+    /// Higher ranks first among equally good matches (snippets 2, keywords 1, words 0).
+    fn priority(&self) -> u8 {
+        0
+    }
+
+    /// The language offers its own words (keywords, snippets), so the popup
+    /// may open while typing; words alone wait to be asked for.
+    fn opens_automatically(&self) -> bool {
+        false
+    }
 }
 
 /// Whether a character belongs to a word in a language.
@@ -150,6 +161,14 @@ fn in_prefix_case(keyword: &str, prefix: &str) -> String {
 }
 
 impl CompletionProvider for KeywordCompletion {
+    fn priority(&self) -> u8 {
+        1
+    }
+
+    fn opens_automatically(&self) -> bool {
+        true
+    }
+
     fn complete(&self, request: &CompletionRequest<'_>) -> Vec<CompletionItem> {
         let vocabulary = &self.vocabulary;
         let item = |word: &str, kind| {
@@ -198,6 +217,14 @@ pub struct SnippetCompletion {
 }
 
 impl CompletionProvider for SnippetCompletion {
+    fn priority(&self) -> u8 {
+        2
+    }
+
+    fn opens_automatically(&self) -> bool {
+        true
+    }
+
     fn complete(&self, _request: &CompletionRequest<'_>) -> Vec<CompletionItem> {
         self.snippets
             .iter()

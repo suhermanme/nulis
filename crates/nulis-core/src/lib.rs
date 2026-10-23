@@ -17,20 +17,21 @@ pub use command::{
 };
 pub use editor::{
     AutoIndent, BookmarkDirection, CapabilitySwitch, ChangeDirection, ClipboardPayload,
-    DocumentCapabilities, DocumentId, DocumentManager, DocumentMapChange, DocumentMapSample,
-    DocumentMapSnapshot, DocumentSummary, EditorError, ExportObserver, ExportPhase, ExportProgress,
-    ExportScope, ExternalChange, ExternalChangeKind, FileSearchScope, FileStamp, FindAllResult,
-    FindDirection, FindResult, FoundLine, FoundMatch, HexCaret, HexClipboardPayload, HexCursor,
-    HexEditResult, HexViewportRequest, HexViewportRow, HexViewportSnapshot, HorizontalDirection,
-    IndentSettings, IndentSettingsTable, IndentationSummary, Justify, LanguageCapabilities,
-    LanguageDescriptor, LineEditResult, LineEnding, LineEndingConversion, LineEndingStyle,
-    LineFormatOptions, LineOperation, MarkdownPreviewSource, NumberPadding, NumberSequence,
-    NumberSum, PdfExportRequest, PdfExportResult, RecoveryCandidate, RectangularSelection,
-    ReplaceAllResult, ReplaceFileOutcome, ReplacePreview, ReplacePreviewFile, ReplaceTarget,
-    SearchMode, SearchOptions, Selection, SyntaxBracketPair, SyntaxFold, SyntaxHighlight,
-    SyntaxSnapshot, SyntaxSymbol, TextEncoding, TextTransform, Unobserved, VerticalDirection,
-    ViewportAtRequest, ViewportCursor, ViewportLine, ViewportLineRequest, ViewportRequest,
-    ViewportSnapshot, WorkspaceSearchMatch, WorkspaceSearchResult, HIGHLIGHT_LOOKBACK_BYTES,
+    CompletionList, DocumentCapabilities, DocumentId, DocumentManager, DocumentMapChange,
+    DocumentMapSample, DocumentMapSnapshot, DocumentSummary, EditorError, ExportObserver,
+    ExportPhase, ExportProgress, ExportScope, ExternalChange, ExternalChangeKind, FileSearchScope,
+    FileStamp, FindAllResult, FindDirection, FindResult, FoundLine, FoundMatch, HexCaret,
+    HexClipboardPayload, HexCursor, HexEditResult, HexViewportRequest, HexViewportRow,
+    HexViewportSnapshot, HorizontalDirection, IndentSettings, IndentSettingsTable,
+    IndentationSummary, Justify, LanguageCapabilities, LanguageDescriptor, LineEditResult,
+    LineEnding, LineEndingConversion, LineEndingStyle, LineFormatOptions, LineOperation,
+    MarkdownPreviewSource, NumberPadding, NumberSequence, NumberSum, PdfExportRequest,
+    PdfExportResult, RecoveryCandidate, RectangularSelection, ReplaceAllResult, ReplaceFileOutcome,
+    ReplacePreview, ReplacePreviewFile, ReplaceTarget, SearchMode, SearchOptions, Selection,
+    SyntaxBracketPair, SyntaxFold, SyntaxHighlight, SyntaxSnapshot, SyntaxSymbol, TextEncoding,
+    TextTransform, Unobserved, VerticalDirection, ViewportAtRequest, ViewportCursor, ViewportLine,
+    ViewportLineRequest, ViewportRequest, ViewportSnapshot, WorkspaceSearchMatch,
+    WorkspaceSearchResult, COMPLETION_WINDOW_BYTES, HIGHLIGHT_LOOKBACK_BYTES,
     HIGHLIGHT_WINDOW_BYTES, LARGE_EXPORT_PAGES, LINE_ENDING_SAMPLE_BYTES, MAX_BOOKMARKS,
     MAX_CLIPBOARD_BYTES, MAX_EDIT_BYTES, MAX_FILE_NAME_BYTES, MAX_FIND_ALL_LINES,
     MAX_FIND_ALL_MATCHES, MAX_HEX_CLIPBOARD_BYTES, MAX_HEX_EDIT_BYTES, MAX_HEX_VIEWPORT_BYTES,
@@ -1729,6 +1730,38 @@ struct InsertTextArguments {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CompletionArguments {
+    #[serde(with = "editor::decimal_u64")]
+    expected_revision: u64,
+    request_id: u64,
+    /// Asked for with the shortcut: offer suggestions even for no typed word.
+    #[serde(default)]
+    explicit: bool,
+    /// Without `explicit`: the shortest word that gets suggestions.
+    #[serde(default = "default_min_prefix")]
+    min_prefix: usize,
+}
+
+const fn default_min_prefix() -> usize {
+    2
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct AcceptCompletionArguments {
+    #[serde(with = "editor::decimal_u64")]
+    expected_revision: u64,
+    #[serde(with = "editor::decimal_u64")]
+    replace_start: u64,
+    #[serde(with = "editor::decimal_u64")]
+    replace_end: u64,
+    text: String,
+    #[serde(default)]
+    snippet: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct MoveArguments {
     direction: HorizontalDirection,
     #[serde(default)]
@@ -2112,6 +2145,7 @@ fn is_recordable_command(id: &str) -> bool {
     matches!(
         id,
         "editor.deleteBackward"
+            | "completion.accept"
             | "editor.newline"
             | "editor.tab"
             | "editor.deleteForward"
@@ -3667,6 +3701,53 @@ fn register_navigation_commands(commands: &mut CommandRegistry, documents: &Arc<
         .expect("built-in command is unique");
 }
 
+/// Suggestions for the word at the caret, and accepting one.
+fn register_completion_commands(commands: &mut CommandRegistry, documents: &Arc<DocumentManager>) {
+    let manager = Arc::clone(documents);
+    commands
+        .register(
+            CommandDescriptor::new("completion.request", "Suggest Completions", "Editor")
+                .expect("built-in command ID is valid"),
+            move |context, arguments| {
+                let document_id = context_document(&context)?;
+                let arguments: CompletionArguments = parse_arguments(arguments)?;
+                let list = manager
+                    .completions(
+                        &document_id,
+                        arguments.expected_revision,
+                        arguments.request_id,
+                        arguments.explicit,
+                        arguments.min_prefix,
+                    )
+                    .map_err(|error| editor_command_error(&error))?;
+                serde_json::to_value(list).map_err(|error| serialization_command_error(&error))
+            },
+        )
+        .expect("built-in command is unique");
+    let manager = Arc::clone(documents);
+    commands
+        .register(
+            CommandDescriptor::new("completion.accept", "Accept Completion", "Editor")
+                .expect("built-in command ID is valid"),
+            move |context, arguments| {
+                let document_id = context_document(&context)?;
+                let arguments: AcceptCompletionArguments = parse_arguments(arguments)?;
+                let summary = manager
+                    .accept_completion(
+                        &document_id,
+                        arguments.expected_revision,
+                        arguments.replace_start,
+                        arguments.replace_end,
+                        &arguments.text,
+                        arguments.snippet,
+                    )
+                    .map_err(|error| editor_command_error(&error))?;
+                serde_json::to_value(summary).map_err(|error| serialization_command_error(&error))
+            },
+        )
+        .expect("built-in command is unique");
+}
+
 fn register_text_transfer_commands(
     commands: &mut CommandRegistry,
     documents: &Arc<DocumentManager>,
@@ -3696,6 +3777,8 @@ fn register_text_transfer_commands(
             },
         )
         .expect("built-in command is unique");
+
+    register_completion_commands(commands, documents);
 
     for (id, title, tab) in [
         ("editor.newline", "Insert Line Break", false),
@@ -4964,7 +5047,11 @@ mod tests {
         // The new summary comes back, so tools follow View As at once.
         assert_eq!(selected["languageId"], "plaintext");
         assert_eq!(selected["languageOverride"], true);
-        assert!(selected.get("capabilities").is_none());
+        // Plain Text has no tools, only word completion when asked for.
+        assert_eq!(
+            selected["capabilities"],
+            serde_json::json!({ "completion": "manual" })
+        );
         assert_eq!(created["capabilities"]["validate"], "JSON");
         assert_eq!(created["capabilities"]["compact"], "JSON");
     }
@@ -5307,7 +5394,10 @@ mod settings_tests {
                 json!({ "name": "a.json", "initialText": "{\"a\":1}" }),
             )
             .expect("create");
-        assert_eq!(json["capabilities"], json!({ "validate": "JSON" }));
+        assert_eq!(
+            json["capabilities"],
+            json!({ "validate": "JSON", "completion": "auto" })
+        );
         let id = json["documentId"].as_str().expect("id").to_owned();
         let context = CommandContext {
             window_id: None,
@@ -5335,36 +5425,7 @@ mod settings_tests {
                 json!({ "name": "a.md", "initialText": "# A" }),
             )
             .expect("create");
-        assert!(markdown.get("capabilities").is_none());
-
-        let listed = core
-            .execute_command(
-                "language.capabilities",
-                CommandContext::default(),
-                Value::Null,
-            )
-            .expect("list");
-        let json_row = listed
-            .as_array()
-            .expect("array")
-            .iter()
-            .find(|row| row["id"] == "json")
-            .expect("json row")
-            .clone();
-        assert_eq!(
-            json_row["capabilities"],
-            json!([
-                { "kind": "diagnostics", "label": "JSON", "enabled": true },
-                { "kind": "format", "label": "JSON", "enabled": false },
-                { "kind": "compact", "label": "JSON", "enabled": false },
-                { "kind": "indentation", "label": "Indentation", "enabled": true }
-            ])
-        );
-        assert!(listed
-            .as_array()
-            .expect("array")
-            .iter()
-            .all(|row| row["id"] != "plaintext"));
+        assert_eq!(markdown["capabilities"], json!({ "completion": "manual" }));
 
         // Turning everything back on reaches the open document without reopening it.
         core.execute_command(
@@ -5392,6 +5453,52 @@ mod settings_tests {
             .expect("markdown document");
         assert_eq!(markdown_now["capabilities"]["preview"], "markdown");
         assert_eq!(beautified["revision"], "1");
+    }
+
+    #[test]
+    fn settings_list_each_language_s_switchable_capabilities() {
+        let root = tempfile::tempdir().expect("application data");
+        std::fs::write(
+            root.path().join("settings.json"),
+            r#"{"schemaVersion":1,"values":{"[json]":{"disabledCapabilities":["format","compact"]}}}"#,
+        )
+        .expect("write settings");
+        let core = NulisCore::with_session_root(root.path().into());
+        let listed = core
+            .execute_command(
+                "language.capabilities",
+                CommandContext::default(),
+                Value::Null,
+            )
+            .expect("list");
+        let json_row = listed
+            .as_array()
+            .expect("array")
+            .iter()
+            .find(|row| row["id"] == "json")
+            .expect("json row")
+            .clone();
+        assert_eq!(
+            json_row["capabilities"],
+            json!([
+                { "kind": "diagnostics", "label": "JSON", "enabled": true },
+                { "kind": "format", "label": "JSON", "enabled": false },
+                { "kind": "compact", "label": "JSON", "enabled": false },
+                { "kind": "indentation", "label": "Indentation", "enabled": true },
+                { "kind": "completion", "label": "Words", "enabled": true }
+            ])
+        );
+        // Plain Text has only word completion to switch.
+        let plain = listed
+            .as_array()
+            .expect("array")
+            .iter()
+            .find(|row| row["id"] == "plaintext")
+            .expect("plain text row");
+        assert_eq!(
+            plain["capabilities"],
+            json!([{ "kind": "completion", "label": "Words", "enabled": true }])
+        );
     }
 
     #[test]

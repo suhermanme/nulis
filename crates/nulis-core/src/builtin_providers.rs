@@ -4,6 +4,11 @@
 //! this module only presents them through the `nulis-language` contracts.
 
 use crate::{editor::MAX_MARKDOWN_PREVIEW_BYTES, format_tools, plist_tools, yaml_tools};
+use nulis_language::completion::{
+    KeywordCompletion, Snippet, SnippetCompletion, WordCompletion, BASH_SNIPPETS,
+    C_FAMILY_SNIPPETS, GO_SNIPPETS, HTML_SNIPPETS, JAVASCRIPT_SNIPPETS, LUA_SNIPPETS,
+    PYTHON_SNIPPETS, RUBY_SNIPPETS, RUST_SNIPPETS, SQL_SNIPPETS,
+};
 use nulis_language::indent::{
     Family, RuleIndenter, APPLESCRIPT, BASH, LUA, PLSQL, RUBY, VISUAL_BASIC,
 };
@@ -300,7 +305,11 @@ pub fn builtin_registry() -> CapabilityRegistry {
         ),
     ];
     let mut registry = CapabilityRegistry::new();
-    for (info, provider) in providers.into_iter().chain(indentation_providers()) {
+    for (info, provider) in providers
+        .into_iter()
+        .chain(indentation_providers())
+        .chain(completion_providers())
+    {
         registry
             .register(info, provider)
             .expect("built-in providers are unique and well formed");
@@ -415,4 +424,70 @@ fn indentation_providers() -> Vec<(ProviderInfo, Provider)> {
             )
         })
         .collect()
+}
+
+/// Words from the document for every language, plus each language's
+/// keywords and snippets where it has them.
+fn completion_providers() -> Vec<(ProviderInfo, Provider)> {
+    let languages = nulis_syntax::LanguageRegistry::with_builtins();
+    let descriptors = languages.descriptors();
+    let all: Vec<&str> = descriptors
+        .iter()
+        .map(|descriptor| descriptor.id.as_str())
+        .collect();
+    let mut providers = vec![(
+        info(
+            "builtin.words.completion",
+            CapabilityKind::Completion,
+            &all,
+            "Words",
+        ),
+        Provider::Completion(Arc::new(WordCompletion)),
+    )];
+    for descriptor in &descriptors {
+        if let Some(vocabulary) = languages.vocabulary(&descriptor.id) {
+            let id = format!("builtin.{}.keywords", descriptor.id.as_str());
+            providers.push((
+                info(
+                    &id,
+                    CapabilityKind::Completion,
+                    &[descriptor.id.as_str()],
+                    "Keywords",
+                ),
+                Provider::Completion(Arc::new(KeywordCompletion { vocabulary })),
+            ));
+        }
+    }
+    let snippets: &[(&str, &'static [Snippet], &[&str])] = &[
+        ("rust", RUST_SNIPPETS, &["rust"]),
+        (
+            "javascript",
+            JAVASCRIPT_SNIPPETS,
+            &["javascript", "typescript"],
+        ),
+        ("python", PYTHON_SNIPPETS, &["python"]),
+        ("go", GO_SNIPPETS, &["go"]),
+        (
+            "c-family",
+            C_FAMILY_SNIPPETS,
+            &["c", "cpp", "csharp", "java", "objective-c", "kotlin", "php"],
+        ),
+        ("html", HTML_SNIPPETS, &["html"]),
+        ("sql", SQL_SNIPPETS, &["sql", "mysql", "plsql"]),
+        ("bash", BASH_SNIPPETS, &["bash"]),
+        ("ruby", RUBY_SNIPPETS, &["ruby"]),
+        ("lua", LUA_SNIPPETS, &["lua"]),
+    ];
+    for (name, list, languages) in snippets {
+        providers.push((
+            info(
+                &format!("builtin.{name}.snippets"),
+                CapabilityKind::Completion,
+                languages,
+                "Snippets",
+            ),
+            Provider::Completion(Arc::new(SnippetCompletion { snippets: list })),
+        ));
+    }
+    providers
 }

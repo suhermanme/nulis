@@ -207,6 +207,7 @@ pub enum Provider {
     Formatter(Arc<dyn Formatter>),
     Preview(Arc<dyn PreviewProvider>),
     Indent(Arc<dyn indent::IndentProvider>),
+    Completion(Arc<dyn completion::CompletionProvider>),
     /// Served by another part of the editor (highlighting and comments come
     /// from `nulis-syntax`); registered so it can be listed and switched off.
     Declared,
@@ -219,6 +220,7 @@ impl std::fmt::Debug for Provider {
             Self::Formatter(_) => "Formatter",
             Self::Preview(_) => "Preview",
             Self::Indent(_) => "Indent",
+            Self::Completion(_) => "Completion",
             Self::Declared => "Declared",
         })
     }
@@ -231,6 +233,7 @@ impl Provider {
             Self::Formatter(_) => matches!(kind, CapabilityKind::Format | CapabilityKind::Compact),
             Self::Preview(_) => matches!(kind, CapabilityKind::Preview),
             Self::Indent(_) => matches!(kind, CapabilityKind::Indentation),
+            Self::Completion(_) => matches!(kind, CapabilityKind::Completion),
             Self::Declared => true,
         }
     }

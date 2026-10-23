@@ -34,8 +34,10 @@ use unicode_segmentation::UnicodeSegmentation;
 
 mod column_tools;
 pub use column_tools::{Justify, NumberPadding, NumberSequence, NumberSum};
+mod completion;
 mod external_changes;
 mod find_all;
+pub use completion::{CompletionList, COMPLETION_WINDOW_BYTES};
 mod indentation;
 pub use external_changes::{ExternalChange, ExternalChangeKind};
 pub use indentation::{AutoIndent, IndentSettings, IndentSettingsTable, IndentationSummary};
@@ -217,6 +219,9 @@ pub struct DocumentCapabilities {
     /// A rendered view, by kind ("markdown").
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preview: Option<String>,
+    /// Completion: "auto" (may open while typing) or "manual" (only when asked).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completion: Option<String>,
 }
 
 impl DocumentCapabilities {
@@ -771,6 +776,8 @@ struct EditorSession {
     detected_indent: Option<nulis_language::indent::IndentUnit>,
     /// Resolved with the capabilities.
     indentation: IndentationSummary,
+    /// A snippet whose placeholders Tab still visits.
+    snippet: Option<completion::SnippetSession>,
     selections: Vec<Selection>,
     rectangular_selection: Option<RectangularSelection>,
     preferred_scalar_columns: Vec<Option<u64>>,
@@ -921,7 +928,7 @@ impl DocumentManager {
                 .map(|resolved| resolved.info.label)
         };
         let formatter = registry.resolve(language, CapabilityKind::Format);
-        DocumentCapabilities {
+        let capabilities = DocumentCapabilities {
             validate: label(CapabilityKind::Diagnostics),
             format: formatter.as_ref().map(|resolved| resolved.info.label.clone()),
             compact: label(CapabilityKind::Compact),
@@ -934,6 +941,12 @@ impl DocumentManager {
                     Provider::Preview(preview) => Some(preview.kind().to_owned()),
                     _ => None,
                 }),
+            completion: None,
+        };
+        drop(registry);
+        DocumentCapabilities {
+            completion: self.completion_mode(language),
+            ..capabilities
         }
     }
 
@@ -1123,6 +1136,7 @@ impl DocumentManager {
                     detected_indent,
                     indentation: self
                         .document_indentation(&language_id_for_indent, detected_indent),
+                    snippet: None,
                     selections: vec![Selection::caret(0)],
                     rectangular_selection: None,
                     preferred_scalar_columns: vec![None],
@@ -1309,6 +1323,7 @@ impl DocumentManager {
             capabilities,
             detected_indent,
             indentation: self.document_indentation(&language_id_for_indent, detected_indent),
+            snippet: None,
             selections: vec![Selection::caret(0)],
             rectangular_selection: None,
             preferred_scalar_columns: vec![None],
@@ -1611,6 +1626,7 @@ impl DocumentManager {
             capabilities,
             detected_indent,
             indentation: self.document_indentation(&language_id_for_indent, detected_indent),
+            snippet: None,
             selections: vec![Selection::caret(0)],
             rectangular_selection: None,
             preferred_scalar_columns: vec![None],
@@ -3939,6 +3955,7 @@ impl DocumentManager {
             HistoryDirection::Undo => session.document.undo()?,
             HistoryDirection::Redo => session.document.redo()?,
         };
+        session.snippet = None;
         if changed {
             let entry = match direction {
                 HistoryDirection::Undo => session.bookmark_undo.pop_back(),
@@ -4456,6 +4473,11 @@ fn last_search_match_before(
 
 /// Records one applied edit for bookmark relocation and line change markers.
 fn record_bookmark_edit(session: &mut EditorSession, edits: Vec<(u64, u64, usize)>) {
+    if let Some(snippet) = session.snippet.as_mut() {
+        if !snippet.relocate(&edits) {
+            session.snippet = None;
+        }
+    }
     let changes = session.changes.apply(&edits);
     push_bounded_history(&mut session.bookmark_undo, HistoryEntry { edits, changes });
     session.bookmark_redo.clear();
