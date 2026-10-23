@@ -2406,6 +2406,9 @@ pub(crate) fn analyze(
         Mode::Css => scan.css(),
         Mode::Delimited => scan.delimited(),
     }
+    if spec.yaml {
+        scan.indentation_folds();
+    }
     scan.out
 }
 
@@ -2593,6 +2596,63 @@ impl Scan<'_> {
         if open == b'{' && self.row > row {
             self.fold(start, self.pos + 1, row);
         }
+    }
+
+    /// Folds by indentation (YAML): a line folds over the more-indented
+    /// lines below it. Blank and comment lines do not end a block; a block
+    /// still open at the end of a cut-off window is not offered.
+    fn indentation_folds(&mut self) {
+        // (indent, row, line start, has children) of the lines that may fold.
+        let mut open: Vec<(usize, u64, usize, bool)> = Vec::new();
+        let mut last: Option<(u64, usize)> = None;
+        let mut start = 0_usize;
+        let mut row = 0_u64;
+        while start < self.src.len() {
+            let end = self.line_end(start);
+            let line = &self.src[start..end];
+            let indent = line.iter().take_while(|byte| **byte == b' ').count();
+            let content = &line[indent..];
+            let significant =
+                !content.iter().all(u8::is_ascii_whitespace) && !content.starts_with(b"#");
+            if significant {
+                while let Some(&(top_indent, top_row, top_start, children)) = open.last() {
+                    if indent > top_indent {
+                        break;
+                    }
+                    open.pop();
+                    if let (true, Some((last_row, last_end))) = (children, last) {
+                        self.fold_rows(top_start, last_end, top_row, last_row);
+                    }
+                }
+                if let Some(top) = open.last_mut() {
+                    top.3 = true;
+                }
+                open.push((indent, row, start, false));
+                last = Some((row, end));
+            }
+            start = end + 1;
+            row += 1;
+        }
+        if !self.out.truncated {
+            while let Some((_, top_row, top_start, children)) = open.pop() {
+                if let (true, Some((last_row, last_end))) = (children, last) {
+                    self.fold_rows(top_start, last_end, top_row, last_row);
+                }
+            }
+        }
+    }
+
+    fn fold_rows(&mut self, start: usize, end: usize, start_row: u64, end_row: u64) {
+        if self.out.folds.len() >= MAX_FOLD_RANGES {
+            self.out.truncated = true;
+            return;
+        }
+        self.out.folds.push(FoldRange {
+            start_byte: self.base_byte.saturating_add(start as u64),
+            end_byte: self.base_byte.saturating_add(end as u64),
+            start_line: self.base_line.saturating_add(start_row),
+            end_line: self.base_line.saturating_add(end_row),
+        });
     }
 
     fn fold(&mut self, start: usize, end: usize, start_row: u64) {

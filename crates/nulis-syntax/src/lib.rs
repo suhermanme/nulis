@@ -663,7 +663,7 @@ impl LanguageRegistry {
         let window = &source[..parsed_len];
         match module.scanner {
             Scanner::None => Ok(SyntaxAnalysis::plain_text(parsed_len, truncated)),
-            Scanner::MarkdownLines => analyze_markdown(window, base_byte, truncated),
+            Scanner::MarkdownLines => analyze_markdown(window, base_byte, base_line, truncated),
             Scanner::Lexer(spec) => Ok(lexer::analyze(
                 spec, window, base_byte, base_line, truncated,
             )),
@@ -860,6 +860,7 @@ fn markdown_module() -> LanguageModule {
 fn analyze_markdown(
     source: &[u8],
     base_byte: u64,
+    base_line: u64,
     truncated: bool,
 ) -> Result<SyntaxAnalysis, SyntaxError> {
     let mut analysis = SyntaxAnalysis {
@@ -874,11 +875,15 @@ fn analyze_markdown(
     };
     let mut cursor = 0_usize;
     let mut fenced = false;
+    // (level, row, line start) of each heading outside code blocks, and where each row ends.
+    let mut headings: Vec<(usize, usize, usize)> = Vec::new();
+    let mut line_ends: Vec<usize> = Vec::new();
     while cursor < source.len() {
         let line_end = source[cursor..]
             .iter()
             .position(|byte| *byte == b'\n')
             .map_or(source.len(), |relative| cursor + relative);
+        line_ends.push(line_end);
         let line = &source[cursor..line_end];
         let indent = line.iter().take_while(|byte| **byte == b' ').count().min(4);
         let trimmed = &line[indent..];
@@ -893,6 +898,7 @@ fn analyze_markdown(
         } else {
             let hashes = trimmed.iter().take_while(|byte| **byte == b'#').count();
             if (1..=6).contains(&hashes) && trimmed.get(hashes) == Some(&b' ') {
+                headings.push((hashes, line_ends.len() - 1, cursor));
                 Some(SyntaxToken::Type)
             } else {
                 None
@@ -948,7 +954,52 @@ fn analyze_markdown(
             line_end
         };
     }
+    push_heading_folds(&mut analysis, &headings, &line_ends, base_byte, base_line)?;
     Ok(analysis)
+}
+
+/// Folds each Markdown heading down to the line before the next heading of
+/// the same or a higher level. A last section whose end is past a cut-off
+/// window is not offered: its end is unknown.
+fn push_heading_folds(
+    analysis: &mut SyntaxAnalysis,
+    headings: &[(usize, usize, usize)],
+    line_ends: &[usize],
+    base_byte: u64,
+    base_line: u64,
+) -> Result<(), SyntaxError> {
+    // or a higher level. A last section whose end is past the window is not
+    // offered: its end is unknown.
+    for (index, (level, row, start)) in headings.iter().enumerate() {
+        let next = headings[index + 1..]
+            .iter()
+            .find(|(other, ..)| other <= level)
+            .map(|(_, next_row, _)| *next_row);
+        let end_row = match next {
+            Some(next_row) => next_row - 1,
+            None if analysis.truncated => continue,
+            None => line_ends.len() - 1,
+        };
+        if end_row <= *row {
+            continue;
+        }
+        if analysis.folds.len() >= MAX_FOLD_RANGES {
+            analysis.truncated = true;
+            break;
+        }
+        let offset = |value: usize| {
+            base_byte
+                .checked_add(u64::try_from(value).map_err(|_| SyntaxError::OffsetOverflow)?)
+                .ok_or(SyntaxError::OffsetOverflow)
+        };
+        analysis.folds.push(FoldRange {
+            start_byte: offset(*start)?,
+            end_byte: offset(line_ends[end_row])?,
+            start_line: base_line.saturating_add(*row as u64),
+            end_line: base_line.saturating_add(end_row as u64),
+        });
+    }
+    Ok(())
 }
 
 fn push_markdown_span(
@@ -2056,6 +2107,38 @@ mod catalog_tests {
         assert!(has(&found, "z", SyntaxToken::Function), "{found:?}");
         let found = tokens("javascript", "if (a < b && c > d) { run(); }\n");
         assert!(has(&found, "run", SyntaxToken::Function), "{found:?}");
+    }
+
+    fn fold_lines(language: &str, source: &str) -> Vec<(u64, u64)> {
+        let mut folds: Vec<(u64, u64)> = LanguageRegistry::with_builtins()
+            .analyze(&id(language), source.as_bytes(), 0, 1)
+            .expect("analysis")
+            .folds
+            .iter()
+            .map(|fold| (fold.start_line, fold.end_line))
+            .collect();
+        folds.sort_unstable();
+        folds
+    }
+
+    #[test]
+    fn markdown_sections_fold_under_their_headings() {
+        let source =
+            "# Title\nintro\n## One\na\n\n```\n# not a heading\n```\n## Two\nb\n# Next\nc\n";
+        assert_eq!(
+            fold_lines("markdown", source),
+            [(1, 10), (3, 8), (9, 10), (11, 12)]
+        );
+        // A heading with nothing under it does not fold.
+        assert_eq!(fold_lines("markdown", "# A\n# B\nx\n"), [(2, 3)]);
+    }
+
+    #[test]
+    fn yaml_blocks_fold_by_indentation() {
+        let source = "jobs:\n  build:\n    runs-on: x\n    # note\n\n    steps:\n      - run: |\n          echo\n  test: y\nother: 1\n";
+        assert_eq!(fold_lines("yaml", source), [(1, 9), (2, 8), (6, 8), (7, 8)]);
+        // Flow collections still fold at their brackets.
+        assert!(fold_lines("yaml", "a: [1,\n  2]\n").contains(&(1, 2)));
     }
 
     #[test]
