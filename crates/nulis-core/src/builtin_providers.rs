@@ -4,6 +4,9 @@
 //! this module only presents them through the `nulis-language` contracts.
 
 use crate::{editor::MAX_MARKDOWN_PREVIEW_BYTES, format_tools, plist_tools, yaml_tools};
+use nulis_language::indent::{
+    Family, RuleIndenter, APPLESCRIPT, BASH, LUA, PLSQL, RUBY, VISUAL_BASIC,
+};
 use nulis_language::{
     CapabilityKind, CapabilityRegistry, DocumentText, FormatAssessment, FormatMode, FormatOutcome,
     Formatter, PreviewProvider, Provider, ProviderError, ProviderId, ProviderInfo, ProviderOrigin,
@@ -297,10 +300,119 @@ pub fn builtin_registry() -> CapabilityRegistry {
         ),
     ];
     let mut registry = CapabilityRegistry::new();
-    for (info, provider) in providers {
+    for (info, provider) in providers.into_iter().chain(indentation_providers()) {
         registry
             .register(info, provider)
             .expect("built-in providers are unique and well formed");
     }
     registry
+}
+
+/// Indentation rules per language. Languages not listed keep the current
+/// line's indentation on Enter.
+#[allow(clippy::too_many_lines)] // One table listing every language's rules.
+fn indentation_providers() -> Vec<(ProviderInfo, Provider)> {
+    let rules: &[(&str, Family, Option<&'static str>, &[&str])] = &[
+        (
+            "builtin.brace.indent",
+            Family::Brace,
+            Some("//"),
+            &[
+                "c",
+                "cpp",
+                "csharp",
+                "go",
+                "java",
+                "javascript",
+                "kotlin",
+                "objective-c",
+                "php",
+                "rust",
+                "swift",
+                "typescript",
+                "zig",
+            ],
+        ),
+        // Line comments that start with `#`, or none at all: a `//` in a CSS
+        // `url()` or a JSON string is not a comment.
+        (
+            "builtin.hash-brace.indent",
+            Family::Brace,
+            Some("#"),
+            &["perl", "powershell"],
+        ),
+        (
+            "builtin.plain-brace.indent",
+            Family::Brace,
+            None,
+            &["css", "json", "batch"],
+        ),
+        (
+            "builtin.python.indent",
+            Family::Python,
+            Some("#"),
+            &["python"],
+        ),
+        ("builtin.yaml.indent", Family::Yaml, Some("#"), &["yaml"]),
+        (
+            "builtin.makefile.indent",
+            Family::Makefile,
+            Some("#"),
+            &["makefile"],
+        ),
+        (
+            "builtin.markup.indent",
+            Family::Markup,
+            None,
+            &["html", "xml", "xsl", "plist"],
+        ),
+        (
+            "builtin.ruby.indent",
+            Family::Keywords(&RUBY),
+            Some("#"),
+            &["ruby"],
+        ),
+        (
+            "builtin.lua.indent",
+            Family::Keywords(&LUA),
+            Some("--"),
+            &["lua"],
+        ),
+        (
+            "builtin.bash.indent",
+            Family::Keywords(&BASH),
+            Some("#"),
+            &["bash"],
+        ),
+        (
+            "builtin.vb.indent",
+            Family::Keywords(&VISUAL_BASIC),
+            Some("'"),
+            &["vb", "vbscript"],
+        ),
+        (
+            "builtin.plsql.indent",
+            Family::Keywords(&PLSQL),
+            Some("--"),
+            &["plsql"],
+        ),
+        (
+            "builtin.applescript.indent",
+            Family::Keywords(&APPLESCRIPT),
+            Some("--"),
+            &["applescript"],
+        ),
+    ];
+    rules
+        .iter()
+        .map(|(id, family, comment, languages)| {
+            (
+                info(id, CapabilityKind::Indentation, languages, "Indentation"),
+                Provider::Indent(Arc::new(RuleIndenter {
+                    family: *family,
+                    line_comment: *comment,
+                })),
+            )
+        })
+        .collect()
 }

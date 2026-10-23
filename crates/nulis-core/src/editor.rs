@@ -36,7 +36,9 @@ mod column_tools;
 pub use column_tools::{Justify, NumberPadding, NumberSequence, NumberSum};
 mod external_changes;
 mod find_all;
+mod indentation;
 pub use external_changes::{ExternalChange, ExternalChangeKind};
+pub use indentation::{AutoIndent, IndentSettings, IndentSettingsTable, IndentationSummary};
 mod line_endings;
 mod line_ops;
 mod navigation;
@@ -165,6 +167,8 @@ pub struct DocumentSummary {
     /// What the document's language offers right now (tools, preview).
     #[serde(skip_serializing_if = "DocumentCapabilities::is_empty")]
     pub capabilities: DocumentCapabilities,
+    /// What Tab inserts and how wide a tab is drawn.
+    pub indentation: IndentationSummary,
     /// A binary format the document is in, such as "binary property list":
     /// it is not text, so the editor shows it in the hexadecimal view.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -763,6 +767,10 @@ struct EditorSession {
     language_override: bool,
     /// Resolved when the language or the registry changes.
     capabilities: DocumentCapabilities,
+    /// How the text was indented when it was opened, if that could be told.
+    detected_indent: Option<nulis_language::indent::IndentUnit>,
+    /// Resolved with the capabilities.
+    indentation: IndentationSummary,
     selections: Vec<Selection>,
     rectangular_selection: Option<RectangularSelection>,
     preferred_scalar_columns: Vec<Option<u64>>,
@@ -824,6 +832,7 @@ pub struct DocumentManager {
     session_root: PathBuf,
     languages: std::sync::RwLock<LanguageRegistry>,
     capabilities: std::sync::RwLock<CapabilityRegistry>,
+    indent_settings: std::sync::RwLock<IndentSettingsTable>,
     sessions: Mutex<BTreeMap<DocumentId, EditorSession>>,
 }
 
@@ -941,7 +950,7 @@ impl DocumentManager {
             .replace_disabled(disabled);
         if let Ok(mut sessions) = self.sessions.lock() {
             for session in sessions.values_mut() {
-                session.capabilities = self.document_capabilities(&session.language_id);
+                self.refresh_language_state(session);
             }
         }
     }
@@ -1012,6 +1021,7 @@ impl DocumentManager {
             session_root,
             languages: std::sync::RwLock::new(LanguageRegistry::default()),
             capabilities: std::sync::RwLock::new(crate::builtin_providers::builtin_registry()),
+            indent_settings: std::sync::RwLock::new(IndentSettingsTable::default()),
             sessions: Mutex::new(BTreeMap::new()),
         }
     }
@@ -1073,6 +1083,8 @@ impl DocumentManager {
             .and_then(|stem| stem.to_str())
             .ok_or_else(|| EditorError::Recovery("invalid session filename".into()))?
             .to_owned();
+        let detected_indent =
+            indentation::detect_document_unit(document.table(), TextEncoding::Utf8);
         let summary = DocumentSummary {
             document_id: id.clone(),
             name: name.clone(),
@@ -1086,8 +1098,10 @@ impl DocumentManager {
             language_override: false,
             read_only: false,
             capabilities: self.document_capabilities(&language_id),
+            indentation: self.document_indentation(&language_id, detected_indent),
             binary_format: None,
         };
+        let language_id_for_indent = language_id.clone();
         let capabilities = self.document_capabilities(&language_id);
         self.sessions
             .lock()
@@ -1106,6 +1120,9 @@ impl DocumentManager {
                     language_id,
                     language_override: false,
                     capabilities,
+                    detected_indent,
+                    indentation: self
+                        .document_indentation(&language_id_for_indent, detected_indent),
                     selections: vec![Selection::caret(0)],
                     rectangular_selection: None,
                     preferred_scalar_columns: vec![None],
@@ -1274,6 +1291,9 @@ impl DocumentManager {
                 language_id = detected;
             }
         }
+        let detected_indent =
+            indentation::detect_document_unit(document.table(), TextEncoding::Utf8);
+        let language_id_for_indent = language_id.clone();
         let capabilities = self.document_capabilities(&language_id);
         let session = EditorSession {
             name,
@@ -1287,6 +1307,8 @@ impl DocumentManager {
             language_id,
             language_override: false,
             capabilities,
+            detected_indent,
+            indentation: self.document_indentation(&language_id_for_indent, detected_indent),
             selections: vec![Selection::caret(0)],
             rectangular_selection: None,
             preferred_scalar_columns: vec![None],
@@ -1385,7 +1407,7 @@ impl DocumentManager {
         session.source_fingerprint = Some(saved);
         session.language_id = self.languages().detect_path(destination);
         session.language_override = false;
-        session.capabilities = self.document_capabilities(&session.language_id);
+        self.refresh_language_state(session);
         rebase_saved_session(session, &self.session_root, destination)?;
         Ok(summary(document_id, session))
     }
@@ -1568,6 +1590,8 @@ impl DocumentManager {
         }
         let number = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
         let id = DocumentId(format!("document-{number}"));
+        let detected_indent = indentation::detect_document_unit(document.table(), record.encoding);
+        let language_id_for_indent = language_id.clone();
         let capabilities = self.document_capabilities(&language_id);
         let session = EditorSession {
             name: record.name,
@@ -1585,6 +1609,8 @@ impl DocumentManager {
             language_id,
             language_override,
             capabilities,
+            detected_indent,
+            indentation: self.document_indentation(&language_id_for_indent, detected_indent),
             selections: vec![Selection::caret(0)],
             rectangular_selection: None,
             preferred_scalar_columns: vec![None],
@@ -2847,6 +2873,13 @@ impl DocumentManager {
                 {
                     continue;
                 }
+                // Inside indentation made of spaces: back to the previous stop.
+                if !rectangular {
+                    if let Some(width) = self.indentation_backspace(session, start)? {
+                        ranges.push((start - width, end));
+                        continue;
+                    }
+                }
                 let probe_start = start.saturating_sub(4);
                 let bytes = session
                     .document
@@ -3226,7 +3259,7 @@ impl DocumentManager {
             .ok_or_else(|| EditorError::UnknownDocument(document_id.clone()))?;
         session.language_id = language_id;
         session.language_override = true;
-        session.capabilities = self.document_capabilities(&session.language_id);
+        self.refresh_language_state(session);
         Ok(session.language_id.as_str().to_owned())
     }
 
@@ -4300,6 +4333,7 @@ fn summary(document_id: &DocumentId, session: &EditorSession) -> DocumentSummary
         } else {
             session.capabilities.clone()
         },
+        indentation: session.indentation,
         binary_format: binary_format(session).map(str::to_owned),
     }
 }

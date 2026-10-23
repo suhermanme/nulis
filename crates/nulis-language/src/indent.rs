@@ -600,6 +600,46 @@ impl IndentProvider for RuleIndenter {
     }
 }
 
+/// Guesses how a document is indented from its text (the core passes the
+/// first 64 KiB): tabs, or spaces with the most common step between
+/// neighbouring lines. `None` when too few lines are indented to tell.
+#[must_use]
+pub fn detect_unit(text: &str) -> Option<IndentUnit> {
+    const MIN_INDENTED_LINES: usize = 3;
+    let mut tab_lines = 0_usize;
+    let mut space_lines = 0_usize;
+    let mut steps = [0_usize; 9];
+    let mut previous_spaces = 0_usize;
+    for line in text.lines().filter(|line| !line.trim().is_empty()) {
+        if line.starts_with('\t') {
+            tab_lines += 1;
+            continue;
+        }
+        let spaces = line.len() - line.trim_start_matches(' ').len();
+        if spaces > 0 {
+            space_lines += 1;
+        }
+        if spaces > previous_spaces {
+            if let Some(count) = steps.get_mut(spaces - previous_spaces) {
+                *count += 1;
+            }
+        }
+        previous_spaces = spaces;
+    }
+    if tab_lines.max(space_lines) < MIN_INDENTED_LINES {
+        return None;
+    }
+    if tab_lines > space_lines {
+        return Some(IndentUnit::Tab);
+    }
+    // Ties go to the wider step: a 4-space file often has some 2-space continuations.
+    [2_u8, 4, 8, 3]
+        .into_iter()
+        .max_by_key(|width| (steps[usize::from(*width)], *width == 4))
+        .filter(|width| steps[usize::from(*width)] > 0)
+        .map(IndentUnit::Spaces)
+}
+
 /// Ruby blocks.
 pub const RUBY: KeywordRules = KeywordRules {
     case_insensitive: false,

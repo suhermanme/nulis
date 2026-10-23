@@ -1,7 +1,7 @@
 use super::{
-    indent_columns, indent_text, leading_whitespace, Family, IndentContext, IndentProvider,
-    IndentUnit, NewlineAction, RequiredUnit, RuleIndenter, APPLESCRIPT, BASH, LUA, PLSQL, RUBY,
-    VISUAL_BASIC,
+    detect_unit, indent_columns, indent_text, leading_whitespace, Family, IndentContext,
+    IndentProvider, IndentUnit, NewlineAction, RequiredUnit, RuleIndenter, APPLESCRIPT, BASH, LUA,
+    PLSQL, RUBY, VISUAL_BASIC,
 };
 
 const SPACES: IndentUnit = IndentUnit::Spaces(4);
@@ -272,4 +272,19 @@ fn shell_visual_basic_plsql_and_applescript_blocks() {
         ""
     );
     assert_eq!(enter(&applescript, "on run argv|"), "    ");
+}
+
+#[test]
+fn indentation_is_detected_from_the_text() {
+    assert_eq!(detect_unit("a\n\tb\n\tc\n\t\td\n"), Some(IndentUnit::Tab));
+    assert_eq!(
+        detect_unit("a:\n  b:\n    c: 1\n  d: 2\n  e:\n    f: 3\n"),
+        Some(IndentUnit::Spaces(2))
+    );
+    assert_eq!(
+        detect_unit("fn a() {\n    if x {\n        y();\n    }\n    z(\n      1);\n}\n"),
+        Some(IndentUnit::Spaces(4))
+    );
+    assert_eq!(detect_unit("one\ntwo\n  three\n"), None);
+    assert_eq!(detect_unit(""), None);
 }

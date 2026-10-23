@@ -16,22 +16,23 @@ pub use command::{
     CommandContext, CommandDescriptor, CommandError, CommandRegistry, CommandResult,
 };
 pub use editor::{
-    BookmarkDirection, CapabilitySwitch, ChangeDirection, ClipboardPayload, DocumentCapabilities,
-    DocumentId, DocumentManager, DocumentMapChange, DocumentMapSample, DocumentMapSnapshot,
-    DocumentSummary, EditorError, ExportObserver, ExportPhase, ExportProgress, ExportScope,
-    ExternalChange, ExternalChangeKind, FileSearchScope, FileStamp, FindAllResult, FindDirection,
-    FindResult, FoundLine, FoundMatch, HexCaret, HexClipboardPayload, HexCursor, HexEditResult,
-    HexViewportRequest, HexViewportRow, HexViewportSnapshot, HorizontalDirection, Justify,
-    LanguageCapabilities, LanguageDescriptor, LineEditResult, LineEnding, LineEndingConversion,
-    LineEndingStyle, LineFormatOptions, LineOperation, MarkdownPreviewSource, NumberPadding,
-    NumberSequence, NumberSum, PdfExportRequest, PdfExportResult, RecoveryCandidate,
-    RectangularSelection, ReplaceAllResult, ReplaceFileOutcome, ReplacePreview, ReplacePreviewFile,
-    ReplaceTarget, SearchMode, SearchOptions, Selection, SyntaxBracketPair, SyntaxFold,
-    SyntaxHighlight, SyntaxSnapshot, SyntaxSymbol, TextEncoding, TextTransform, Unobserved,
-    VerticalDirection, ViewportAtRequest, ViewportCursor, ViewportLine, ViewportLineRequest,
-    ViewportRequest, ViewportSnapshot, WorkspaceSearchMatch, WorkspaceSearchResult,
-    HIGHLIGHT_LOOKBACK_BYTES, HIGHLIGHT_WINDOW_BYTES, LARGE_EXPORT_PAGES, LINE_ENDING_SAMPLE_BYTES,
-    MAX_BOOKMARKS, MAX_CLIPBOARD_BYTES, MAX_EDIT_BYTES, MAX_FILE_NAME_BYTES, MAX_FIND_ALL_LINES,
+    AutoIndent, BookmarkDirection, CapabilitySwitch, ChangeDirection, ClipboardPayload,
+    DocumentCapabilities, DocumentId, DocumentManager, DocumentMapChange, DocumentMapSample,
+    DocumentMapSnapshot, DocumentSummary, EditorError, ExportObserver, ExportPhase, ExportProgress,
+    ExportScope, ExternalChange, ExternalChangeKind, FileSearchScope, FileStamp, FindAllResult,
+    FindDirection, FindResult, FoundLine, FoundMatch, HexCaret, HexClipboardPayload, HexCursor,
+    HexEditResult, HexViewportRequest, HexViewportRow, HexViewportSnapshot, HorizontalDirection,
+    IndentSettings, IndentSettingsTable, IndentationSummary, Justify, LanguageCapabilities,
+    LanguageDescriptor, LineEditResult, LineEnding, LineEndingConversion, LineEndingStyle,
+    LineFormatOptions, LineOperation, MarkdownPreviewSource, NumberPadding, NumberSequence,
+    NumberSum, PdfExportRequest, PdfExportResult, RecoveryCandidate, RectangularSelection,
+    ReplaceAllResult, ReplaceFileOutcome, ReplacePreview, ReplacePreviewFile, ReplaceTarget,
+    SearchMode, SearchOptions, Selection, SyntaxBracketPair, SyntaxFold, SyntaxHighlight,
+    SyntaxSnapshot, SyntaxSymbol, TextEncoding, TextTransform, Unobserved, VerticalDirection,
+    ViewportAtRequest, ViewportCursor, ViewportLine, ViewportLineRequest, ViewportRequest,
+    ViewportSnapshot, WorkspaceSearchMatch, WorkspaceSearchResult, HIGHLIGHT_LOOKBACK_BYTES,
+    HIGHLIGHT_WINDOW_BYTES, LARGE_EXPORT_PAGES, LINE_ENDING_SAMPLE_BYTES, MAX_BOOKMARKS,
+    MAX_CLIPBOARD_BYTES, MAX_EDIT_BYTES, MAX_FILE_NAME_BYTES, MAX_FIND_ALL_LINES,
     MAX_FIND_ALL_MATCHES, MAX_HEX_CLIPBOARD_BYTES, MAX_HEX_EDIT_BYTES, MAX_HEX_VIEWPORT_BYTES,
     MAX_LINE_ENDING_CHANGES, MAX_LINE_ENDING_CONVERSION_BYTES, MAX_LINE_PREVIEW_BYTES,
     MAX_MARKDOWN_PREVIEW_BYTES, MAX_MERGE_BYTES, MAX_RECTANGULAR_ROWS, MAX_REPLACE_FILES,
@@ -183,6 +184,19 @@ impl SettingsState {
             .flatten()
             .collect::<Vec<_>>();
         documents.set_disabled_capabilities(disabled);
+        documents.set_indent_settings(IndentSettingsTable {
+            default: IndentSettings::from_settings(&self.layers.effective(None)),
+            languages: self
+                .document
+                .language_overrides()
+                .into_keys()
+                .map(|language| {
+                    let settings =
+                        IndentSettings::from_settings(&self.layers.effective(Some(&language)));
+                    (language, settings)
+                })
+                .collect(),
+        });
         let associations = self.document.file_associations();
         self.rejected_associations = documents.set_user_associations(
             associations
@@ -1708,6 +1722,9 @@ struct InsertTextArguments {
     text: String,
     #[serde(default)]
     overwrite: bool,
+    /// Typed from the keyboard: a closing character may move its line left.
+    #[serde(default)]
+    typed: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1738,8 +1755,9 @@ struct LineOperationArguments {
     #[serde(with = "editor::decimal_u64")]
     expected_revision: u64,
     operation: LineOperation,
+    /// Absent: the document's own indentation unit and tab width.
     #[serde(default)]
-    options: LineFormatOptions,
+    options: Option<LineFormatOptions>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2094,6 +2112,8 @@ fn is_recordable_command(id: &str) -> bool {
     matches!(
         id,
         "editor.deleteBackward"
+            | "editor.newline"
+            | "editor.tab"
             | "editor.deleteForward"
             | "editor.selectAll"
             | "editor.lineOperation"
@@ -3577,12 +3597,18 @@ fn register_line_commands(commands: &mut CommandRegistry, documents: &Arc<Docume
             move |context, arguments| {
                 let document_id = context_document(&context)?;
                 let arguments: LineOperationArguments = parse_arguments(arguments)?;
+                let options = match arguments.options {
+                    Some(options) => options,
+                    None => manager
+                        .line_format_defaults(&document_id)
+                        .map_err(|error| editor_command_error(&error))?,
+                };
                 let result = manager
                     .line_operation_with(
                         &document_id,
                         arguments.expected_revision,
                         arguments.operation,
-                        arguments.options,
+                        options,
                     )
                     .map_err(|error| editor_command_error(&error))?;
                 serde_json::to_value(result).map_err(|error| serialization_command_error(&error))
@@ -3653,18 +3679,47 @@ fn register_text_transfer_commands(
             move |context, arguments| {
                 let document_id = context_document(&context)?;
                 let arguments: InsertTextArguments = parse_arguments(arguments)?;
-                let result = manager
-                    .insert_text(
-                        &document_id,
-                        arguments.expected_revision,
-                        &arguments.text,
-                        arguments.overwrite,
-                    )
-                    .map_err(|error| editor_command_error(&error))?;
+                let insert = if arguments.typed {
+                    DocumentManager::insert_typed_text
+                } else {
+                    DocumentManager::insert_text
+                };
+                let result = insert(
+                    &manager,
+                    &document_id,
+                    arguments.expected_revision,
+                    &arguments.text,
+                    arguments.overwrite,
+                )
+                .map_err(|error| editor_command_error(&error))?;
                 serde_json::to_value(result).map_err(|error| serialization_command_error(&error))
             },
         )
         .expect("built-in command is unique");
+
+    for (id, title, tab) in [
+        ("editor.newline", "Insert Line Break", false),
+        ("editor.tab", "Insert Tab", true),
+    ] {
+        let manager = Arc::clone(documents);
+        commands
+            .register(
+                CommandDescriptor::new(id, title, "Editor").expect("built-in command ID is valid"),
+                move |context, arguments| {
+                    let document_id = context_document(&context)?;
+                    let arguments: RevisionArguments = parse_arguments(arguments)?;
+                    let result = if tab {
+                        manager.insert_tab(&document_id, arguments.expected_revision)
+                    } else {
+                        manager.newline(&document_id, arguments.expected_revision)
+                    }
+                    .map_err(|error| editor_command_error(&error))?;
+                    serde_json::to_value(result)
+                        .map_err(|error| serialization_command_error(&error))
+                },
+            )
+            .expect("built-in command is unique");
+    }
 
     let manager = Arc::clone(documents);
     commands
@@ -5301,14 +5356,15 @@ mod settings_tests {
             json!([
                 { "kind": "diagnostics", "label": "JSON", "enabled": true },
                 { "kind": "format", "label": "JSON", "enabled": false },
-                { "kind": "compact", "label": "JSON", "enabled": false }
+                { "kind": "compact", "label": "JSON", "enabled": false },
+                { "kind": "indentation", "label": "Indentation", "enabled": true }
             ])
         );
         assert!(listed
             .as_array()
             .expect("array")
             .iter()
-            .all(|row| row["id"] != "rust"));
+            .all(|row| row["id"] != "plaintext"));
 
         // Turning everything back on reaches the open document without reopening it.
         core.execute_command(
