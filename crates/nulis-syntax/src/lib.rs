@@ -1966,6 +1966,98 @@ mod catalog_tests {
             .any(|span| span.token == SyntaxToken::Comment && span.start_byte == 0));
     }
 
+    /// The highlighted pieces of `source`, as (text, token).
+    fn tokens(language: &str, source: &str) -> Vec<(String, SyntaxToken)> {
+        let analysis = LanguageRegistry::with_builtins()
+            .analyze(&id(language), source.as_bytes(), 0, 1)
+            .expect("analysis");
+        analysis
+            .highlights
+            .iter()
+            .map(|span| {
+                let text = &source[usize::try_from(span.start_byte).expect("small")
+                    ..usize::try_from(span.end_byte).expect("small")];
+                (text.to_owned(), span.token)
+            })
+            .collect()
+    }
+
+    fn has(tokens: &[(String, SyntaxToken)], text: &str, token: SyntaxToken) -> bool {
+        tokens
+            .iter()
+            .any(|(found, kind)| found == text && *kind == token)
+    }
+
+    #[test]
+    fn javascript_regular_expressions_are_told_from_division() {
+        let found = tokens("javascript", "const re = /a[/]b\\/c/gi;\nconst half = total / 2 / 3;\nif (x) return /end$/.test(s);\n");
+        assert!(
+            has(&found, "/a[/]b\\/c/gi", SyntaxToken::String),
+            "{found:?}"
+        );
+        assert!(has(&found, "/end$/", SyntaxToken::String), "{found:?}");
+        assert!(
+            !found.iter().any(|(text, _)| text.contains("/ 2")),
+            "{found:?}"
+        );
+        // A comment is still a comment.
+        assert!(has(
+            &tokens("javascript", "x = 1 // note\n"),
+            "// note",
+            SyntaxToken::Comment
+        ));
+    }
+
+    #[test]
+    fn template_strings_highlight_their_expressions_as_code() {
+        let source = "const s = `total: ${count + 1} of ${items.map((i) => { return i; }).length}`;\nlet n = 2;\n";
+        let found = tokens("typescript", source);
+        assert!(has(&found, "`total: ", SyntaxToken::String), "{found:?}");
+        assert!(has(&found, "${", SyntaxToken::Keyword), "{found:?}");
+        assert!(has(&found, "1", SyntaxToken::Number), "{found:?}");
+        assert!(has(&found, "return", SyntaxToken::Keyword), "{found:?}");
+        assert!(has(&found, "`", SyntaxToken::String), "{found:?}");
+        // Code after the template is code again.
+        assert!(has(&found, "let", SyntaxToken::Keyword), "{found:?}");
+        assert!(has(&found, "2", SyntaxToken::Number), "{found:?}");
+    }
+
+    #[test]
+    fn jsx_elements_attributes_and_children_are_highlighted() {
+        let source = "function App() {\n  return (\n    <Panel title=\"Hi\" onClick={() => go(1)}>\n      Hello {name} and if\n      <br />\n      <>frag</>\n    </Panel>\n  );\n}\nconst after = 3;\n";
+        let found = tokens("tsx", source);
+        assert!(has(&found, "Panel", SyntaxToken::Type), "{found:?}");
+        assert!(has(&found, "title", SyntaxToken::Property), "{found:?}");
+        assert!(has(&found, "\"Hi\"", SyntaxToken::String), "{found:?}");
+        assert!(has(&found, "onClick", SyntaxToken::Property), "{found:?}");
+        assert!(has(&found, "go", SyntaxToken::Function), "{found:?}");
+        assert!(has(&found, "br", SyntaxToken::Keyword), "{found:?}");
+        // Text between tags is text, even the word `if`.
+        assert!(!has(&found, "if", SyntaxToken::Keyword), "{found:?}");
+        assert!(has(&found, "const", SyntaxToken::Keyword), "{found:?}");
+        assert!(has(&found, "3", SyntaxToken::Number), "{found:?}");
+        // The function body still folds across the element.
+        let analysis = LanguageRegistry::with_builtins()
+            .analyze(&id("tsx"), source.as_bytes(), 0, 1)
+            .expect("analysis");
+        assert!(analysis
+            .folds
+            .iter()
+            .any(|fold| fold.start_line == 1 && fold.end_line == 9));
+    }
+
+    #[test]
+    fn typescript_casts_and_comparisons_are_not_elements() {
+        let found = tokens(
+            "typescript",
+            "const a = <Foo>bar;\nif (x < y) { z(); }\nlet b = 1;\n",
+        );
+        assert!(has(&found, "let", SyntaxToken::Keyword), "{found:?}");
+        assert!(has(&found, "z", SyntaxToken::Function), "{found:?}");
+        let found = tokens("javascript", "if (a < b && c > d) { run(); }\n");
+        assert!(has(&found, "run", SyntaxToken::Function), "{found:?}");
+    }
+
     #[test]
     fn languages_offer_their_words_to_completion() {
         let registry = LanguageRegistry::with_builtins();

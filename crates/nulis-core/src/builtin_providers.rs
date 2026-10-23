@@ -339,6 +339,7 @@ fn indentation_providers() -> Vec<(ProviderInfo, Provider)> {
                 "php",
                 "rust",
                 "swift",
+                "tsx",
                 "typescript",
                 "zig",
             ],
@@ -464,7 +465,7 @@ fn completion_providers() -> Vec<(ProviderInfo, Provider)> {
         (
             "javascript",
             JAVASCRIPT_SNIPPETS,
-            &["javascript", "typescript"],
+            &["javascript", "typescript", "tsx"],
         ),
         ("python", PYTHON_SNIPPETS, &["python"]),
         ("go", GO_SNIPPETS, &["go"]),

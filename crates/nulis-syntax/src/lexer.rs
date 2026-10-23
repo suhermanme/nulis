@@ -89,6 +89,11 @@ pub(crate) struct LexerSpec {
     /// Toggle Comment may use the first line comment. Off for CSS, whose
     /// table also reads SCSS and Less `//` comments that plain CSS rejects.
     pub toggles_line_comments: bool,
+    /// JavaScript forms: regular-expression literals and `${…}` inside
+    /// template strings.
+    pub ecmascript: bool,
+    /// JSX elements in expressions (`<Button label="x">{child}</Button>`).
+    pub jsx: bool,
 }
 
 const BASE: LexerSpec = LexerSpec {
@@ -114,6 +119,8 @@ const BASE: LexerSpec = LexerSpec {
     yaml: false,
     completion_words: &[],
     toggles_line_comments: true,
+    ecmascript: false,
+    jsx: false,
 };
 
 const C_STRINGS: &[StringRule] = &[
@@ -1978,6 +1985,8 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         ],
         ident_chars: b"$",
         capital_types: true,
+        ecmascript: true,
+        jsx: true,
         ..BASE
     },
     LexerSpec {
@@ -2192,7 +2201,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
     LexerSpec {
         id: "typescript",
         name: "TypeScript",
-        extensions: &["ts", "tsx", "mts", "cts"],
+        extensions: &["ts", "mts", "cts"],
         keywords: TS_KEYWORDS,
         types: TS_TYPES,
         line_comments: SLASH_COMMENTS,
@@ -2204,6 +2213,28 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         ],
         ident_chars: b"$",
         capital_types: true,
+        ecmascript: true,
+        ..BASE
+    },
+    // TypeScript with JSX. Separate from TypeScript because a `.ts` file may
+    // write `<Type>value` as a cast, which would read as an element.
+    LexerSpec {
+        id: "tsx",
+        name: "TSX",
+        extensions: &["tsx"],
+        keywords: TS_KEYWORDS,
+        types: TS_TYPES,
+        line_comments: SLASH_COMMENTS,
+        block_comments: C_BLOCK,
+        strings: &[
+            string("\"", "\"", true, false),
+            string("'", "'", true, false),
+            string("`", "`", true, true),
+        ],
+        ident_chars: b"$",
+        capital_types: true,
+        ecmascript: true,
+        jsx: true,
         ..BASE
     },
     LexerSpec {
@@ -2305,8 +2336,41 @@ struct Scan<'a> {
     base_byte: u64,
     base_line: u64,
     brackets: Vec<(u8, usize, u64)>,
+    /// JavaScript nesting: template expressions and JSX.
+    frames: Vec<Frame>,
     out: SyntaxAnalysis,
 }
+
+/// What the JavaScript scanner is inside of.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Frame {
+    /// `${` … `}` in a template string, opened at this bracket depth.
+    Template(usize),
+    /// `{` … `}` in JSX, ending when the bracket depth drops below this.
+    Expression(usize),
+    /// Between `<Name` and `>` or `/>`.
+    TagHead,
+    /// Text between an opening and a closing tag.
+    Children,
+}
+
+/// Words after which `/` starts a regular expression and `<` an element.
+const EXPRESSION_KEYWORDS: &[&str] = &[
+    "return",
+    "typeof",
+    "instanceof",
+    "in",
+    "of",
+    "new",
+    "delete",
+    "void",
+    "throw",
+    "case",
+    "do",
+    "else",
+    "yield",
+    "await",
+];
 
 /// Highlights one bounded window with a language table.
 pub(crate) fn analyze(
@@ -2324,6 +2388,7 @@ pub(crate) fn analyze(
         base_byte,
         base_line,
         brackets: Vec::new(),
+        frames: Vec::new(),
         out: SyntaxAnalysis {
             language_id: LanguageId(spec.id.into()),
             parsed_bytes: source.len(),
@@ -2543,11 +2608,300 @@ impl Scan<'_> {
         });
     }
 
+    /// Where an expression may begin: after an operator, an opening
+    /// bracket, the start of the window, or `return`-like keywords.
+    fn expression_may_start(previous: u8) -> bool {
+        matches!(
+            previous,
+            b'(' | b','
+                | b'='
+                | b':'
+                | b'['
+                | b'!'
+                | b'&'
+                | b'|'
+                | b'?'
+                | b'{'
+                | b'}'
+                | b';'
+                | b'+'
+                | b'-'
+                | b'*'
+                | b'%'
+                | b'<'
+                | b'>'
+                | b'~'
+                | b'^'
+                | b'\n'
+                | b'k'
+        )
+    }
+
+    fn push_frame(&mut self, frame: Frame) {
+        if self.frames.len() < MAX_NESTING {
+            self.frames.push(frame);
+        }
+    }
+
+    /// Template strings, regular expressions, and JSX elements.
+    fn ecmascript(&mut self, previous: u8) -> bool {
+        let Some(byte) = self.at(0) else { return false };
+        match byte {
+            b'`' => {
+                self.template();
+                true
+            }
+            b'}' if self.frames.last() == Some(&Frame::Template(self.brackets.len())) => {
+                self.frames.pop();
+                self.template();
+                true
+            }
+            b'/' if Self::expression_may_start(previous)
+                && !matches!(self.at(1), Some(b'/' | b'*')) =>
+            {
+                self.regular_expression()
+            }
+            b'<' if self.spec.jsx
+                && Self::expression_may_start(previous)
+                && self
+                    .at(1)
+                    .is_some_and(|next| is_ident_start(next) || next == b'>') =>
+            {
+                self.jsx_open_tag();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// A template string from its opening `` ` `` (or the `}` that ends a
+    /// `${…}`) to the closing `` ` `` or the next `${`.
+    fn template(&mut self) {
+        let start = self.pos;
+        // Resuming after `}` the text continues; opening, it starts after the backtick.
+        let resuming = self.at(0) == Some(b'}');
+        if resuming {
+            self.span(start, start + 1, SyntaxToken::Keyword);
+            self.skip_to(start + 1);
+        }
+        let begin = self.pos;
+        let mut cursor = if resuming { begin } else { begin + 1 };
+        loop {
+            match self.src.get(cursor) {
+                None => {
+                    self.take(self.src.len(), SyntaxToken::String);
+                    return;
+                }
+                Some(b'\\') => cursor += 2,
+                Some(b'`') => {
+                    self.take(cursor + 1, SyntaxToken::String);
+                    return;
+                }
+                Some(b'$') if self.src.get(cursor + 1) == Some(&b'{') => {
+                    self.take(cursor, SyntaxToken::String);
+                    self.take(cursor + 2, SyntaxToken::Keyword);
+                    self.push_frame(Frame::Template(self.brackets.len()));
+                    return;
+                }
+                Some(_) => cursor += 1,
+            }
+        }
+    }
+
+    /// `/pattern/flags` on one line; character classes may hold `/`.
+    fn regular_expression(&mut self) -> bool {
+        let mut cursor = self.pos + 1;
+        let mut in_class = false;
+        loop {
+            match self.src.get(cursor) {
+                None | Some(b'\n') => return false,
+                Some(b'\\') => cursor += 2,
+                Some(b'[') => {
+                    in_class = true;
+                    cursor += 1;
+                }
+                Some(b']') => {
+                    in_class = false;
+                    cursor += 1;
+                }
+                Some(b'/') if !in_class => break,
+                Some(_) => cursor += 1,
+            }
+        }
+        let flags = self.src[cursor + 1..]
+            .iter()
+            .take_while(|byte| byte.is_ascii_alphabetic())
+            .count();
+        self.take(cursor + 1 + flags, SyntaxToken::String);
+        true
+    }
+
+    /// The end of a JSX element or attribute name (`Foo.Bar`, `aria-label`, `xlink:href`).
+    fn jsx_name_end(&self, from: usize) -> usize {
+        self.src[from..]
+            .iter()
+            .position(|byte| {
+                !(is_ident_start(*byte)
+                    || byte.is_ascii_digit()
+                    || matches!(byte, b'.' | b'-' | b':' | b'$'))
+            })
+            .map_or(self.src.len(), |index| from + index)
+    }
+
+    /// `<Name` or the fragment `<>`.
+    fn jsx_open_tag(&mut self) {
+        if self.at(1) == Some(b'>') {
+            self.skip_to(self.pos + 2);
+            self.push_frame(Frame::Children);
+            return;
+        }
+        let name_start = self.pos + 1;
+        let name_end = self.jsx_name_end(name_start);
+        self.skip_to(name_start);
+        let token = if self.src[name_start].is_ascii_uppercase() {
+            SyntaxToken::Type
+        } else {
+            SyntaxToken::Keyword
+        };
+        self.take(name_end, token);
+        self.push_frame(Frame::TagHead);
+    }
+
+    /// One step inside a tag: an attribute, its value, `{…}`, or the end.
+    fn jsx_tag_head(&mut self) {
+        let Some(byte) = self.at(0) else { return };
+        match byte {
+            b'/' if self.at(1) == Some(b'>') => {
+                self.skip_to(self.pos + 2);
+                self.frames.pop();
+            }
+            b'>' => {
+                self.skip_to(self.pos + 1);
+                self.frames.pop();
+                self.push_frame(Frame::Children);
+            }
+            b'{' => {
+                self.open_bracket(b'{');
+                self.skip_to(self.pos + 1);
+                self.push_frame(Frame::Expression(self.brackets.len()));
+            }
+            b'"' | b'\'' => {
+                let end = self.src[self.pos + 1..]
+                    .iter()
+                    .position(|next| *next == byte)
+                    .map_or(self.src.len(), |index| self.pos + 2 + index);
+                self.take(end, SyntaxToken::String);
+            }
+            _ if is_ident_start(byte) => {
+                let end = self.jsx_name_end(self.pos);
+                self.take(end, SyntaxToken::Property);
+            }
+            _ => self.skip_to(self.pos + 1),
+        }
+    }
+
+    /// Text between tags, up to the next `<` or `{`, then what that starts.
+    fn jsx_children(&mut self) {
+        let next = self.src[self.pos..]
+            .iter()
+            .position(|byte| matches!(byte, b'<' | b'{'))
+            .map_or(self.src.len(), |index| self.pos + index);
+        self.skip_to(next);
+        match self.at(0) {
+            Some(b'{') => {
+                self.open_bracket(b'{');
+                self.skip_to(self.pos + 1);
+                self.push_frame(Frame::Expression(self.brackets.len()));
+            }
+            Some(b'<') if self.at(1) == Some(b'/') => {
+                // `</Name>` or `</>` closes the element.
+                let name_start = self.pos + 2;
+                let name_end = self.jsx_name_end(name_start);
+                let token = if self.src.get(name_start).is_some_and(u8::is_ascii_uppercase) {
+                    SyntaxToken::Type
+                } else {
+                    SyntaxToken::Keyword
+                };
+                self.skip_to(name_start);
+                self.take(name_end, token);
+                let close = self.src[self.pos..]
+                    .iter()
+                    .position(|byte| *byte == b'>')
+                    .map_or(self.src.len(), |index| self.pos + index + 1);
+                self.skip_to(close);
+                self.frames.pop();
+            }
+            Some(b'<')
+                if self
+                    .at(1)
+                    .is_some_and(|next| is_ident_start(next) || next == b'>') =>
+            {
+                self.jsx_open_tag();
+            }
+            Some(_) => self.skip_to(self.pos + 1),
+            None => {}
+        }
+    }
+
+    /// A word: a comment word, keyword, type, key, call, property, or
+    /// capitalized type. Returns what the code scanner should remember as
+    /// the previous byte.
+    fn identifier(&mut self, previous: u8) -> u8 {
+        let spec = self.spec;
+        let byte = self.src[self.pos];
+        let end = self.ident_end(self.pos);
+        let word = self.word(self.pos, end);
+        if spec.comment_words.contains(&word.as_str()) {
+            self.take(self.line_end(self.pos), SyntaxToken::Comment);
+            return previous;
+        }
+        let token = if spec.keywords.contains(&word.as_str()) {
+            Some(SyntaxToken::Keyword)
+        } else if spec.types.contains(&word.as_str()) {
+            Some(SyntaxToken::Type)
+        } else if spec.key_suffix.is_some() && self.next_significant(end) == spec.key_suffix {
+            Some(SyntaxToken::Property)
+        } else if self.next_significant(end) == Some(b'(') {
+            Some(SyntaxToken::Function)
+        } else if previous == b'.' {
+            Some(SyntaxToken::Property)
+        } else if spec.capital_types
+            && byte.is_ascii_uppercase()
+            && self.src[self.pos..end].iter().any(u8::is_ascii_lowercase)
+        {
+            Some(SyntaxToken::Type)
+        } else {
+            None
+        };
+        match token {
+            Some(token) => self.take(end, token),
+            None => self.pos = end,
+        }
+        if spec.ecmascript && EXPRESSION_KEYWORDS.contains(&word.as_str()) {
+            b'k'
+        } else {
+            b'a'
+        }
+    }
+
     fn code(&mut self) {
         let spec = self.spec;
         let mut fresh_line = true;
         let mut previous = b'\n';
         while let Some(byte) = self.at(0) {
+            match self.frames.last() {
+                Some(Frame::Children) => {
+                    self.jsx_children();
+                    previous = b'>';
+                    continue;
+                }
+                Some(Frame::TagHead) => {
+                    self.jsx_tag_head();
+                    previous = b'>';
+                    continue;
+                }
+                _ => {}
+            }
             if byte == b'\n' {
                 self.row += 1;
                 self.pos += 1;
@@ -2562,6 +2916,10 @@ impl Scan<'_> {
             let at_line_start = std::mem::replace(&mut fresh_line, false);
             if spec.yaml && self.yaml(previous) {
                 previous = b'a';
+                continue;
+            }
+            if spec.ecmascript && self.ecmascript(previous) {
+                previous = b'"';
                 continue;
             }
             if self.comment() || self.string() {
@@ -2591,41 +2949,19 @@ impl Scan<'_> {
                 continue;
             }
             if is_ident_start(byte) {
-                let end = self.ident_end(self.pos);
-                let word = self.word(self.pos, end);
-                if spec.comment_words.contains(&word.as_str()) {
-                    self.take(self.line_end(self.pos), SyntaxToken::Comment);
-                    continue;
-                }
-                let token = if spec.keywords.contains(&word.as_str()) {
-                    Some(SyntaxToken::Keyword)
-                } else if spec.types.contains(&word.as_str()) {
-                    Some(SyntaxToken::Type)
-                } else if spec.key_suffix.is_some() && self.next_significant(end) == spec.key_suffix
-                {
-                    Some(SyntaxToken::Property)
-                } else if self.next_significant(end) == Some(b'(') {
-                    Some(SyntaxToken::Function)
-                } else if previous == b'.' {
-                    Some(SyntaxToken::Property)
-                } else if spec.capital_types
-                    && byte.is_ascii_uppercase()
-                    && self.src[self.pos..end].iter().any(u8::is_ascii_lowercase)
-                {
-                    Some(SyntaxToken::Type)
-                } else {
-                    None
-                };
-                match token {
-                    Some(token) => self.take(end, token),
-                    None => self.pos = end,
-                }
-                previous = b'a';
+                previous = self.identifier(previous);
                 continue;
             }
             match byte {
                 b'(' | b'[' | b'{' => self.open_bracket(byte),
-                b')' | b']' | b'}' => self.close_bracket(byte),
+                b')' | b']' | b'}' => {
+                    self.close_bracket(byte);
+                    if let Some(Frame::Expression(depth)) = self.frames.last() {
+                        if self.brackets.len() < *depth {
+                            self.frames.pop();
+                        }
+                    }
+                }
                 _ => {}
             }
             previous = byte;
