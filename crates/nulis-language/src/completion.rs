@@ -552,5 +552,97 @@ pub const LUA_SNIPPETS: &[Snippet] = &[
     ),
 ];
 
+pub const SWIFT_SNIPPETS: &[Snippet] = &[
+    snippet("func", "func ${1:name}($2) {\n\t$0\n}", "Function"),
+    snippet("if", "if ${1:condition} {\n\t$0\n}", "If"),
+    snippet("for", "for ${1:item} in ${2:items} {\n\t$0\n}", "For loop"),
+    snippet(
+        "guard",
+        "guard ${1:condition} else {\n\t${0:return}\n}",
+        "Guard",
+    ),
+];
+
+pub const ZIG_SNIPPETS: &[Snippet] = &[
+    snippet("fn", "fn ${1:name}($2) ${3:void} {\n\t$0\n}", "Function"),
+    snippet("if", "if (${1:condition}) {\n\t$0\n}", "If"),
+    snippet("for", "for (${1:items}) |${2:item}| {\n\t$0\n}", "For loop"),
+    snippet("test", "test \"${1:name}\" {\n\t$0\n}", "Test"),
+];
+
+pub const KOTLIN_SNIPPETS: &[Snippet] = &[
+    snippet("fun", "fun ${1:name}($2) {\n\t$0\n}", "Function"),
+    snippet("if", "if (${1:condition}) {\n\t$0\n}", "If"),
+    snippet(
+        "for",
+        "for (${1:item} in ${2:items}) {\n\t$0\n}",
+        "For loop",
+    ),
+    snippet("when", "when (${1:value}) {\n\t${2:else} -> $0\n}", "When"),
+];
+
+pub const PHP_SNIPPETS: &[Snippet] = &[
+    snippet("function", "function ${1:name}($2) {\n\t$0\n}", "Function"),
+    snippet("if", "if (${1:condition}) {\n\t$0\n}", "If"),
+    snippet(
+        "foreach",
+        "foreach (\\$${1:items} as \\$${2:item}) {\n\t$0\n}",
+        "Foreach loop",
+    ),
+];
+
+pub const POWERSHELL_SNIPPETS: &[Snippet] = &[
+    snippet(
+        "function",
+        "function ${1:Name} {\n\tparam($2)\n\t$0\n}",
+        "Function",
+    ),
+    snippet("if", "if (${1:condition}) {\n\t$0\n}", "If"),
+    snippet(
+        "foreach",
+        "foreach (\\$${1:item} in \\$${2:items}) {\n\t$0\n}",
+        "Foreach loop",
+    ),
+];
+
+pub const PERL_SNIPPETS: &[Snippet] = &[
+    snippet("sub", "sub ${1:name} {\n\t$0\n}", "Subroutine"),
+    snippet("if", "if (${1:condition}) {\n\t$0\n}", "If"),
+    snippet(
+        "foreach",
+        "foreach my \\$${1:item} (@${2:items}) {\n\t$0\n}",
+        "Foreach loop",
+    ),
+];
+
+pub const VISUAL_BASIC_SNIPPETS: &[Snippet] = &[
+    snippet("sub", "Sub ${1:Name}($2)\n\t$0\nEnd Sub", "Sub"),
+    snippet(
+        "function",
+        "Function ${1:Name}($2)\n\t$0\nEnd Function",
+        "Function",
+    ),
+    snippet("if", "If ${1:condition} Then\n\t$0\nEnd If", "If"),
+    snippet(
+        "for",
+        "For ${1:i} = ${2:1} To ${3:10}\n\t$0\nNext",
+        "For loop",
+    ),
+];
+
+pub const APPLESCRIPT_SNIPPETS: &[Snippet] = &[
+    snippet(
+        "tell",
+        "tell application \"${1:Finder}\"\n\t$0\nend tell",
+        "Tell block",
+    ),
+    snippet(
+        "repeat",
+        "repeat with ${1:item} in ${2:items}\n\t$0\nend repeat",
+        "Repeat loop",
+    ),
+    snippet("if", "if ${1:condition} then\n\t$0\nend if", "If"),
+];
+
 #[cfg(test)]
 mod tests;

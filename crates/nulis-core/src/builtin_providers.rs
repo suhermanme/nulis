@@ -5,9 +5,11 @@
 
 use crate::{editor::MAX_MARKDOWN_PREVIEW_BYTES, format_tools, plist_tools, yaml_tools};
 use nulis_language::completion::{
-    KeywordCompletion, Snippet, SnippetCompletion, WordCompletion, BASH_SNIPPETS,
-    C_FAMILY_SNIPPETS, GO_SNIPPETS, HTML_SNIPPETS, JAVASCRIPT_SNIPPETS, LUA_SNIPPETS,
-    PYTHON_SNIPPETS, RUBY_SNIPPETS, RUST_SNIPPETS, SQL_SNIPPETS,
+    KeywordCompletion, Snippet, SnippetCompletion, WordCompletion, APPLESCRIPT_SNIPPETS,
+    BASH_SNIPPETS, C_FAMILY_SNIPPETS, GO_SNIPPETS, HTML_SNIPPETS, JAVASCRIPT_SNIPPETS,
+    KOTLIN_SNIPPETS, LUA_SNIPPETS, PERL_SNIPPETS, PHP_SNIPPETS, POWERSHELL_SNIPPETS,
+    PYTHON_SNIPPETS, RUBY_SNIPPETS, RUST_SNIPPETS, SQL_SNIPPETS, SWIFT_SNIPPETS,
+    VISUAL_BASIC_SNIPPETS, ZIG_SNIPPETS,
 };
 use nulis_language::indent::{
     Family, RuleIndenter, APPLESCRIPT, BASH, LUA, PLSQL, RUBY, VISUAL_BASIC,
@@ -472,8 +474,16 @@ fn completion_providers() -> Vec<(ProviderInfo, Provider)> {
         (
             "c-family",
             C_FAMILY_SNIPPETS,
-            &["c", "cpp", "csharp", "java", "objective-c", "kotlin", "php"],
+            &["c", "cpp", "csharp", "java", "objective-c"],
         ),
+        ("swift", SWIFT_SNIPPETS, &["swift"]),
+        ("zig", ZIG_SNIPPETS, &["zig"]),
+        ("kotlin", KOTLIN_SNIPPETS, &["kotlin"]),
+        ("php", PHP_SNIPPETS, &["php"]),
+        ("powershell", POWERSHELL_SNIPPETS, &["powershell"]),
+        ("perl", PERL_SNIPPETS, &["perl"]),
+        ("vb", VISUAL_BASIC_SNIPPETS, &["vb", "vbscript"]),
+        ("applescript", APPLESCRIPT_SNIPPETS, &["applescript"]),
         ("html", HTML_SNIPPETS, &["html"]),
         ("sql", SQL_SNIPPETS, &["sql", "mysql", "plsql"]),
         ("bash", BASH_SNIPPETS, &["bash"]),

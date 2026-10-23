@@ -170,3 +170,54 @@ fn built_in_snippets_are_offered_with_their_description() {
             .all(|(start, end)| start <= end && *end <= expanded.text.len()));
     }
 }
+
+#[test]
+fn every_built_in_snippet_expands_cleanly() {
+    use super::{
+        APPLESCRIPT_SNIPPETS, BASH_SNIPPETS, C_FAMILY_SNIPPETS, GO_SNIPPETS, HTML_SNIPPETS,
+        KOTLIN_SNIPPETS, LUA_SNIPPETS, PERL_SNIPPETS, PHP_SNIPPETS, POWERSHELL_SNIPPETS,
+        RUBY_SNIPPETS, RUST_SNIPPETS, SQL_SNIPPETS, SWIFT_SNIPPETS, VISUAL_BASIC_SNIPPETS,
+        ZIG_SNIPPETS,
+    };
+    let tables = [
+        RUST_SNIPPETS,
+        JAVASCRIPT_SNIPPETS,
+        PYTHON_SNIPPETS,
+        GO_SNIPPETS,
+        C_FAMILY_SNIPPETS,
+        HTML_SNIPPETS,
+        SQL_SNIPPETS,
+        BASH_SNIPPETS,
+        RUBY_SNIPPETS,
+        LUA_SNIPPETS,
+        SWIFT_SNIPPETS,
+        ZIG_SNIPPETS,
+        KOTLIN_SNIPPETS,
+        PHP_SNIPPETS,
+        POWERSHELL_SNIPPETS,
+        PERL_SNIPPETS,
+        VISUAL_BASIC_SNIPPETS,
+        APPLESCRIPT_SNIPPETS,
+    ];
+    for snippet in tables.into_iter().flatten() {
+        let expanded = expand_snippet(snippet.body, "\n", "", "    ");
+        assert!(
+            !expanded.text.contains("${"),
+            "{}: {}",
+            snippet.prefix,
+            expanded.text
+        );
+        assert!(!expanded.stops.is_empty(), "{}", snippet.prefix);
+        assert!(expanded
+            .stops
+            .iter()
+            .all(|(start, end)| start <= end && *end <= expanded.text.len()));
+    }
+    // PHP and PowerShell keep their `$` variables.
+    let php = expand_snippet(PHP_SNIPPETS[2].body, "\n", "", "\t");
+    assert!(
+        php.text.starts_with("foreach ($items as $item)"),
+        "{}",
+        php.text
+    );
+}
