@@ -56,10 +56,11 @@ pub use nulis_plugin_host::{
     PluginCommandContribution, PluginError, PluginGrant, PluginPermission, PluginSummary,
     PLUGIN_API_VERSION,
 };
+pub use nulis_settings::SettingsDocument;
 pub use nulis_settings::{
     AppearanceSettings, CustomizationDocument, Keybinding, MenuEntry, CUSTOMIZATION_SCHEMA_VERSION,
 };
-use nulis_settings::{CustomizationStore, SettingsStore};
+use nulis_settings::{CustomizationStore, SettingsFileStore, SettingsLayer, SettingsStore};
 use nulis_terminal::TerminalManager;
 pub use nulis_terminal::{
     TerminalId, TerminalOutput, TerminalSize, TerminalSpawnRequest, TerminalSummary,
@@ -142,10 +143,52 @@ struct CustomizationState {
     revision: u64,
 }
 
+/// The user's `settings.json` and the layered values derived from it.
+#[derive(Debug)]
+struct SettingsState {
+    defaults: Map<String, Value>,
+    layers: SettingsStore,
+    file: SettingsFileStore,
+    document: SettingsDocument,
+    /// Advances on every stored change, like the customization revision.
+    revision: u64,
+    /// Why the file on disk could not be used, when it could not.
+    load_error: Option<String>,
+    /// `files.associations` patterns left out (bad pattern or unknown language).
+    rejected_associations: Vec<String>,
+}
+
+impl SettingsState {
+    /// Rebuilds the layers and file associations from `document`.
+    fn apply(&mut self, documents: &DocumentManager) {
+        let mut layers = SettingsStore::with_defaults(self.defaults.clone());
+        layers.replace_layer(SettingsLayer::User, self.document.user_values());
+        for (language, values) in self.document.language_overrides() {
+            layers.replace_language(language, values);
+        }
+        self.layers = layers;
+        let associations = self.document.file_associations();
+        self.rejected_associations = documents.set_user_associations(
+            associations
+                .iter()
+                .map(|(pattern, language)| (pattern.as_str(), language.as_str())),
+        );
+    }
+
+    fn report(&self) -> Value {
+        json!({
+            "revision": self.revision,
+            "document": self.document,
+            "rejectedAssociations": self.rejected_associations,
+            "loadError": self.load_error,
+        })
+    }
+}
+
 /// Owns UI-independent application services.
 pub struct NulisCore {
     commands: CommandRegistry,
-    settings: SettingsStore,
+    settings: Mutex<SettingsState>,
     documents: Arc<DocumentManager>,
     workspace: Arc<WorkspaceService>,
     session_store: Arc<SessionStore>,
@@ -226,6 +269,7 @@ impl NulisCore {
             themes: ThemeCatalog::new(session_root.join("themes")),
             revision: 0,
         });
+        let settings_path = session_root.join("settings.json");
         let documents = Arc::new(DocumentManager::new(session_root));
         let workspace = Arc::new(WorkspaceService::default());
         let terminals = Arc::new(TerminalManager::default());
@@ -241,6 +285,18 @@ impl NulisCore {
                 },
             )
             .expect("built-in command is unique");
+        for (id, title) in [
+            ("settings.state", "Get Settings"),
+            ("settings.saveChecked", "Save Settings at Revision"),
+        ] {
+            commands
+                .register(
+                    CommandDescriptor::new(id, title, "Settings")
+                        .expect("built-in command ID is valid"),
+                    |_context, _arguments| Ok(Value::Null),
+                )
+                .expect("built-in command is unique");
+        }
         for (id, title) in [
             ("customization.get", "Get Customization"),
             ("customization.state", "Get Customization Revision"),
@@ -288,10 +344,26 @@ impl NulisCore {
             "workbench".into(),
             json!({ "colorTheme": "nulis.ember-dark" }),
         );
+        let settings_file = SettingsFileStore::new(settings_path);
+        let (settings_document, load_error) = match settings_file.load() {
+            Ok(document) => (document, None),
+            // A broken file must not stop the editor; it is reported instead.
+            Err(error) => (SettingsDocument::default(), Some(error.to_string())),
+        };
+        let mut settings = SettingsState {
+            layers: SettingsStore::with_defaults(defaults.clone()),
+            defaults,
+            file: settings_file,
+            document: settings_document,
+            revision: 0,
+            load_error,
+            rejected_associations: Vec::new(),
+        };
+        settings.apply(&documents);
 
         Self {
             commands,
-            settings: SettingsStore::with_defaults(defaults),
+            settings: Mutex::new(settings),
             documents,
             workspace,
             session_store,
@@ -345,6 +417,9 @@ impl NulisCore {
         if id.starts_with("customization.") || id.starts_with("theme.") {
             return self.execute_customization_command(id, arguments);
         }
+        if id.starts_with("settings.") {
+            return self.execute_settings_command(id, arguments);
+        }
         if id.starts_with("automation.") {
             return self.execute_automation_command(id, &context, arguments);
         }
@@ -378,6 +453,45 @@ impl NulisCore {
             }
         }
         result
+    }
+
+    /// `settings.state` reports `settings.json` and any problems with it;
+    /// `settings.saveChecked` validates, stores, and applies a new document
+    /// against the revision the caller saw.
+    fn execute_settings_command(&self, id: &str, arguments: Value) -> CommandResult {
+        let mut state = self
+            .settings
+            .lock()
+            .map_err(|_| CommandError::Unavailable("settings state".into()))?;
+        match id {
+            "settings.state" => Ok(state.report()),
+            "settings.saveChecked" => {
+                #[derive(Deserialize)]
+                #[serde(rename_all = "camelCase", deny_unknown_fields)]
+                struct Checked {
+                    expected_revision: u64,
+                    document: SettingsDocument,
+                }
+                let request: Checked = serde_json::from_value(arguments)
+                    .map_err(|error| CommandError::Failed(format!("invalid settings: {error}")))?;
+                if request.expected_revision != state.revision {
+                    return Err(CommandError::Failed(format!(
+                        "settings changed elsewhere (revision {} is now {})",
+                        request.expected_revision, state.revision
+                    )));
+                }
+                state
+                    .file
+                    .save(&request.document)
+                    .map_err(|error| CommandError::Failed(error.to_string()))?;
+                state.document = request.document;
+                state.revision += 1;
+                state.load_error = None;
+                state.apply(&self.documents);
+                Ok(state.report())
+            }
+            _ => Err(CommandError::Unknown(id.to_owned())),
+        }
     }
 
     #[allow(clippy::too_many_lines)] // Keeps one audited dispatch boundary for the small lifecycle API.
@@ -728,7 +842,7 @@ impl NulisCore {
             commands: self.commands.clone(),
             documents: Arc::clone(&self.documents),
             workspace: Arc::clone(&self.workspace),
-            settings: self.settings.effective(None),
+            settings: self.effective_settings(None),
             context: context.clone(),
             messages: Arc::clone(&messages),
         };
@@ -996,7 +1110,9 @@ impl NulisCore {
 
     #[must_use]
     pub fn effective_settings(&self, language: Option<&str>) -> Value {
-        self.settings.effective(language)
+        self.settings
+            .lock()
+            .map_or(Value::Null, |settings| settings.layers.effective(language))
     }
 
     /// Returns a bounded editor snapshot without exposing authoritative state.
@@ -4964,5 +5080,115 @@ mod tests {
             serde_json::json!({ "terminalId": terminal_id }),
         )
         .expect("close terminal");
+    }
+}
+
+#[cfg(test)]
+mod settings_tests {
+    use super::{CommandContext, NulisCore};
+    use serde_json::{json, Value};
+
+    fn language_of_new(core: &NulisCore, name: &str) -> String {
+        core.execute_command(
+            "file.new",
+            CommandContext::default(),
+            json!({ "name": name, "initialText": "" }),
+        )
+        .expect("create document")["languageId"]
+            .as_str()
+            .expect("language")
+            .to_owned()
+    }
+
+    fn state(core: &NulisCore) -> Value {
+        core.execute_command("settings.state", CommandContext::default(), Value::Null)
+            .expect("settings state")
+    }
+
+    #[test]
+    fn file_associations_in_settings_json_apply_at_start() {
+        let root = tempfile::tempdir().expect("application data");
+        std::fs::write(
+            root.path().join("settings.json"),
+            r#"{"schemaVersion":1,"values":{
+                "files":{"associations":{"*.h":"cpp","*.foo":"no-such","a/b":"rust"}},
+                "editor":{"tabSize":2},
+                "[python]":{"editor":{"tabSize":8}}
+            }}"#,
+        )
+        .expect("write settings");
+        let core = NulisCore::with_session_root(root.path().into());
+        assert_eq!(language_of_new(&core, "x.h"), "cpp");
+        assert_eq!(language_of_new(&core, "x.c"), "c");
+        let report = state(&core);
+        assert_eq!(report["rejectedAssociations"], json!(["*.foo", "a/b"]));
+        assert_eq!(report["loadError"], Value::Null);
+        assert_eq!(core.effective_settings(None)["editor"]["tabSize"], 2);
+        assert_eq!(
+            core.effective_settings(Some("python"))["editor"]["tabSize"],
+            8
+        );
+        // Defaults still fill what the file leaves out.
+        assert_eq!(core.effective_settings(None)["editor"]["wordWrap"], false);
+    }
+
+    #[test]
+    fn saving_settings_applies_them_and_a_stale_save_is_refused() {
+        let root = tempfile::tempdir().expect("application data");
+        let core = NulisCore::with_session_root(root.path().into());
+        assert_eq!(language_of_new(&core, "x.h"), "c");
+        let document = json!({ "schemaVersion": 1, "values": {
+            "files": { "associations": { "*.h": "objective-c" } }
+        }});
+        let saved = core
+            .execute_command(
+                "settings.saveChecked",
+                CommandContext::default(),
+                json!({ "expectedRevision": 0, "document": document }),
+            )
+            .expect("save");
+        assert_eq!(saved["revision"], 1);
+        assert_eq!(language_of_new(&core, "x.h"), "objective-c");
+        assert!(root.path().join("settings.json").is_file());
+
+        let stale = core.execute_command(
+            "settings.saveChecked",
+            CommandContext::default(),
+            json!({ "expectedRevision": 0, "document": { "schemaVersion": 1, "values": {} } }),
+        );
+        assert!(stale.is_err());
+        assert_eq!(language_of_new(&core, "x.h"), "objective-c");
+
+        // Removing the association restores the built-in mapping, and a new
+        // core reads the saved file.
+        core.execute_command(
+            "settings.saveChecked",
+            CommandContext::default(),
+            json!({ "expectedRevision": 1, "document": { "schemaVersion": 1, "values": {} } }),
+        )
+        .expect("save");
+        assert_eq!(language_of_new(&core, "x.h"), "c");
+        let invalid = core.execute_command(
+            "settings.saveChecked",
+            CommandContext::default(),
+            json!({ "expectedRevision": 2, "document": { "schemaVersion": 1, "values": {
+                "files": { "associations": ["*.h"] }
+            }}}),
+        );
+        assert!(invalid.is_err());
+        assert_eq!(state(&core)["revision"], 2);
+    }
+
+    #[test]
+    fn a_broken_settings_file_is_reported_and_does_not_stop_the_editor() {
+        let root = tempfile::tempdir().expect("application data");
+        std::fs::write(root.path().join("settings.json"), b"{ broken").expect("write");
+        let core = NulisCore::with_session_root(root.path().into());
+        let report = state(&core);
+        assert!(report["loadError"]
+            .as_str()
+            .is_some_and(|error| error.contains("not valid JSON")));
+        assert_eq!(language_of_new(&core, "x.h"), "c");
+        assert_eq!(core.effective_settings(None)["editor"]["tabSize"], 4);
     }
 }

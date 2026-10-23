@@ -765,7 +765,7 @@ impl DocumentManager {
             source.extend_from_slice(context);
             source.extend_from_slice(&bytes);
             let base = offset - u64::try_from(context.len()).unwrap_or(0);
-            self.languages
+            self.languages()
                 .analyze(
                     &session.language_id,
                     &source,

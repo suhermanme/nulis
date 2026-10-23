@@ -296,7 +296,7 @@ impl DocumentManager {
             LineOperation::InsertLineBelow => plan.insert_line_below()?,
             _ => {
                 let kind = format.ok_or(EditorError::StateUnavailable)?;
-                let comment = self.languages.comment_syntax(&session.language_id);
+                let comment = self.languages().comment_syntax(&session.language_id);
                 plan.format_lines(kind, options, comment)?
             }
         };

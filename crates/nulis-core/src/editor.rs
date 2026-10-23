@@ -757,7 +757,7 @@ impl SparseNavigationIndex {
 pub struct DocumentManager {
     next_id: AtomicU64,
     session_root: PathBuf,
-    languages: LanguageRegistry,
+    languages: std::sync::RwLock<LanguageRegistry>,
     sessions: Mutex<BTreeMap<DocumentId, EditorSession>>,
 }
 
@@ -810,12 +810,33 @@ impl Drop for DocumentManager {
 }
 
 impl DocumentManager {
+    /// The language catalog. Readers cannot leave it inconsistent, so a lock
+    /// poisoned by a panic elsewhere is still safe to read.
+    fn languages(&self) -> std::sync::RwLockReadGuard<'_, LanguageRegistry> {
+        self.languages
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Replaces the user's file associations (`files.associations`) for
+    /// documents opened from now on. Returns the patterns that were left out
+    /// because the pattern or the language is not valid.
+    pub fn set_user_associations<'a>(
+        &self,
+        entries: impl IntoIterator<Item = (&'a str, &'a str)>,
+    ) -> Vec<String> {
+        self.languages
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .set_user_associations(entries)
+    }
+
     #[must_use]
     pub fn new(session_root: PathBuf) -> Self {
         Self {
             next_id: AtomicU64::new(0),
             session_root,
-            languages: LanguageRegistry::default(),
+            languages: std::sync::RwLock::new(LanguageRegistry::default()),
             sessions: Mutex::new(BTreeMap::new()),
         }
     }
@@ -864,7 +885,7 @@ impl DocumentManager {
         let source = FileSource::open(&original_path).map_err(|error| EditorError::io(&error))?;
         let number = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
         let id = DocumentId(format!("document-{number}"));
-        let language_id = self.languages.detect_path(Path::new(&name));
+        let language_id = self.languages().detect_path(Path::new(&name));
         let mut document = Document::new(
             PieceTable::new(std::sync::Arc::new(source), Box::new(additions)),
             DEFAULT_HISTORY_BUDGET,
@@ -1049,12 +1070,12 @@ impl DocumentManager {
         if head.starts_with(b"bplist") {
             document.set_read_only(true);
         }
-        let mut language_id = self.languages.detect_path(path);
+        let mut language_id = self.languages().detect_path(path);
         if language_id.as_str() == "plaintext" {
             // A name that says nothing: look for a `#!` line or a markup prolog.
             let table = document.table();
             let head = table.read_vec(0, table.len().min(LANGUAGE_SNIFF_BYTES))?;
-            if let Some(detected) = self.languages.detect_content(&head) {
+            if let Some(detected) = self.languages().detect_content(&head) {
                 language_id = detected;
             }
         }
@@ -1164,7 +1185,7 @@ impl DocumentManager {
         );
         session.source_path = Some(destination.to_path_buf());
         session.source_fingerprint = Some(saved);
-        session.language_id = self.languages.detect_path(destination);
+        session.language_id = self.languages().detect_path(destination);
         rebase_saved_session(session, &self.session_root, destination)?;
         Ok(summary(document_id, session))
     }
@@ -1622,7 +1643,7 @@ impl DocumentManager {
             .ok_or_else(|| EditorError::UnknownDocument(request.document_id.clone()))?;
         let snapshot = session_viewport(
             session,
-            &self.languages,
+            &self.languages(),
             &request.document_id,
             request.start_byte,
             request.start_line,
@@ -1734,7 +1755,7 @@ impl DocumentManager {
         };
         let snapshot = session_viewport(
             session,
-            &self.languages,
+            &self.languages(),
             &request.document_id,
             start_byte,
             line,
@@ -1969,7 +1990,7 @@ impl DocumentManager {
         .ok_or(EditorError::LineOutOfRange(request.line))?;
         let snapshot = session_viewport(
             session,
-            &self.languages,
+            &self.languages(),
             &request.document_id,
             start_byte,
             request.line,
@@ -2956,7 +2977,7 @@ impl DocumentManager {
 
     #[must_use]
     pub fn language_descriptors(&self) -> Vec<LanguageDescriptor> {
-        self.languages
+        self.languages()
             .descriptors()
             .into_iter()
             .map(|descriptor| LanguageDescriptor {
@@ -2977,7 +2998,7 @@ impl DocumentManager {
     ) -> Result<String, EditorError> {
         let language_id = LanguageId::new(language_id.to_owned())?;
         if !self
-            .languages
+            .languages()
             .descriptors()
             .iter()
             .any(|descriptor| descriptor.id == language_id)

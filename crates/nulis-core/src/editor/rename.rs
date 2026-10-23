@@ -63,7 +63,7 @@ impl DocumentManager {
         name.clone_into(&mut session.name);
         session.source_fingerprint =
             fingerprint(&destination).map_err(|error| EditorError::io(&error))?;
-        session.language_id = self.languages.detect_path(&destination);
+        session.language_id = self.languages().detect_path(&destination);
         session.source_path = Some(destination);
         Ok(summary(document_id, session))
     }
