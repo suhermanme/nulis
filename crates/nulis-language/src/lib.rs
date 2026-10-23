@@ -7,6 +7,7 @@
 //! its usual revision checks and undo records. See
 //! `docs/LANGUAGE_CAPABILITIES.md`.
 
+pub mod completion;
 pub mod indent;
 
 use nulis_syntax::LanguageId;

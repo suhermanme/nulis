@@ -83,6 +83,9 @@ pub(crate) struct LexerSpec {
     /// YAML additions to the code scanner: document markers, anchors and
     /// aliases, tags, block scalars, and quoted keys.
     pub yaml: bool,
+    /// Extra words offered by completion that are not highlighted as
+    /// keywords (HTML element names).
+    pub completion_words: &'static [&'static str],
 }
 
 const BASE: LexerSpec = LexerSpec {
@@ -106,6 +109,7 @@ const BASE: LexerSpec = LexerSpec {
     raw_text_elements: false,
     delimiter: None,
     yaml: false,
+    completion_words: &[],
 };
 
 const C_STRINGS: &[StringRule] = &[
@@ -1601,6 +1605,29 @@ const MAKE_KEYWORDS: &[&str] = &[
     "define", "else", "endef", "endif", "export", "ifdef", "ifeq", "ifndef", "ifneq", "include",
     "override", "unexport", "vpath",
 ];
+const HTML_ELEMENTS: &[&str] = &[
+    "a", "abbr", "address", "article", "aside", "audio", "blockquote", "body", "button", "canvas",
+    "caption", "code", "details", "dialog", "div", "dl", "dd", "dt", "em", "fieldset", "figcaption",
+    "figure", "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6", "head", "header", "html",
+    "iframe", "img", "input", "label", "legend", "li", "link", "main", "meta", "nav", "noscript",
+    "ol", "optgroup", "option", "p", "picture", "pre", "script", "section", "select", "slot",
+    "small", "source", "span", "strong", "style", "summary", "svg", "table", "tbody", "td",
+    "template", "textarea", "tfoot", "th", "thead", "time", "title", "tr", "ul", "video",
+    "class", "href", "src", "alt", "type", "name", "value", "placeholder", "rel", "lang",
+    "charset", "content", "width", "height", "hidden", "disabled", "checked", "selected",
+];
+
+/// Python's keywords and built-in names, for completion (Python is parsed by
+/// a grammar, not a lexer table).
+pub(crate) const PYTHON_WORDS: &[&str] = &[
+    "False", "None", "True", "and", "as", "assert", "async", "await", "break", "class",
+    "continue", "def", "del", "elif", "else", "except", "finally", "for", "from", "global", "if",
+    "import", "in", "is", "lambda", "match", "case", "nonlocal", "not", "or", "pass", "raise",
+    "return", "try", "while", "with", "yield", "self", "print", "len", "range", "enumerate",
+    "isinstance", "super", "open", "dict", "list", "set", "tuple", "str", "int", "float", "bool",
+    "bytes", "object", "Exception", "ValueError", "TypeError", "KeyError", "__init__", "__name__",
+];
+
 const YAML_KEYWORDS: &[&str] = &["true", "false", "null", "yes", "no", "on", "off"];
 
 /// Every table-driven language. Order only matters for ties in detection.
@@ -1745,6 +1772,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         mode: Mode::Markup,
         raw_text_elements: true,
         case_insensitive: true,
+        completion_words: HTML_ELEMENTS,
         ..BASE
     },
     LexerSpec {

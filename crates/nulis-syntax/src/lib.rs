@@ -157,6 +157,7 @@ pub struct LanguageModule {
     symbol_node_kind: Option<&'static str>,
     bracket_node_kinds: Vec<&'static str>,
     comments: Option<CommentSyntax>,
+    vocabulary: Option<Vocabulary>,
 }
 
 impl std::fmt::Debug for LanguageModule {
@@ -193,6 +194,7 @@ impl LanguageModule {
             symbol_node_kind,
             bracket_node_kinds,
             comments: None,
+            vocabulary: None,
         }
     }
 
@@ -206,6 +208,7 @@ impl LanguageModule {
             symbol_node_kind: None,
             bracket_node_kinds: Vec::new(),
             comments: None,
+            vocabulary: None,
         }
     }
 
@@ -230,6 +233,25 @@ impl LanguageModule {
             Scanner::Lexer(spec),
         )
         .with_comments(comments)
+        .with_vocabulary(Vocabulary {
+            keywords: spec
+                .keywords
+                .iter()
+                .chain(spec.completion_words)
+                .copied()
+                .collect(),
+            types: spec.types.to_vec(),
+            case_insensitive: spec.case_insensitive,
+            word_bytes: spec.ident_chars,
+        })
+    }
+
+    /// Sets the words completion offers; an empty vocabulary means none.
+    #[must_use]
+    pub fn with_vocabulary(mut self, vocabulary: Vocabulary) -> Self {
+        self.vocabulary = (!vocabulary.keywords.is_empty() || !vocabulary.types.is_empty())
+            .then_some(vocabulary);
+        self
     }
 
     /// Sets the markers Toggle Comment uses; a syntax with neither marker means none.
@@ -243,6 +265,17 @@ impl LanguageModule {
     pub fn descriptor(&self) -> &LanguageDescriptor {
         &self.descriptor
     }
+}
+
+/// Words a language's completion offers, and what counts as a word.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Vocabulary {
+    pub keywords: Vec<&'static str>,
+    pub types: Vec<&'static str>,
+    /// Keywords match in any letter case; they are stored in lowercase.
+    pub case_insensitive: bool,
+    /// Bytes other than letters, digits, and `_` that belong to a word (`$`, `-`).
+    pub word_bytes: &'static [u8],
 }
 
 /// How a language writes comments, for the Toggle Comment command.
@@ -499,6 +532,22 @@ impl LanguageRegistry {
             .collect()
     }
 
+    /// The words completion offers for a language, if it has any.
+    #[must_use]
+    pub fn vocabulary(&self, id: &LanguageId) -> Option<Vocabulary> {
+        self.modules.get(id)?.module.vocabulary.clone()
+    }
+
+    /// Bytes besides letters, digits, and `_` that are part of a word in a
+    /// language (`$` in JavaScript, `-` in CSS), for every language.
+    #[must_use]
+    pub fn word_bytes(&self, id: &LanguageId) -> &'static [u8] {
+        self.modules
+            .get(id)
+            .and_then(|registered| registered.module.vocabulary.as_ref())
+            .map_or(&[], |vocabulary| vocabulary.word_bytes)
+    }
+
     /// The comment markers of a language, or `None` when it has none
     /// (plain text, JSON).
     #[must_use]
@@ -667,6 +716,10 @@ fn json_module() -> LanguageModule {
         Some("pair"),
         vec!["object", "array"],
     )
+    .with_vocabulary(Vocabulary {
+        keywords: vec!["true", "false", "null"],
+        ..Vocabulary::default()
+    })
 }
 
 fn python_module() -> LanguageModule {
@@ -723,6 +776,10 @@ fn python_module() -> LanguageModule {
     .with_comments(CommentSyntax {
         line: Some("#"),
         block: None,
+    })
+    .with_vocabulary(Vocabulary {
+        keywords: lexer::PYTHON_WORDS.to_vec(),
+        ..Vocabulary::default()
     })
 }
 
@@ -1809,6 +1866,22 @@ mod catalog_tests {
             "better-json"
         );
         assert_eq!(registry.detect_path(Path::new("x.nim")).as_str(), "nim-b");
+    }
+
+    #[test]
+    fn languages_offer_their_words_to_completion() {
+        let registry = LanguageRegistry::with_builtins();
+        let rust = registry.vocabulary(&id("rust")).expect("rust");
+        assert!(rust.keywords.contains(&"fn") && rust.types.contains(&"usize"));
+        let sql = registry.vocabulary(&id("sql")).expect("sql");
+        assert!(sql.case_insensitive && sql.keywords.contains(&"select"));
+        assert!(registry.vocabulary(&id("html")).expect("html").keywords.contains(&"div"));
+        assert!(registry.vocabulary(&id("python")).expect("python").keywords.contains(&"def"));
+        assert!(registry.vocabulary(&id("json")).expect("json").keywords.contains(&"null"));
+        assert_eq!(registry.word_bytes(&id("javascript")), b"$");
+        for none in ["plaintext", "markdown", "csv"] {
+            assert_eq!(registry.vocabulary(&id(none)), None, "{none}");
+        }
     }
 
     #[test]
