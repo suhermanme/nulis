@@ -1132,6 +1132,13 @@ export function App() {
         setLineChangeOverrides({});
         applyWelcomeSetting();
       }).catch((error: unknown) => setStatus(errorMessage(error, "Could not refresh settings")));
+      // Language settings can switch tools and previews on or off for open documents.
+      void executeCommand<DocumentSummary[]>({ id: "editor.summaries", context: { windowId: "main" }, arguments: {} })
+        .then((summaries) => {
+          if (disposed || !Array.isArray(summaries)) return;
+          const byId = new Map(summaries.map((summary) => [summary.documentId, summary]));
+          setDocuments((current) => current.map((document) => byId.get(document.documentId) ?? document));
+        }).catch(() => undefined);
     }).then(keep);
     void listen<EditorPreferences | null>(APPEARANCE_PREVIEW_EVENT, (event) => {
       setPreferences(event.payload

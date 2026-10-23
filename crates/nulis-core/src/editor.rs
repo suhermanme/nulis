@@ -1134,6 +1134,22 @@ impl DocumentManager {
         Ok(summary(document_id, session))
     }
 
+    /// Every open document's summary, in document-ID order; the editor
+    /// refreshes its copies after settings change their capabilities.
+    ///
+    /// # Errors
+    /// Returns an error when the document state is unavailable.
+    pub fn summaries(&self) -> Result<Vec<DocumentSummary>, EditorError> {
+        let sessions = self
+            .sessions
+            .lock()
+            .map_err(|_| EditorError::StateUnavailable)?;
+        Ok(sessions
+            .iter()
+            .map(|(id, session)| summary(id, session))
+            .collect())
+    }
+
     /// Switches a document between editing and read-only and returns its metadata.
     /// A read-only document can still be read, searched, saved, and closed.
     ///

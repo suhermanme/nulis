@@ -2682,6 +2682,19 @@ fn register_statistics_commands(commands: &mut CommandRegistry, documents: &Arc<
     let manager = Arc::clone(documents);
     commands
         .register(
+            CommandDescriptor::new("editor.summaries", "List Open Documents", "Editor")
+                .expect("built-in command ID is valid"),
+            move |_context, _arguments| {
+                let summaries = manager
+                    .summaries()
+                    .map_err(|error| editor_command_error(&error))?;
+                serde_json::to_value(summaries).map_err(|error| serialization_command_error(&error))
+            },
+        )
+        .expect("built-in command is unique");
+    let manager = Arc::clone(documents);
+    commands
+        .register(
             CommandDescriptor::new("editor.characterCount", "Count Characters", "Editor")
                 .expect("built-in command ID is valid"),
             move |context, _arguments| {
@@ -5312,6 +5325,16 @@ mod settings_tests {
             )
             .expect("beautify");
         assert_eq!(beautified["capabilities"]["format"], "JSON");
+        let summaries = core
+            .execute_command("editor.summaries", CommandContext::default(), Value::Null)
+            .expect("summaries");
+        let markdown_now = summaries
+            .as_array()
+            .expect("array")
+            .iter()
+            .find(|summary| summary["name"] == "a.md")
+            .expect("markdown document");
+        assert_eq!(markdown_now["capabilities"]["preview"], "markdown");
         assert_eq!(beautified["revision"], "1");
     }
 

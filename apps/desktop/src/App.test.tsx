@@ -836,6 +836,53 @@ test("settings open as one sectioned surface with keyboard navigation", async ()
   expect(screen.getAllByRole("dialog", { name: "Settings" })).toHaveLength(1);
 });
 
+test("language features can be switched off per language and are saved to settings.json", async () => {
+  const rows = [
+    { id: "json", displayName: "JSON", capabilities: [
+      { kind: "diagnostics", label: "JSON", enabled: true },
+      { kind: "format", label: "JSON", enabled: true },
+      { kind: "compact", label: "JSON", enabled: true },
+    ] },
+    { id: "markdown", displayName: "Markdown", capabilities: [{ kind: "preview", label: "Markdown", enabled: true }] },
+  ];
+  responses["settings.state"] = [{
+    revision: 3, loadError: null, rejectedAssociations: ["src/*.x"],
+    document: { schemaVersion: 1, values: {
+      editor: { tabSize: 2 },
+      files: { associations: { "*.h": "cpp", "src/*.x": "rust" } },
+      "[json]": { disabledCapabilities: ["someOtherKind"], note: "kept" },
+    } },
+  }];
+  responses["language.capabilities"] = [rows];
+  const dialog = await openSettings();
+  fireEvent.click(within(dialog).getByRole("tab", { name: "Languages" }));
+  const associations = await within(dialog).findByRole("list", { name: "Your file associations" });
+  expect(associations).toHaveTextContent("*.hcpp");
+  expect(associations).toHaveTextContent("src/*.xrustignored");
+
+  fireEvent.click(within(dialog).getByRole("checkbox", { name: "Beautify for JSON" }));
+  fireEvent.click(within(dialog).getByRole("checkbox", { name: "Minify for JSON" }));
+  expect(within(within(dialog).getByRole("tab", { name: /^Languages/ })).getByRole("img", { name: "unapplied changes" })).toBeInTheDocument();
+  responses["settings.state"] = [{ revision: 4, loadError: null, rejectedAssociations: [], document: { schemaVersion: 1, values: {} } }];
+  responses["language.capabilities"] = [rows.map((row) => row.id !== "json" ? row : {
+    ...row, capabilities: row.capabilities.map((capability) => ({ ...capability, enabled: capability.kind === "diagnostics" })),
+  })];
+  fireEvent.click(within(dialog).getByRole("button", { name: "Apply" }));
+
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({ id: "settings.saveChecked" })));
+  const saved = vi.mocked(executeCommand).mock.calls.find(([request]) => request.id === "settings.saveChecked")?.[0];
+  expect(saved?.arguments).toEqual({
+    expectedRevision: 3,
+    document: { schemaVersion: 1, values: {
+      editor: { tabSize: 2 },
+      files: { associations: { "*.h": "cpp", "src/*.x": "rust" } },
+      "[json]": { disabledCapabilities: ["someOtherKind", "format", "compact"], note: "kept" },
+    } },
+  });
+  await waitFor(() => expect(within(dialog).getByRole("checkbox", { name: "Beautify for JSON" })).not.toBeChecked());
+  expect(within(dialog).queryByRole("img", { name: "unapplied changes" })).not.toBeInTheDocument();
+});
+
 test("applies and persists editor appearance settings at the observed revision", async () => {
   const dialog = await openSettings();
   fireEvent.click(within(dialog).getByRole("tab", { name: "Appearance & Themes" }));

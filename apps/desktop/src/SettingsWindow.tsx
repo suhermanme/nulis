@@ -6,7 +6,10 @@ import type {
   CustomizationDocument,
   CustomizationState,
   EditorPreferences,
+  CapabilityKind,
+  LanguageCapabilities,
   LanguageDescriptor,
+  SettingsState,
   PluginSummary,
   ThemeRecord,
 } from "./contracts";
@@ -66,6 +69,51 @@ function loadSection(): SettingsSectionId {
   }
 }
 
+/** How each capability is named next to its switch. */
+const FEATURE_NAMES: Partial<Record<CapabilityKind, string>> = {
+  diagnostics: "Validate", format: "Beautify", compact: "Minify", preview: "Preview",
+};
+
+type FeatureSwitches = Record<string, Partial<Record<CapabilityKind, boolean>>>;
+
+function switchesOf(rows: readonly LanguageCapabilities[]): FeatureSwitches {
+  return Object.fromEntries(rows.map((row) => [row.id,
+    Object.fromEntries(row.capabilities.map((capability) => [capability.kind, capability.enabled]))]));
+}
+
+/**
+ * Writes the switches into settings.json values as each language's
+ * `"[id]": { "disabledCapabilities": [...] }`, keeping everything else.
+ */
+function withSwitches(values: Record<string, unknown>, switches: FeatureSwitches,
+  rows: readonly LanguageCapabilities[]): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...values };
+  for (const row of rows) {
+    const key = `[${row.id}]`;
+    const section: Record<string, unknown> = typeof next[key] === "object" && next[key] !== null
+      ? { ...(next[key] as Record<string, unknown>) } : {};
+    const listed = row.capabilities.map((capability) => capability.kind as string);
+    // Kinds this list does not show (another provider's, or unknown) are kept as they were.
+    const kept = Array.isArray(section.disabledCapabilities)
+      ? section.disabledCapabilities.filter((kind): kind is string => typeof kind === "string" && !listed.includes(kind)) : [];
+    const disabled = [...kept, ...row.capabilities
+      .filter((capability) => switches[row.id]?.[capability.kind] === false).map((capability) => capability.kind)];
+    if (disabled.length > 0) section.disabledCapabilities = disabled;
+    else delete section.disabledCapabilities;
+    if (Object.keys(section).length > 0) next[key] = section;
+    else delete next[key];
+  }
+  return next;
+}
+
+function fileAssociations(state: SettingsState | null): [string, string][] {
+  const files = state?.document.values.files;
+  const associations = typeof files === "object" && files !== null
+    ? (files as { associations?: unknown }).associations : undefined;
+  return typeof associations === "object" && associations !== null
+    ? Object.entries(associations).filter((entry): entry is [string, string] => typeof entry[1] === "string") : [];
+}
+
 function same(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
@@ -92,6 +140,9 @@ export function SettingsWindow({
   const [themes, setThemes] = useState<ThemeRecord[]>(BUILT_IN_THEMES);
   const [commands, setCommands] = useState<CommandDescriptor[]>([]);
   const [languages, setLanguages] = useState<LanguageDescriptor[]>([]);
+  const [settingsState, setSettingsState] = useState<SettingsState | null>(null);
+  const [featureRows, setFeatureRows] = useState<LanguageCapabilities[]>([]);
+  const [featureDraft, setFeatureDraft] = useState<FeatureSwitches>({});
   const [plugins, setPlugins] = useState<PluginSummary[]>([]);
   const [info, setInfo] = useState<ApplicationInfo | null>(null);
   const [savedLineChanges, setSavedLineChanges] = useState(loadLineChangeDefault);
@@ -104,6 +155,17 @@ export function SettingsWindow({
   const [stale, setStale] = useState(false);
   const [confirm, setConfirm] = useState<"close" | "reset" | null>(null);
   const signals = useRef({ close: closeSignal, external: externalChangeSignal });
+
+  const loadLanguageSettings = useCallback(async () => {
+    const [state, rows] = await Promise.all([
+      executeCommand<SettingsState>({ id: "settings.state", context: CONTEXT, arguments: {} }),
+      executeCommand<LanguageCapabilities[]>({ id: "language.capabilities", context: CONTEXT, arguments: {} }),
+    ]);
+    const nextRows = Array.isArray(rows) ? rows : [];
+    setSettingsState(state ?? null);
+    setFeatureRows(nextRows);
+    setFeatureDraft(switchesOf(nextRows));
+  }, []);
 
   const loadState = useCallback(async () => {
     const [state, nextThemes] = await Promise.all([
@@ -121,6 +183,7 @@ export function SettingsWindow({
   useEffect(() => {
     let mounted = true;
     void loadState().catch((error: unknown) => { if (mounted) setNotice(message(error, "Settings are unavailable")); });
+    void loadLanguageSettings().catch(() => undefined);
     void listCommands().then((next) => { if (mounted && Array.isArray(next)) setCommands(next); }).catch(() => undefined);
     void executeCommand<LanguageDescriptor[]>({ id: "language.list", context: CONTEXT, arguments: {} })
       .then((next) => { if (mounted && Array.isArray(next)) setLanguages(next); }).catch(() => undefined);
@@ -128,7 +191,7 @@ export function SettingsWindow({
       .then((next) => { if (mounted && Array.isArray(next)) setPlugins(next); }).catch(() => undefined);
     void getApplicationInfo().then((next) => { if (mounted) setInfo(next); }).catch(() => undefined);
     return () => { mounted = false; };
-  }, [loadState]);
+  }, [loadLanguageSettings, loadState]);
 
   // The welcome screen's own tick box changes this preference from the main window.
   useEffect(() => {
@@ -155,16 +218,18 @@ export function SettingsWindow({
     if (!same({ ...before.appearance, theme: "" }, { ...draft.appearance, theme: "" }) || lineChanges !== savedLineChanges) pending.add("editor");
     if (!same(before.keybindings, draft.keybindings)) pending.add("keybindings");
     if (!same(before.menu, draft.menu) || !same(before.toolbar, draft.toolbar)) pending.add("menus");
+    if (!same(featureDraft, switchesOf(featureRows))) pending.add("languages");
     return pending;
-  }, [draft, lineChanges, saved, savedLineChanges, savedWelcome, welcome]);
+  }, [draft, featureDraft, featureRows, lineChanges, saved, savedLineChanges, savedWelcome, welcome]);
   const pending = pendingSections.size > 0;
 
   const discard = useCallback(() => {
     if (saved) setDraft(saved.document);
+    setFeatureDraft(switchesOf(featureRows));
     setLineChanges(savedLineChanges);
     setWelcome(savedWelcome);
     onPreview(null);
-  }, [onPreview, saved, savedLineChanges, savedWelcome]);
+  }, [featureRows, onPreview, saved, savedLineChanges, savedWelcome]);
 
   const apply = useCallback(async (): Promise<boolean> => {
     if (!saved || !draft || busy) return false;
@@ -174,6 +239,16 @@ export function SettingsWindow({
         id: "customization.saveChecked", context: CONTEXT,
         arguments: { expectedRevision: saved.revision, document: draft },
       });
+      if (settingsState && !same(featureDraft, switchesOf(featureRows))) {
+        await executeCommand<SettingsState>({
+          id: "settings.saveChecked", context: CONTEXT,
+          arguments: {
+            expectedRevision: settingsState.revision,
+            document: { ...settingsState.document, values: withSwitches(settingsState.document.values, featureDraft, featureRows) },
+          },
+        });
+        await loadLanguageSettings();
+      }
       saveLineChangeDefault(lineChanges);
       setSavedLineChanges(lineChanges);
       saveWelcomeOnStartup(welcome);
@@ -191,7 +266,7 @@ export function SettingsWindow({
     } finally {
       setBusy(false);
     }
-  }, [busy, draft, lineChanges, onSaved, saved, themes, welcome]);
+  }, [busy, draft, featureDraft, featureRows, lineChanges, loadLanguageSettings, onSaved, saved, settingsState, themes, welcome]);
 
   const requestClose = useCallback(() => {
     if (pending) setConfirm("close");
@@ -210,8 +285,11 @@ export function SettingsWindow({
     signals.current.external = externalChangeSignal;
     // A newer revision never replaces unapplied edits silently.
     if (pending) setStale(true);
-    else void loadState().catch(() => undefined);
-  }, [externalChangeSignal, loadState, pending]);
+    else {
+      void loadState().catch(() => undefined);
+      void loadLanguageSettings().catch(() => undefined);
+    }
+  }, [externalChangeSignal, loadLanguageSettings, loadState, pending]);
 
   const reload = () => {
     setBusy(true);
@@ -378,13 +456,38 @@ export function SettingsWindow({
       <div className="settings-preview"><small>Preview</small><code>const nulis = "write clearly";</code></div>
     </>,
     languages: <>
+      <fieldset className="settings-group"><legend>Language features</legend>
+        <p className="settings-help">Switch a tool or the preview off for one language. Open documents keep their text; the tool disappears from the toolbar and menus.</p>
+        {settingsState?.loadError ? <p className="settings-help" role="alert">settings.json could not be read ({settingsState.loadError}). Nulis is using defaults; Apply writes a new file.</p> : null}
+        <ul className="settings-list" aria-label="Language features">
+          {featureRows.filter((row) => matches(`${row.displayName} ${row.id}`)).map((row) => (
+            <li key={row.id}><strong>{row.displayName}</strong>
+              {row.capabilities.map((capability) => {
+                const name = FEATURE_NAMES[capability.kind] ?? capability.kind;
+                return <label className="settings-check" key={capability.kind}>
+                  <input type="checkbox" aria-label={`${name} for ${row.displayName}`}
+                    checked={featureDraft[row.id]?.[capability.kind] ?? capability.enabled}
+                    onChange={(event) => {
+                      const checked = event.currentTarget.checked;
+                      setFeatureDraft((current) => ({ ...current, [row.id]: { ...current[row.id], [capability.kind]: checked } }));
+                    }} />{name}
+                </label>;
+              })}
+            </li>))}
+        </ul>
+      </fieldset>
       <fieldset className="settings-group"><legend>Language modules</legend>
         {filterField("Filter languages")}
         <ul className="settings-list" aria-label="Languages">
           {languages.filter((language) => matches(`${language.displayName} ${language.id}`)).map((language) => (
             <li key={language.id}><strong>{language.displayName}</strong><code>{language.id}</code></li>))}
         </ul>
-        <p className="settings-help">A language is detected from the file name. Use View As in the editor toolbar to override it for one document.</p>
+        <p className="settings-help">A language is detected from the file name. Use View As in the editor toolbar to override it for one document, or add a pattern to files.associations in settings.json to override it for a kind of file.</p>
+        {fileAssociations(settingsState).length > 0 ? <ul className="settings-list" aria-label="Your file associations">
+          {fileAssociations(settingsState).map(([pattern, language]) => (
+            <li key={pattern}><strong>{pattern}</strong><code>{language}</code>
+              {settingsState?.rejectedAssociations.includes(pattern) ? <span>ignored</span> : null}</li>))}
+        </ul> : null}
       </fieldset>
     </>,
     keybindings: <>
