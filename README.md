@@ -243,7 +243,8 @@ A document is a **piece table**: an immutable, randomly accessible original file
 | `nulis-document` | Piece table, 64-bit positions, snapshots, and undo history. |
 | `nulis-large-file` | Random-access byte sources and append stores. |
 | `nulis-search` | Streaming find and replace, linear-time regular expressions with capture-group replacement, column search, and find in files. |
-| `nulis-syntax` | Language detection, Tree-sitter parsers for JSON and Python, a table-driven lexer for the other languages, folding, and symbols. |
+| `nulis-syntax` | The language catalog (detection and file associations), Tree-sitter parsers for JSON and Python, a table-driven lexer for the other languages, folding, and symbols. |
+| `nulis-language` | Language capability contracts (validate, format, preview, …), the provider registry, and isolation of failing providers. |
 | `nulis-hex` | Hexadecimal viewports and byte editing. |
 | `nulis-print` | Page layout for Print and PDF, the streaming PDF writer, and fonts. |
 | `nulis-diff` | Text, binary, and folder comparison. |
@@ -408,7 +409,7 @@ Nulis keeps its data in the operating system's application-data directory for th
 | Windows | `%APPDATA%\com.nulis.editor\` |
 | Linux | `~/.local/share/com.nulis.editor/` |
 
-It holds the session (open files and layout), customization (appearance, shortcuts, menu, toolbar), installed themes and plugins, recovery checkpoints, and the edit buffers of open documents. A few display preferences are kept in the webview's local storage.
+It holds the session (open files and layout), `settings.json` (for example `files.associations`), customization (appearance, shortcuts, menu, toolbar), installed themes and plugins, recovery checkpoints, and the edit buffers of open documents. A few display preferences are kept in the webview's local storage.
 
 ## Extending Nulis
 
