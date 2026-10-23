@@ -249,8 +249,8 @@ impl LanguageModule {
     /// Sets the words completion offers; an empty vocabulary means none.
     #[must_use]
     pub fn with_vocabulary(mut self, vocabulary: Vocabulary) -> Self {
-        self.vocabulary = (!vocabulary.keywords.is_empty() || !vocabulary.types.is_empty())
-            .then_some(vocabulary);
+        self.vocabulary =
+            (!vocabulary.keywords.is_empty() || !vocabulary.types.is_empty()).then_some(vocabulary);
         self
     }
 
@@ -1875,9 +1875,21 @@ mod catalog_tests {
         assert!(rust.keywords.contains(&"fn") && rust.types.contains(&"usize"));
         let sql = registry.vocabulary(&id("sql")).expect("sql");
         assert!(sql.case_insensitive && sql.keywords.contains(&"select"));
-        assert!(registry.vocabulary(&id("html")).expect("html").keywords.contains(&"div"));
-        assert!(registry.vocabulary(&id("python")).expect("python").keywords.contains(&"def"));
-        assert!(registry.vocabulary(&id("json")).expect("json").keywords.contains(&"null"));
+        assert!(registry
+            .vocabulary(&id("html"))
+            .expect("html")
+            .keywords
+            .contains(&"div"));
+        assert!(registry
+            .vocabulary(&id("python"))
+            .expect("python")
+            .keywords
+            .contains(&"def"));
+        assert!(registry
+            .vocabulary(&id("json"))
+            .expect("json")
+            .keywords
+            .contains(&"null"));
         assert_eq!(registry.word_bytes(&id("javascript")), b"$");
         for none in ["plaintext", "markdown", "csv"] {
             assert_eq!(registry.vocabulary(&id(none)), None, "{none}");
