@@ -101,19 +101,18 @@ pub struct IndentContext<'a> {
 }
 // Closing keywords (`end`, `fi`) move left on Enter rather than while typed, so `endpoint` never jumps.
 
+// As implemented in M45 (crates/nulis-language/src/completion.rs):
 pub trait CompletionProvider: Send + Sync {
-    fn trigger_characters(&self) -> &[char];
-    fn complete(&self, context: &CompletionContext, cancel: &CancelToken) -> Result<Vec<CompletionItem>, ProviderError>;
+    fn complete(&self, request: &CompletionRequest) -> Vec<CompletionItem>;
+    fn priority(&self) -> u8 { 0 }                  // snippets 2, keywords 1, words 0
+    fn opens_automatically(&self) -> bool { false } // true for keywords and snippets
 }
-pub struct CompletionItem {
-    pub label: String,
-    pub kind: CompletionKind,                       // Word, Keyword, Snippet, Function, Type, Property, …
-    pub insert: Insert,                             // Text(String) or Snippet(String)
-    pub replace: ByteRange,                         // document bytes replaced on accept
-    pub detail: Option<String>,
-    pub sort_text: Option<String>,
-    pub source: ProviderId,
-}
+pub struct CompletionRequest<'a> { pub prefix: &'a str, pub before: &'a str, pub after: &'a str, pub word_bytes: &'a [u8] }
+pub struct CompletionItem { pub label: String, pub kind: CompletionKind /* Snippet, Keyword, Type, Word */,
+    pub insert: String, pub snippet: bool, pub detail: Option<String> }
+// The replacement range is per list, not per item: `completion.request` returns the byte range of the
+// typed word with the revision; `completion.accept` checks both. Trigger characters and per-provider
+// cancellation are not needed by the built-in providers and come with language servers (M47).
 
 pub trait PreviewProvider: Send + Sync {
     fn kind(&self) -> &'static str;                 // "markdown"; the UI maps kinds to renderers

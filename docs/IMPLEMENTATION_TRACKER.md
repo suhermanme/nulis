@@ -4,8 +4,8 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 
 ## Current state
 
-- **Current milestone:** M44 complete (2026-10-23); next is M45 (shared autocomplete). M41 approved 2026-10-23 with every plan §7 recommendation accepted. Branch `feat/language-capabilities`. **To resume plan 4, read the "Plan 4" section below.** Plan 3 is complete and released in Nulis 0.4.0 (2026-10-23).
-- **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 5 of 5 milestones completed (M31–M35); plan 3: 5 of 5 completed (M36–M40, in Nulis 0.4.0); plan 4: 4 of 8 (M41–M44)
+- **Current milestone:** M45 complete (2026-10-23); next is M46 (expand bundled coverage, self-hosting). M41 approved 2026-10-23 with every plan §7 recommendation accepted. Branch `feat/language-capabilities`. **To resume plan 4, read the "Plan 4" section below.** Plan 3 is complete and released in Nulis 0.4.0 (2026-10-23).
+- **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 5 of 5 milestones completed (M31–M35); plan 3: 5 of 5 completed (M36–M40, in Nulis 0.4.0); plan 4: 5 of 8 (M41–M45)
 - **Baseline before M19 (commit `66853e1`):** `cargo test -p nulis-core` 86 passed; desktop Vitest 11 files, 115 tests passed.
 
 | Milestone | Status | Handover |
@@ -36,7 +36,7 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 | M42 Language catalog and capability contracts | Completed 2026-10-23 (checked in the app on macOS) | `handover/M42_HANDOVER.md` |
 | M43 First-party migration (tools, Markdown preview) | Completed 2026-10-23 (app check pending) | `handover/M43_HANDOVER.md` |
 | M44 Core auto-indentation | Completed 2026-10-23 (app check pending) | `handover/M44_HANDOVER.md` |
-| M45 Shared autocomplete | Not Started | — |
+| M45 Shared autocomplete | Completed 2026-10-23 (app check pending) | `handover/M45_HANDOVER.md` |
 | M46 Expand bundled coverage | Not Started | — |
 | M47 Optional LSP | Not Started | — |
 | M48 External plugin readiness | Not Started | — |
@@ -166,19 +166,34 @@ Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language 
 
 ### M45 — Shared autocomplete
 
-**Status:** Not Started. **Depends on:** M42 (done), owner answers §7.2–7.3 (given).
+**Status:** Completed 2026-10-23 (automated checks on macOS; not yet tried in the running app). Handover: `handover/M45_HANDOVER.md`.
 
 | Task | Status |
 | --- | --- |
-| `completion.request` / `completion.cancel` with revision and request ID | Not Started |
-| Word, keyword and snippet providers; ranking and deduplication | Not Started |
-| Shared `CompletionPopup` (keyboard, mouse, ARIA, IME) and snippet placeholders | Not Started |
-| Settings and `editor.triggerSuggest` shortcut | Not Started |
-| First languages: JavaScript, TypeScript, Python, Rust, SQL, HTML | Not Started |
+| `completion.request` / `completion.cancel` with revision and request ID | Request: Completed. Cancel: not built (see decisions) |
+| Word, keyword and snippet providers; ranking and deduplication | Completed |
+| Shared `CompletionPopup` (keyboard, mouse, ARIA, IME) and snippet placeholders | Completed (no list while composing; `aria-activedescendant`; Tab visits placeholders) |
+| Settings and `edit.triggerSuggest` shortcut | Completed (`editor.suggest.auto`, `acceptOnEnter`, `minChars`, `delayMs`; Settings ▸ Editor ▸ Suggestions; Ctrl+Space, Option+Esc on macOS, rebindable Show Suggestions) |
+| First languages: JavaScript, TypeScript, Python, Rust, SQL, HTML | Completed for every language (words everywhere, keywords and snippets as in the matrix) |
+
+**Acceptance:** replacement ranges are exact with multi-byte UTF-8 and several carets (core tests); an answer for an older revision is never shown (Vitest) and accepting checks the revision and range again (core); typing never waits for completion (requests are chained after pending edits but edits do not wait for them); keyboard-only use and screen-reader attributes covered by Vitest.
+
+**Verification (macOS, 2026-10-23):** fmt and clippy clean; `cargo test --workspace` 408 passed (nulis-language 26, nulis-syntax 23 + 4 golden, nulis-core 185 + golden); lint and typecheck clean; Vitest 22 files, 198 tests passed. Windows-1252 ranges are covered by the shared encoding helpers but have no dedicated test. Not tried in the running app; CI not run (branch not pushed).
+
+**Files changed:** `crates/nulis-syntax/src/{lib,lexer}.rs` (`Vocabulary`, HTML and Python words), `crates/nulis-language/src/completion.rs` and `completion/tests.rs` (new), `crates/nulis-language/src/lib.rs`, `crates/nulis-core/src/editor/completion.rs` and `completion/tests.rs` (new), `crates/nulis-core/src/{editor,lib,builtin_providers}.rs`, `crates/nulis-core/src/editor/indentation.rs`, `apps/desktop/src/CompletionPopup.tsx` (new), `apps/desktop/src/{contracts.ts,commands.ts,EditorViewport.tsx,App.tsx,SettingsWindow.tsx,styles.css}` and tests, docs.
+
+**Decisions:**
+- No `completion.cancel`: the built-in providers are bounded (128 KiB each side, 100 items) and answer in milliseconds; staleness is handled by request ID and revision. Cancellation comes with language servers (M47).
+- The replacement range is one per list (the typed word), not per item.
+- A repeated snippet placeholder gets its text once; editing one copy does not change the others.
+- Ctrl+Space and Option+Esc are fixed in the editor; the new `edit.triggerSuggest` command can take any other shortcut.
+- Snippets are offered only with one caret; with several carets the expanded text is inserted at each and the caret goes to the end.
+
+**Known issues / later:** no member completion after `.`; no CSS property or YAML key lists; the list does not show documentation; snippets for Swift, Zig, Kotlin-specific forms and others are not written yet (M46).
 
 ### M46 — Expand bundled coverage
 
-**Status:** Not Started. **Depends on:** M43–M45, owner answer §7.4.
+**Status:** Not Started. **Depends on:** M43–M45 (done), owner answer §7.4 (given: add the associations, list them in the release notes).
 
 | Task | Status |
 | --- | --- |

@@ -56,9 +56,9 @@ Only JSON has document symbols (`pair`). Since M42, detection resolves in explic
 
 ⚠ Known issues (fix planned in M46): `.css` Toggle Comment uses `//`, which plain CSS rejects; Python has no bracket pairs; `.scpt` is binary but opens as text; Markdown has no folds; YAML has no indentation folds. Unrecognized today: `Dockerfile.dev` and similar, `.jsonc`.
 
-## Table 2 — providers (Indent: implemented in M44; the other columns are planned)
+## Table 2 — providers (Indent: implemented in M44; Completion: implemented in M45; the other columns are planned)
 
-Indent family as in LANGUAGE_CAPABILITIES.md §6.1; "carry" keeps the current line's indentation. Completion: **W** document words, **K** keywords/types from the lexer table, **S** built-in snippets. LSP candidates are from prior knowledge and are **unverified**: license, platform builds and maintenance are checked in M47 before any is chosen. Nulis will not bundle servers.
+Indent family as in LANGUAGE_CAPABILITIES.md §6.1; "carry" keeps the current line's indentation. Completion: **W** document words, **K** keywords/types from the lexer table, **S** built-in snippets. Since M45 every language has W; K where the language has a word list (every lexer language with keywords, plus HTML element names, Python, and JSON; not CSS, INI, CSV, TSV, XML, XSL, plist, Markdown, or Plain Text, which get W only); S for Rust, JavaScript/TypeScript, Python, Go, the C family (C, C++, C#, Java, Objective-C, Kotlin, PHP), HTML, the SQL dialects, Bash, Ruby, and Lua. The table below still lists the original plan; Swift, Zig and others marked S have no snippets yet. LSP candidates are from prior knowledge and are **unverified**: license, platform builds and maintenance are checked in M47 before any is chosen. Nulis will not bundle servers.
 
 | Language | Indent (M44/M46) | Completion (M45/M46) | Validate | Format / compact | Preview | LSP candidates (unverified) |
 | --- | --- | --- | --- | --- | --- | --- |

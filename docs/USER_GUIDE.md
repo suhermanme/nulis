@@ -474,6 +474,16 @@ Nulis looks at how each file is already indented (tabs, or 2, 4, or 8 spaces) an
 
 With Auto-indent off, Enter inserts only the line break, as in earlier versions. Pasted text is inserted exactly as copied.
 
+### Suggestions
+
+While you type a word, Nulis can suggest how to finish it: words already in the document (nearest first), the language's keywords and types, and short snippets such as `fn`, `def`, `for`, or `html5`. In languages with their own keywords the list opens by itself after two letters; in Plain Text and Markdown it opens only when you ask. Press **Ctrl+Space** to ask anywhere (on macOS, **Option+Esc** works too, since Ctrl+Space often switches the keyboard input source). The **Show Suggestions** command in the palette does the same and can be given another shortcut in Settings.
+
+In the list, **Up**/**Down** and **Page Up**/**Page Down** move, **Enter** or **Tab** inserts, **Escape** closes, and a click inserts. Keywords follow the case you started with in languages where case does not matter (`SEL` becomes `SELECT`). If you have several carets, every caret that typed the same word gets the suggestion, in one undo step.
+
+A snippet selects its first placeholder; type to replace it and press **Tab** for the next one. A placeholder that appears twice, such as the loop variable in a JavaScript `for`, gets the same text when inserted, but editing one copy does not change the other. Moving the caret out of the placeholder, or Undo, ends the snippet.
+
+To change when the list opens, or to stop Enter from inserting, use **Settings ▸ Editor ▸ Suggestions**. To switch suggestions off for one language, untick **Suggestions** for it in **Settings ▸ Languages**.
+
 ### Markdown preview
 
 A Markdown document has an **Edit / View** switch at the left of the editor toolbar. **View** shows the formatted document, including tables, task lists, and other GitHub-style syntax, and images stored beside the file. Raw HTML inside Markdown is not rendered.
