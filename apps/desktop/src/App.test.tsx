@@ -883,6 +883,33 @@ test("language features can be switched off per language and are saved to settin
   expect(within(dialog).queryByRole("img", { name: "unapplied changes" })).not.toBeInTheDocument();
 });
 
+test("indentation settings are saved to settings.json and keep other editor values", async () => {
+  responses["settings.state"] = [{
+    revision: 1, loadError: null, rejectedAssociations: [],
+    document: { schemaVersion: 1, values: { editor: { tabSize: 2, wordWrap: true } } },
+  }];
+  responses["language.capabilities"] = [[]];
+  const dialog = await openSettings();
+  fireEvent.click(within(dialog).getByRole("tab", { name: "Editor" }));
+  await waitFor(() => expect(within(dialog).getByRole("spinbutton", { name: "Tab size" })).toHaveValue(2));
+  expect(within(dialog).getByRole("combobox", { name: "Auto-indent" })).toHaveValue("full");
+  expect(within(dialog).getByRole("checkbox", { name: "Detect indentation" })).toBeChecked();
+  fireEvent.change(within(dialog).getByRole("combobox", { name: "Auto-indent" }), { target: { value: "none" } });
+  fireEvent.click(within(dialog).getByRole("checkbox", { name: "Insert spaces" }));
+  expect(within(within(dialog).getByRole("tab", { name: /^Editor/ })).getByRole("img", { name: "unapplied changes" })).toBeInTheDocument();
+  responses["settings.state"] = [{ revision: 2, loadError: null, rejectedAssociations: [], document: { schemaVersion: 1, values: {} } }];
+  responses["language.capabilities"] = [[]];
+  fireEvent.click(within(dialog).getByRole("button", { name: "Apply" }));
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({ id: "settings.saveChecked" })));
+  const saved = vi.mocked(executeCommand).mock.calls.find(([request]) => request.id === "settings.saveChecked")?.[0];
+  expect(saved?.arguments).toEqual({
+    expectedRevision: 1,
+    document: { schemaVersion: 1, values: { editor: {
+      tabSize: 2, wordWrap: true, autoIndent: "none", insertSpaces: true, detectIndentation: true,
+    } } },
+  });
+});
+
 test("applies and persists editor appearance settings at the observed revision", async () => {
   const dialog = await openSettings();
   fireEvent.click(within(dialog).getByRole("tab", { name: "Appearance & Themes" }));

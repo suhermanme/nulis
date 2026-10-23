@@ -1,5 +1,5 @@
 /** Versioned JSON-compatible values mirrored from nulis-core's public IPC DTOs. */
-export const IPC_PROTOCOL_VERSION = 44 as const;
+export const IPC_PROTOCOL_VERSION = 45 as const;
 
 export interface ThemeRecord {
   schema?: string;
@@ -295,6 +295,8 @@ export interface DocumentSummary {
   readOnly?: boolean;
   /** What the document's language offers right now; absent when nothing. */
   capabilities?: DocumentCapabilities;
+  /** What Tab inserts (spaces or a tab) and how wide a tab is drawn. */
+  indentation?: { spaces: boolean; width: number; tabSize: number };
   /** A binary format such as "binary property list": shown in the hexadecimal view. */
   binaryFormat?: string;
 }

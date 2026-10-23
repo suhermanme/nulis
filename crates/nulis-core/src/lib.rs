@@ -82,7 +82,7 @@ use nulis_automation::{
     CURRENT_REVISION_ARGUMENT,
 };
 
-pub const IPC_PROTOCOL_VERSION: u32 = 44;
+pub const IPC_PROTOCOL_VERSION: u32 = 45;
 pub const PRODUCT_NAME: &str = "Nulis";
 pub const APPLICATION_ID: &str = "com.nulis.editor";
 const MAX_SCRIPT_MESSAGES: usize = 100;

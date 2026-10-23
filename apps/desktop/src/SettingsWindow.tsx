@@ -71,8 +71,35 @@ function loadSection(): SettingsSectionId {
 
 /** How each capability is named next to its switch. */
 const FEATURE_NAMES: Partial<Record<CapabilityKind, string>> = {
-  diagnostics: "Validate", format: "Beautify", compact: "Minify", preview: "Preview",
+  diagnostics: "Validate", format: "Beautify", compact: "Minify", preview: "Preview", indentation: "Auto-indent rules",
 };
+
+/** The `editor` indentation values of settings.json, with Nulis's defaults. */
+interface IndentationDraft {
+  autoIndent: "full" | "keep" | "none";
+  insertSpaces: boolean;
+  tabSize: number;
+  detectIndentation: boolean;
+}
+
+function indentationOf(state: SettingsState | null): IndentationDraft {
+  const editor = state?.document.values.editor;
+  const values = typeof editor === "object" && editor !== null ? editor as Record<string, unknown> : {};
+  const autoIndent = values.autoIndent === "keep" || values.autoIndent === "none" ? values.autoIndent : "full";
+  const tabSize = typeof values.tabSize === "number" ? Math.min(16, Math.max(1, Math.round(values.tabSize))) : 4;
+  return {
+    autoIndent,
+    insertSpaces: values.insertSpaces === true,
+    tabSize,
+    detectIndentation: values.detectIndentation !== false,
+  };
+}
+
+/** Writes the indentation draft into settings.json values, keeping other editor values. */
+function withIndentation(values: Record<string, unknown>, draft: IndentationDraft): Record<string, unknown> {
+  const editor = typeof values.editor === "object" && values.editor !== null ? values.editor as Record<string, unknown> : {};
+  return { ...values, editor: { ...editor, ...draft } };
+}
 
 type FeatureSwitches = Record<string, Partial<Record<CapabilityKind, boolean>>>;
 
@@ -143,6 +170,7 @@ export function SettingsWindow({
   const [settingsState, setSettingsState] = useState<SettingsState | null>(null);
   const [featureRows, setFeatureRows] = useState<LanguageCapabilities[]>([]);
   const [featureDraft, setFeatureDraft] = useState<FeatureSwitches>({});
+  const [indentDraft, setIndentDraft] = useState<IndentationDraft>(() => indentationOf(null));
   const [plugins, setPlugins] = useState<PluginSummary[]>([]);
   const [info, setInfo] = useState<ApplicationInfo | null>(null);
   const [savedLineChanges, setSavedLineChanges] = useState(loadLineChangeDefault);
@@ -165,6 +193,7 @@ export function SettingsWindow({
     setSettingsState(state ?? null);
     setFeatureRows(nextRows);
     setFeatureDraft(switchesOf(nextRows));
+    setIndentDraft(indentationOf(state ?? null));
   }, []);
 
   const loadState = useCallback(async () => {
@@ -215,21 +244,23 @@ export function SettingsWindow({
     const before = saved.document;
     if (welcome !== savedWelcome) pending.add("general");
     if (before.appearance.theme !== draft.appearance.theme) pending.add("appearance");
-    if (!same({ ...before.appearance, theme: "" }, { ...draft.appearance, theme: "" }) || lineChanges !== savedLineChanges) pending.add("editor");
+    if (!same({ ...before.appearance, theme: "" }, { ...draft.appearance, theme: "" }) || lineChanges !== savedLineChanges
+      || !same(indentDraft, indentationOf(settingsState))) pending.add("editor");
     if (!same(before.keybindings, draft.keybindings)) pending.add("keybindings");
     if (!same(before.menu, draft.menu) || !same(before.toolbar, draft.toolbar)) pending.add("menus");
     if (!same(featureDraft, switchesOf(featureRows))) pending.add("languages");
     return pending;
-  }, [draft, featureDraft, featureRows, lineChanges, saved, savedLineChanges, savedWelcome, welcome]);
+  }, [draft, featureDraft, featureRows, indentDraft, lineChanges, saved, savedLineChanges, savedWelcome, settingsState, welcome]);
   const pending = pendingSections.size > 0;
 
   const discard = useCallback(() => {
     if (saved) setDraft(saved.document);
     setFeatureDraft(switchesOf(featureRows));
+    setIndentDraft(indentationOf(settingsState));
     setLineChanges(savedLineChanges);
     setWelcome(savedWelcome);
     onPreview(null);
-  }, [featureRows, onPreview, saved, savedLineChanges, savedWelcome]);
+  }, [featureRows, onPreview, saved, savedLineChanges, savedWelcome, settingsState]);
 
   const apply = useCallback(async (): Promise<boolean> => {
     if (!saved || !draft || busy) return false;
@@ -239,13 +270,15 @@ export function SettingsWindow({
         id: "customization.saveChecked", context: CONTEXT,
         arguments: { expectedRevision: saved.revision, document: draft },
       });
-      if (settingsState && !same(featureDraft, switchesOf(featureRows))) {
+      const featuresChanged = !same(featureDraft, switchesOf(featureRows));
+      const indentationChanged = !same(indentDraft, indentationOf(settingsState));
+      if (settingsState && (featuresChanged || indentationChanged)) {
+        let values = settingsState.document.values;
+        if (featuresChanged) values = withSwitches(values, featureDraft, featureRows);
+        if (indentationChanged) values = withIndentation(values, indentDraft);
         await executeCommand<SettingsState>({
           id: "settings.saveChecked", context: CONTEXT,
-          arguments: {
-            expectedRevision: settingsState.revision,
-            document: { ...settingsState.document, values: withSwitches(settingsState.document.values, featureDraft, featureRows) },
-          },
+          arguments: { expectedRevision: settingsState.revision, document: { ...settingsState.document, values } },
         });
         await loadLanguageSettings();
       }
@@ -266,7 +299,7 @@ export function SettingsWindow({
     } finally {
       setBusy(false);
     }
-  }, [busy, draft, featureDraft, featureRows, lineChanges, loadLanguageSettings, onSaved, saved, settingsState, themes, welcome]);
+  }, [busy, draft, featureDraft, featureRows, indentDraft, lineChanges, loadLanguageSettings, onSaved, saved, settingsState, themes, welcome]);
 
   const requestClose = useCallback(() => {
     if (pending) setConfirm("close");
@@ -427,6 +460,35 @@ export function SettingsWindow({
         </div>
         <label className="settings-check"><input aria-label="Font ligatures" type="checkbox" checked={draft.appearance.fontLigatures}
           onChange={(event) => updateAppearance({ fontLigatures: event.currentTarget.checked })} /><span>Enable font ligatures</span></label>
+      </fieldset>
+      <fieldset className="settings-group"><legend>Indentation</legend>
+        <label><span>Auto-indent</span><select aria-label="Auto-indent" value={indentDraft.autoIndent}
+          onChange={(event) => {
+            const autoIndent = event.currentTarget.value as IndentationDraft["autoIndent"];
+            setIndentDraft((current) => ({ ...current, autoIndent }));
+          }}>
+          <option value="full">Follow the language</option>
+          <option value="keep">Keep the line's indentation</option>
+          <option value="none">Off</option>
+        </select></label>
+        <div className="settings-number-row">
+          <label><span>Tab size</span><input aria-label="Tab size" type="number" min="1" max="16" value={indentDraft.tabSize}
+            onChange={(event) => {
+              const tabSize = Math.min(16, Math.max(1, Math.round(event.currentTarget.valueAsNumber || 4)));
+              setIndentDraft((current) => ({ ...current, tabSize }));
+            }} /></label>
+        </div>
+        <label className="settings-check"><input aria-label="Insert spaces" type="checkbox" checked={indentDraft.insertSpaces}
+          onChange={(event) => {
+            const insertSpaces = event.currentTarget.checked;
+            setIndentDraft((current) => ({ ...current, insertSpaces }));
+          }} /><span>Indent with spaces instead of tabs</span></label>
+        <label className="settings-check"><input aria-label="Detect indentation" type="checkbox" checked={indentDraft.detectIndentation}
+          onChange={(event) => {
+            const detectIndentation = event.currentTarget.checked;
+            setIndentDraft((current) => ({ ...current, detectIndentation }));
+          }} /><span>Follow how each file is already indented</span></label>
+        <p className="settings-help">Enter indents the new line, a closing bracket or tag typed on its own line moves left, and Backspace removes one level of spaces. YAML always uses spaces and Makefile recipes always use tabs.</p>
       </fieldset>
       <fieldset className="settings-group"><legend>Gutter</legend>
         <label className="settings-check"><input aria-label="Show line change indicators by default" type="checkbox" checked={lineChanges}

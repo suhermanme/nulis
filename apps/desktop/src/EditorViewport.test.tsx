@@ -4,7 +4,7 @@ import { afterEach, beforeAll, expect, test, vi } from "vitest";
 import { useState } from "react";
 import type { DocumentSummary } from "./contracts";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { appendedClipboard, EditorViewport, formatDateTime, lineBreakAt } from "./EditorViewport";
+import { appendedClipboard, EditorViewport, formatDateTime } from "./EditorViewport";
 import { executeCommand, getDocumentMap, getMarkdownPreviewSource, getViewport, getViewportAt, getViewportLine } from "./ipc";
 
 vi.mock("./ipc", () => ({
@@ -88,25 +88,12 @@ test("renders line numbers from a bounded native viewport and dispatches typing"
     expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
       id: "editor.insertText",
       arguments: expect.objectContaining({
-        text: "x", expectedRevision: "0", overwrite: false,
+        text: "x", expectedRevision: "0", overwrite: false, typed: true,
       }),
     }));
   });
 });
 
-test("Enter inserts the line ending of the caret's line, else of the nearest line, else LF", () => {
-  const line = (start: number, end: number, ending?: "lf" | "crlf" | "cr") => ({
-    line: String(start), startByte: String(start), endByte: String(end), text: "", sourceByteWidths: [],
-    continuation: false, truncated: false, ending,
-  });
-  const lines = [line(0, 2, "crlf"), line(2, 3, "cr"), line(3, 3)];
-  expect(lineBreakAt(lines, 0n)).toBe("\r\n");
-  expect(lineBreakAt(lines, 2n)).toBe("\r");
-  // The last line has no ending: use the one above it.
-  expect(lineBreakAt(lines, 3n)).toBe("\r");
-  expect(lineBreakAt([line(0, 0)], 0n)).toBe("\n");
-  expect(lineBreakAt([], 0n)).toBe("\n");
-});
 
 test("Enter in a CRLF document inserts CRLF, and conversion reports what changed", async () => {
   vi.mocked(getViewport).mockResolvedValueOnce({
@@ -123,9 +110,10 @@ test("Enter in a CRLF document inserts CRLF, and conversion reports what changed
     onDocumentChange={() => undefined} onStatus={onStatus} />);
   const editor = await screen.findByRole("textbox", { name: "Untitled editor" });
   await screen.findByText("two");
+  // Enter is a core command: the core picks the line ending and the indentation.
   fireEvent.keyDown(editor, { key: "Enter" });
   await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
-    id: "editor.insertText", arguments: expect.objectContaining({ text: "\r\n" }),
+    id: "editor.newline", arguments: { expectedRevision: "0" },
   })));
 
   vi.mocked(executeCommand).mockResolvedValueOnce({
@@ -1660,14 +1648,14 @@ test("Tab indents a multi-line selection, Shift Tab outdents, and Ctrl or Cmd sl
   await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(operation("toggleComment")));
 });
 
-test("Tab inserts a tab character when nothing spans lines", async () => {
+test("Tab asks the core for one level of indentation when nothing spans lines", async () => {
   respondLikeCore();
   render(<EditorViewport document={{ documentId: "document-1", name: "Untitled", byteLen: "7", revision: "0", encoding: "utf8" }}
     onDocumentChange={() => undefined} onStatus={() => undefined} />);
   const editor = await screen.findByRole("textbox", { name: "Untitled editor" });
   fireEvent.keyDown(editor, { key: "Tab" });
   await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
-    id: "editor.insertText", arguments: expect.objectContaining({ text: "\t" }),
+    id: "editor.tab", arguments: { expectedRevision: "0" },
   })));
 });
 

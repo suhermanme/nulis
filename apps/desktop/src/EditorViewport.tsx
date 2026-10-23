@@ -44,7 +44,6 @@ import type {
   SyntaxToken,
   TextEncoding,
   ViewportCursor,
-  ViewportLine,
   ViewportSnapshot,
 } from "./contracts";
 import { Icon, IconButton } from "./icons";
@@ -145,22 +144,6 @@ type NavigationAction =
 /** Caret positions remembered for Go Back / Go Forward. */
 const MAX_NAVIGATION_HISTORY = 100;
 
-const LINE_BREAKS: Record<LineEnding, string> = { lf: "\n", crlf: "\r\n", cr: "\r" };
-
-/**
- * The line break Enter inserts at `byte`: the ending of the caret's line, else
- * of the nearest loaded line above or below it, else LF.
- */
-export function lineBreakAt(lines: readonly ViewportLine[], byte: bigint): string {
-  let index = -1;
-  lines.forEach((line, candidate) => { if (BigInt(line.startByte) <= byte) index = candidate; });
-  for (let above = index; above >= 0; above -= 1) {
-    const ending = lines[above]?.ending;
-    if (ending) return LINE_BREAKS[ending];
-  }
-  const below = lines.slice(index + 1).find((line) => line.ending)?.ending;
-  return below ? LINE_BREAKS[below] : "\n";
-}
 
 const EDITOR_ACTION_KINDS: Record<EditorActionName,
   { line: LineOperation } | { transform: TextTransformName } | { insertDateTime: true } | { navigate: NavigationAction }
@@ -812,7 +795,7 @@ export function EditorViewport({
   refreshRef.current = refresh;
   const queueEdit = useCallback(
     (
-      id: "editor.insertText" | "editor.deleteBackward" | "editor.deleteForward",
+      id: "editor.insertText" | "editor.newline" | "editor.tab" | "editor.deleteBackward" | "editor.deleteForward",
       details: Record<string, unknown>,
     ) => {
       const run = async () => {
@@ -836,15 +819,29 @@ export function EditorViewport({
   );
 
   const insertText = useCallback(
-    async (text: string) => {
+    async (text: string, typed = false) => {
       if (refuseEdit()) return;
       try {
-        if (await queueEdit("editor.insertText", { text, overwrite })) onStatus("Edited");
+        // Typed keys may move a closing line left (`}`, `</`); pasted text never does.
+        if (await queueEdit("editor.insertText", { text, overwrite, ...(typed ? { typed: true } : {}) })) onStatus("Edited");
       } catch (error: unknown) {
         onStatus(error instanceof Error ? error.message : "Could not insert text");
       }
     },
     [onStatus, overwrite, queueEdit, refuseEdit],
+  );
+
+  /** Enter and Tab: core commands that indent for the document's language. */
+  const runIndentingKey = useCallback(
+    async (id: "editor.newline" | "editor.tab") => {
+      if (refuseEdit()) return;
+      try {
+        if (await queueEdit(id, {})) onStatus("Edited");
+      } catch (error: unknown) {
+        onStatus(error instanceof Error ? error.message : "Could not insert text");
+      }
+    },
+    [onStatus, queueEdit, refuseEdit],
   );
 
   const transferSelection = useCallback(
@@ -1932,10 +1929,11 @@ export function EditorViewport({
       });
     } else if (event.key === "Enter") {
       event.preventDefault();
-      void insertText(lineBreakAt(snapshot?.lines ?? [], BigInt(caretByteRef.current)));
+      // The core picks the line ending and the indentation.
+      void runIndentingKey("editor.newline");
     } else if (event.key === "Tab") {
       event.preventDefault();
-      void insertText("\t");
+      void runIndentingKey("editor.tab");
     } else if (event.key === "Backspace") {
       event.preventDefault();
       if (refuseEdit()) return;
@@ -1955,7 +1953,7 @@ export function EditorViewport({
       loadPrevious();
     } else if (event.key.length === 1) {
       event.preventDefault();
-      void insertText(event.key);
+      void insertText(event.key, true);
     }
   };
 
@@ -2380,7 +2378,11 @@ export function EditorViewport({
         ref={surfaceRef}
         className={`editor-surface${wordWrap ? " word-wrap" : ""}${showWhitespace ? " show-whitespace" : ""}${
           showLineNumbers ? "" : " no-line-numbers"}${columnMarker ? " column-marker" : ""}`}
-        style={columnMarker ? { "--marker-column": String(columnMarker) } as CSSProperties : undefined}
+        style={{
+          // Tabs are drawn at the document's tab size.
+          tabSize: document.indentation?.tabSize ?? 4,
+          ...(columnMarker ? { "--marker-column": String(columnMarker) } : {}),
+        } as CSSProperties}
         onScroll={onScroll}
         onContextMenu={(event) => {
           event.preventDefault();
