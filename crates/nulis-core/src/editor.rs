@@ -36,6 +36,8 @@ mod column_tools;
 pub use column_tools::{Justify, NumberPadding, NumberSequence, NumberSum};
 mod completion;
 mod external_changes;
+mod server_support;
+pub use server_support::ServerDocument;
 mod find_all;
 pub use completion::{CompletionList, COMPLETION_WINDOW_BYTES};
 mod indentation;
@@ -222,6 +224,9 @@ pub struct DocumentCapabilities {
     /// Completion: "auto" (may open while typing) or "manual" (only when asked).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completion: Option<String>,
+    /// The approved language server for the document's language, by ID.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language_server: Option<String>,
 }
 
 impl DocumentCapabilities {
@@ -840,6 +845,10 @@ pub struct DocumentManager {
     languages: std::sync::RwLock<LanguageRegistry>,
     capabilities: std::sync::RwLock<CapabilityRegistry>,
     indent_settings: std::sync::RwLock<IndentSettingsTable>,
+    /// Language ID to the approved language server for it.
+    language_servers: std::sync::RwLock<BTreeMap<String, String>>,
+    /// Configured language servers and the ones running.
+    servers: crate::language_servers::LanguageServers,
     sessions: Mutex<BTreeMap<DocumentId, EditorSession>>,
 }
 
@@ -942,10 +951,23 @@ impl DocumentManager {
                     _ => None,
                 }),
             completion: None,
+            language_server: None,
         };
         drop(registry);
+        let language_server = self
+            .language_servers
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(language.as_str())
+            .cloned();
         DocumentCapabilities {
             completion: self.completion_mode(language),
+            // Beautify falls back to the language server's formatting.
+            format: capabilities
+                .format
+                .clone()
+                .or_else(|| language_server.clone()),
+            language_server,
             ..capabilities
         }
     }
@@ -1029,12 +1051,15 @@ impl DocumentManager {
 
     #[must_use]
     pub fn new(session_root: PathBuf) -> Self {
+        let approvals = session_root.join("lsp-approvals.json");
         Self {
             next_id: AtomicU64::new(0),
             session_root,
             languages: std::sync::RwLock::new(LanguageRegistry::default()),
             capabilities: std::sync::RwLock::new(crate::builtin_providers::builtin_registry()),
             indent_settings: std::sync::RwLock::new(IndentSettingsTable::default()),
+            language_servers: std::sync::RwLock::new(BTreeMap::new()),
+            servers: crate::language_servers::LanguageServers::new(approvals),
             sessions: Mutex::new(BTreeMap::new()),
         }
     }
@@ -3907,19 +3932,9 @@ impl DocumentManager {
             }
         });
         let formatted = formatted.map_err(|problem| EditorError::Tool(problem.describe(&label)))?;
-        let Some(formatted) = formatted else {
-            return Ok(summary(document_id, session));
-        };
-        let bytes = encode_text(session.encoding, &formatted)?;
-        let old_len = session.document.table().len();
-        session.document.replace(0, old_len, &bytes)?;
-        session.selections = vec![Selection::caret(0)];
-        session.rectangular_selection = None;
-        let edits = vec![(0, old_len, bytes.len())];
-        relocate_bookmarks(&mut session.bookmarks, &edits)?;
-        record_bookmark_edit(session, edits);
-        session.preferred_scalar_columns = vec![None];
-        session.navigation_index.reset();
+        if let Some(formatted) = formatted {
+            replace_whole_text(session, &formatted)?;
+        }
         Ok(summary(document_id, session))
     }
 
@@ -4353,6 +4368,22 @@ fn summary(document_id: &DocumentId, session: &EditorSession) -> DocumentSummary
         indentation: session.indentation,
         binary_format: binary_format(session).map(str::to_owned),
     }
+}
+
+/// Replaces a document's whole text as one revision and one undo step,
+/// with the caret at the start (Beautify, a language server's formatting).
+fn replace_whole_text(session: &mut EditorSession, text: &str) -> Result<(), EditorError> {
+    let bytes = encode_text(session.encoding, text)?;
+    let old_len = session.document.table().len();
+    session.document.replace(0, old_len, &bytes)?;
+    session.selections = vec![Selection::caret(0)];
+    session.rectangular_selection = None;
+    let edits = vec![(0, old_len, bytes.len())];
+    relocate_bookmarks(&mut session.bookmarks, &edits)?;
+    record_bookmark_edit(session, edits);
+    session.preferred_scalar_columns = vec![None];
+    session.navigation_index.reset();
+    Ok(())
 }
 
 /// Binary formats recognized by their first bytes: they are not text, so

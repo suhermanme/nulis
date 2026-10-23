@@ -19,6 +19,8 @@ pub enum CompletionKind {
     Snippet,
     Keyword,
     Type,
+    /// A function, field, variable, or other name a language server knows.
+    Symbol,
     Word,
 }
 

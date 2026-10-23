@@ -5,6 +5,7 @@ mod command;
 mod count_jobs;
 mod editor;
 mod format_tools;
+mod language_servers;
 mod line_changes;
 mod plist_tools;
 mod print_jobs;
@@ -83,7 +84,7 @@ use nulis_automation::{
     CURRENT_REVISION_ARGUMENT,
 };
 
-pub const IPC_PROTOCOL_VERSION: u32 = 45;
+pub const IPC_PROTOCOL_VERSION: u32 = 46;
 pub const PRODUCT_NAME: &str = "Nulis";
 pub const APPLICATION_ID: &str = "com.nulis.editor";
 const MAX_SCRIPT_MESSAGES: usize = 100;
@@ -185,6 +186,8 @@ impl SettingsState {
             .flatten()
             .collect::<Vec<_>>();
         documents.set_disabled_capabilities(disabled);
+        let servers = documents.servers().configure(&self.layers.effective(None));
+        documents.set_language_servers(servers);
         documents.set_indent_settings(IndentSettingsTable {
             default: IndentSettings::from_settings(&self.layers.effective(None)),
             languages: self
@@ -2717,9 +2720,29 @@ fn register_tool_commands(commands: &mut CommandRegistry, documents: &Arc<Docume
                 CommandDescriptor::new(id, title, "Tools").expect("built-in command ID is valid"),
                 move |context, arguments| {
                     let arguments: FormatArguments = parse_arguments(arguments)?;
+                    let document_id = context_document(&context)?;
+                    // Beautify without a built-in formatter asks the language server.
+                    if !minify && !manager.has_builtin_formatter(&document_id, false) {
+                        let options = manager
+                            .line_format_defaults(&document_id)
+                            .map_err(|error| editor_command_error(&error))?;
+                        if let Some(summary) = manager
+                            .servers()
+                            .format(
+                                &manager,
+                                &document_id,
+                                options.tab_width,
+                                options.indent_with_spaces,
+                            )
+                            .map_err(CommandError::Failed)?
+                        {
+                            return serde_json::to_value(summary)
+                                .map_err(|error| serialization_command_error(&error));
+                        }
+                    }
                     let result = manager
                         .format_document(
-                            &context_document(&context)?,
+                            &document_id,
                             arguments.expected_revision,
                             minify,
                             arguments.accept_loss,
@@ -3702,6 +3725,72 @@ fn register_navigation_commands(commands: &mut CommandRegistry, documents: &Arc<
         .expect("built-in command is unique");
 }
 
+/// Settings' view of language servers, approving and restarting them, and
+/// the problems a server reports for a document.
+fn register_language_server_commands(
+    commands: &mut CommandRegistry,
+    documents: &Arc<DocumentManager>,
+) {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct ServerArguments {
+        id: String,
+    }
+    let manager = Arc::clone(documents);
+    commands
+        .register(
+            CommandDescriptor::new("lsp.state", "List Language Servers", "Language")
+                .expect("built-in command ID is valid"),
+            move |_context, _arguments| {
+                let (servers, config_error) = manager.servers().status();
+                Ok(json!({ "servers": servers, "configError": config_error }))
+            },
+        )
+        .expect("built-in command is unique");
+    for (id, title) in [
+        ("lsp.approve", "Approve Language Server"),
+        ("lsp.revoke", "Revoke Language Server"),
+        ("lsp.restart", "Restart Language Server"),
+    ] {
+        let manager = Arc::clone(documents);
+        commands
+            .register(
+                CommandDescriptor::new(id, title, "Language")
+                    .expect("built-in command ID is valid"),
+                move |_context, arguments| {
+                    let arguments: ServerArguments = parse_arguments(arguments)?;
+                    let servers = manager.servers();
+                    if id == "lsp.restart" {
+                        servers.restart(&arguments.id);
+                    } else {
+                        let map = servers
+                            .set_approved(&arguments.id, id == "lsp.approve")
+                            .map_err(CommandError::Failed)?;
+                        manager.set_language_servers(map);
+                    }
+                    let (servers, config_error) = servers.status();
+                    Ok(json!({ "servers": servers, "configError": config_error }))
+                },
+            )
+            .expect("built-in command is unique");
+    }
+    let manager = Arc::clone(documents);
+    commands
+        .register(
+            CommandDescriptor::new("lsp.diagnostics", "Language Server Problems", "Language")
+                .expect("built-in command ID is valid"),
+            move |context, _arguments| {
+                let document_id = context_document(&context)?;
+                let problems = manager
+                    .servers()
+                    .problems(&manager, &document_id)
+                    .map_err(CommandError::Failed)?;
+                serde_json::to_value(problems).map_err(|error| serialization_command_error(&error))
+            },
+        )
+        .expect("built-in command is unique");
+}
+
 /// Suggestions for the word at the caret, and accepting one.
 fn register_completion_commands(commands: &mut CommandRegistry, documents: &Arc<DocumentManager>) {
     let manager = Arc::clone(documents);
@@ -3712,7 +3801,7 @@ fn register_completion_commands(commands: &mut CommandRegistry, documents: &Arc<
             move |context, arguments| {
                 let document_id = context_document(&context)?;
                 let arguments: CompletionArguments = parse_arguments(arguments)?;
-                let list = manager
+                let mut list = manager
                     .completions(
                         &document_id,
                         arguments.expected_revision,
@@ -3721,6 +3810,21 @@ fn register_completion_commands(commands: &mut CommandRegistry, documents: &Arc<
                         arguments.min_prefix,
                     )
                     .map_err(|error| editor_command_error(&error))?;
+                // A language server's suggestions join the built-in ones;
+                // a failing or late server just adds none.
+                let asked = arguments.explicit
+                    || list.prefix.chars().count() >= arguments.min_prefix.max(1);
+                if asked {
+                    if let Ok(items) = manager.servers().completions(&manager, &document_id) {
+                        if !items.is_empty() {
+                            let builtin = std::mem::take(&mut list.items);
+                            list.items = nulis_language::completion::rank(
+                                &list.prefix,
+                                vec![items, builtin],
+                            );
+                        }
+                    }
+                }
                 serde_json::to_value(list).map_err(|error| serialization_command_error(&error))
             },
         )
@@ -3780,6 +3884,7 @@ fn register_text_transfer_commands(
         .expect("built-in command is unique");
 
     register_completion_commands(commands, documents);
+    register_language_server_commands(commands, documents);
 
     for (id, title, tab) in [
         ("editor.newline", "Insert Line Break", false),

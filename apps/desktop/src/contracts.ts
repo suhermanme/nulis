@@ -1,5 +1,5 @@
 /** Versioned JSON-compatible values mirrored from nulis-core's public IPC DTOs. */
-export const IPC_PROTOCOL_VERSION = 45 as const;
+export const IPC_PROTOCOL_VERSION = 46 as const;
 
 export interface ThemeRecord {
   schema?: string;

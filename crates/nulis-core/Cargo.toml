@@ -17,6 +17,7 @@ nulis-plugin-host = { path = "../nulis-plugin-host" }
 nulis-print = { path = "../nulis-print" }
 nulis-search = { path = "../nulis-search" }
 nulis-language = { path = "../nulis-language" }
+nulis-lsp = { path = "../nulis-lsp" }
 nulis-syntax = { path = "../nulis-syntax" }
 nulis-settings = { path = "../nulis-settings" }
 nulis-terminal = { path = "../nulis-terminal" }
