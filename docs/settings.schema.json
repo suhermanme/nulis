@@ -20,12 +20,30 @@
           },
           "additionalProperties": true
         },
+        "files": {
+          "type": "object",
+          "properties": {
+            "associations": {
+              "description": "File pattern (*.ext or an exact file name) to language ID.",
+              "type": "object",
+              "maxProperties": 256,
+              "additionalProperties": { "type": "string", "maxLength": 255 }
+            }
+          },
+          "additionalProperties": true
+        },
         "workbench": {
           "type": "object",
           "properties": {
             "colorTheme": { "type": "string", "minLength": 1 }
           },
           "additionalProperties": true
+        }
+      },
+      "patternProperties": {
+        "^\\[[a-z0-9.-]+\\]$": {
+          "description": "Settings that apply to one language, such as \"[python]\".",
+          "type": "object"
         }
       },
       "additionalProperties": true

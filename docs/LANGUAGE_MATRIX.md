@@ -52,7 +52,7 @@ Highlighter: **TS** = Tree-sitter grammar; **Lex** = table-driven lexer (mode in
 | YAML | `yaml` | yaml, yml; .clang-format | Lex (code, YAML) | brace (flow only) | yes (flow only) | `#` | V B (B lossy, confirmed; refused with tags) | — |
 | Zig | `zig` | zig, zon | Lex (code) | brace | yes | `//` | — | — |
 
-Only JSON has document symbols (`pair`). Detection resolves by first match in language-ID order; there are no collisions today.
+Only JSON has document symbols (`pair`). Since M42, detection resolves in explicit tiers (user associations, file names, longest extension, content, Plain Text; see LANGUAGE_CAPABILITIES.md §5.1); the built-in catalog has no conflicts, and a test checks that.
 
 ⚠ Known issues (fix planned in M46): `.css` Toggle Comment uses `//`, which plain CSS rejects; Python has no bracket pairs; `.scpt` is binary but opens as text; Markdown has no folds; YAML has no indentation folds. Unrecognized today: `Dockerfile.dev` and similar, `.jsonc`.
 

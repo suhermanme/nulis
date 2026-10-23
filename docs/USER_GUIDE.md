@@ -429,7 +429,20 @@ Press **Ctrl/⌘ G**, type a line number, or a line and column such as `120:8`, 
 
 Nulis picks a language from the file name and extension. For names that say nothing, it looks at the first bytes of the file: a `#!` line, an XML declaration, `<?php`, or an HTML doctype.
 
-To override the choice, use the **View As** list in the editor toolbar. This also switches which tools are offered: choosing JSON, XML, YAML, or Property List turns on that language's tools for a file with any extension.
+To override the choice, use the **View As** list in the editor toolbar. This also switches which tools are offered: choosing JSON, XML, YAML, or Property List turns on that language's tools for a file with any extension. Nulis remembers the choice for files it reopens at the next start.
+
+To always open a kind of file as a certain language, add it to `files.associations` in `settings.json`, in the folder where Nulis keeps its data (see "Where Nulis stores data" in the README). A pattern is either `*.ext` or an exact file name; letters match either case. Your associations come before Nulis's own. For example:
+
+```json
+{
+  "schemaVersion": 1,
+  "values": {
+    "files": { "associations": { "*.h": "cpp", "Jenkinsfile": "ruby" } }
+  }
+}
+```
+
+Nulis reads the file when it starts, so restart it after editing; files already open keep their language until reopened. A pattern that is not valid, or a language that does not exist, is ignored. Language names to use: `plaintext`, `applescript`, `bash`, `batch`, `c`, `cpp`, `csharp`, `css`, `csv`, `dockerfile`, `go`, `html`, `ini`, `java`, `javascript`, `json`, `kotlin`, `lua`, `makefile`, `markdown`, `mysql`, `objective-c`, `perl`, `php`, `plist`, `plsql`, `powershell`, `python`, `ruby`, `rust`, `sql`, `swift`, `toml`, `tsv`, `typescript`, `vb`, `vbscript`, `xml`, `xsl`, `yaml`, `zig`.
 
 Supported languages: AppleScript, Bash and other shells, Batch, C, C++, C#, CSS, CSV, Dockerfile, Go, HTML, INI, Java, JavaScript, JSON, Kotlin, Lua, Makefile, Markdown, MySQL / MariaDB, Objective-C / Objective-C++, Oracle PL/SQL, Perl, PHP, PowerShell, Property List (`.plist`), Python, Ruby, Rust, SQL, Swift, TOML, TSV, TypeScript, VBScript / ASP, Visual Basic, XML, XSL, YAML, and Zig. Anything else is shown as plain text.
 

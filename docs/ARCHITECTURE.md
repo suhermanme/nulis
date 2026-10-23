@@ -141,6 +141,14 @@ IPC protocol v23 adds a customization revision and the Settings window. `customi
 
 IPC protocol v24 adds whole-machine browsing and broader language support. `places.roots` and `places.list` return the computer root, mounted volumes, the home directory, and one bounded absolute directory listing; unlike the workspace service they are not confined to an opened root and report a symlink as its target, because their purpose is to reach any file the user could already open by path through `file.open`. They list names and sizes only and never read file contents. Language modules now come in two kinds: Tree-sitter grammars (JSON, Python) and table-driven lexers, where a language is a static table interpreted by one of three bounded single-pass scanners. Both return the same analysis type, so the viewport, folding, and bracket matching do not distinguish them.
 
+## Language catalog and capabilities (M42)
+
+`nulis-syntax`'s `LanguageRegistry` is the language catalog. Every module (Plain Text included) carries its scanner kind and comment markers as data, so analysis and Toggle Comment no longer test language IDs. Associations record their source (user, built-in, plugin). A path resolves in tiers: the user's `files.associations`, then exact file names, then the longest matching extension (compound ones such as `d.ts` included), then content sniffing in `Editor::open`, then Plain Text; within a tier built-in claims beat plugins and plugins are ordered by ID, and `conflicts()` lists every contested name. Plugin languages can be unregistered; a document keeps its language ID and its viewport falls back to Plain Text analysis. A golden test (`crates/nulis-syntax/tests/detection_golden.rs`) pins the 0.4.0 mappings. The core holds the catalog behind a read-write lock so associations can change at run time.
+
+`nulis-language` holds capability contracts and the provider registry: capability kinds, provider IDs and origins, `Validator`, `Formatter`, and `PreviewProvider`, resolution (the user's choice, then built-in, plugin by ID, language server), switches per provider, per origin, and per language and kind, and `call`, which turns a provider panic into an error and sets a provider aside after three consecutive failures. It has no I/O and no Tauri dependency. Indentation and completion contracts join it with their first implementations (M44, M45).
+
+`settings.json` (schema 1) is stored beside the customization file and loaded at start; a broken file is reported by `settings.state` and the editor starts with defaults. `settings.saveChecked` stores a validated document against a revision and re-applies user values, `"[language]"` sections, and file associations. IPC protocol v43 adds `languageOverride` to document summaries and an optional `languages` map to the workbench session (omitted when empty, so 0.4.0 still reads sessions without overrides); the desktop re-applies those choices on start.
+
 ## Crate boundaries
 
 - `nulis-document`: 64-bit positions, document-facing contracts; M01 owns mutations and snapshots.
@@ -148,6 +156,7 @@ IPC protocol v24 adds whole-machine browsing and broader language support. `plac
 - `nulis-core`: command registry, opaque document sessions, and application-facing orchestration.
 - `nulis-settings`: schema-backed layered settings plus bounded, atomic customization persistence.
 - `nulis-search`, `nulis-syntax`, `nulis-hex`, `nulis-diff`: algorithms consuming public document/read interfaces.
+- `nulis-language`: language capability contracts and the provider registry; no I/O.
 - `nulis-filesystem`, `nulis-terminal`, `nulis-platform`: capability-oriented operating-system/service edges.
 - `nulis-automation`, `nulis-plugin-host`: versioned constrained extension execution.
 - `nulis-theme`: complete semantic tokens plus validated built-in/user theme catalogs.

@@ -26,7 +26,7 @@ All statements below were checked in the code at `1494931`. Line numbers refer t
 - No two built-in languages claim the same extension or file name today (checked by extracting every table), so the implicit ordering has not mattered yet. It will as soon as plugins add languages.
 - `detect_content` (line 303) runs only when the name gives Plain Text: `#!` interpreter, `<?php`, `<?xml` (XSL when `<xsl:` appears), HTML doctype. Called from `Editor::open` (`editor.rs:1052`).
 - Gaps found by probing the registry: `Dockerfile.dev` and `x.jsonc` open as Plain Text; `.h` is always C; `.scpt` (a compiled, binary AppleScript file) is mapped to the AppleScript text language.
-- A language chosen with **View As** (`language.set`, `editor.rs:2973`) is session state only: it is not in the recovery manifest (`nulis-filesystem/src/recovery.rs:17`) or the workbench session. `ARCHITECTURE.md` (M14 section) says the manifest records encoding and language; it records neither. To be corrected when this is fixed (M42).
+- A language chosen with **View As** (`language.set`, `editor.rs:2973`) is not in the workbench session, so it is lost when Nulis restarts normally. (Correction made in M42: recovery checkpoints do keep it; the core's `EditorRecoveryRecord` stores language and encoding, as `ARCHITECTURE.md` says. The M41 audit had read the unrelated `RecoveryManifest` in `nulis-filesystem`.)
 
 ### 2.3 Highlighting, folds, brackets, symbols
 
@@ -77,7 +77,8 @@ Run on this Mac at `1494931` on 2026-10-23:
 1. Toggle Comment in a `.css` file inserts `//`, which plain CSS does not accept (the CSS spec shares one table with SCSS and Less). Fix in M46.
 2. Python has no bracket pairs, so bracket matching does nothing there. Fix in M46.
 3. `.scpt` is binary but opens as AppleScript text. Fix in M46 (detect binary content, as already done for binary plists).
-4. The language override is lost on restart and recovery; `ARCHITECTURE.md` describes it otherwise. Fix in M42.
+4. The language override is lost on a normal restart (recovery keeps it). Fixed in M42.
+5. (Found in M42.) A document whose language is not registered fails to display, which would strand documents of a removed plugin language. Fixed in M42.
 
 ## 3. Proposed architecture
 

@@ -4,8 +4,8 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 
 ## Current state
 
-- **Current milestone:** M42 (plan 4, language catalog and capability contracts), in progress. M41 approved 2026-10-23 with every plan §7 recommendation accepted. Branch `feat/language-capabilities`. **To resume plan 4, read the "Plan 4" section below.** Plan 3 is complete and released in Nulis 0.4.0 (2026-10-23).
-- **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 5 of 5 milestones completed (M31–M35); plan 3: 5 of 5 completed (M36–M40, in Nulis 0.4.0); plan 4: 1 of 8 (M41, design only)
+- **Current milestone:** M42 complete (2026-10-23); next is M43 (first-party migration). M41 approved 2026-10-23 with every plan §7 recommendation accepted. Branch `feat/language-capabilities`. **To resume plan 4, read the "Plan 4" section below.** Plan 3 is complete and released in Nulis 0.4.0 (2026-10-23).
+- **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 5 of 5 milestones completed (M31–M35); plan 3: 5 of 5 completed (M36–M40, in Nulis 0.4.0); plan 4: 2 of 8 (M41, M42)
 - **Baseline before M19 (commit `66853e1`):** `cargo test -p nulis-core` 86 passed; desktop Vitest 11 files, 115 tests passed.
 
 | Milestone | Status | Handover |
@@ -33,7 +33,7 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 | M39 Print window and Page Setup dialog | Complete (macOS checked 2026-10-22; Windows/Linux pending) | `handover/M39_HANDOVER.md` |
 | M40 Docs and release | Complete 2026-10-22 | `handover/M40_HANDOVER.md` |
 | M41 Language capabilities: audit and design | Completed 2026-10-23 (approved) | this tracker, "Plan 4" section |
-| M42 Language catalog and capability contracts | In Progress | — |
+| M42 Language catalog and capability contracts | Completed 2026-10-23 (app check pending) | `handover/M42_HANDOVER.md` |
 | M43 First-party migration (tools, Markdown preview) | Not Started | — |
 | M44 Core auto-indentation | Not Started | — |
 | M45 Shared autocomplete | Not Started | — |
@@ -77,23 +77,37 @@ Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language 
 
 ### M42 — Language catalog and capability contracts
 
-**Status:** In Progress. **Depends on:** M41 approval (given).
+**Status:** Completed 2026-10-23 (automated checks on macOS; not yet tried in the running app). Handover: `handover/M42_HANDOVER.md`.
 
 | Task | Status |
 | --- | --- |
-| Golden detection test of every current mapping (commit first) | Not Started |
-| `LanguageCatalog`: association sources, precedence tiers, compound extensions, `unregister`, conflict report | Not Started |
-| New crate `nulis-language`: contracts, registry, resolution, enable/disable, isolation wrapper | Not Started |
-| Remove ID special cases in `analyze` and `comment_syntax` | Not Started |
-| Persist `settings.json` (user and per-language layers); `files.associations` | Not Started |
-| Persist the View As override (recovery manifest, workbench session); fix `ARCHITECTURE.md` | Not Started |
-| `DocumentSummary.capabilities`, `language.list` associations; IPC 43 | Not Started |
+| Golden detection test of every current mapping (commit first) | Completed (`de1bfec`) |
+| `LanguageCatalog`: association sources, precedence tiers, compound extensions, `unregister`, conflict report | Completed |
+| New crate `nulis-language`: contracts, registry, resolution, enable/disable, isolation wrapper | Completed (indentation and completion traits move to M44/M45, see decisions) |
+| Remove ID special cases in `analyze` and `comment_syntax` | Completed |
+| Persist `settings.json` (user and per-language layers); `files.associations` | Completed (no Settings UI yet; edited by hand, read at start) |
+| Persist the View As override (workbench session) | Completed (recovery already kept it; plan §2.2 corrected) |
+| Unknown language falls back to Plain Text in the viewport | Completed (found during M42) |
+| `languageOverride` in document summaries; IPC 43 | Completed |
+| `DocumentSummary.capabilities`, `language.list` associations | Moved to M43, where the interface first uses them |
 
-**Acceptance:** plan §5, M42.
+**Acceptance:** golden test unchanged (passes against the new precedence); a user association overrides a built-in one; plugin conflicts resolve deterministically and are reported; unregistered languages fall back to Plain Text keeping the ID; register/unregister tested; View As survives a restart (desktop test); no visible UI change other than View As being remembered.
+
+**Verification (macOS, 2026-10-23):** `cargo fmt --all -- --check` clean; `cargo clippy --workspace --all-targets -- -D warnings` clean; `cargo test --workspace` 373 passed (was 345: nulis-syntax 22 unit + 4 golden, nulis-language 8, nulis-settings 7, nulis-core 170, nulis-filesystem +1); `npm run lint` and `npm run typecheck` clean; Vitest 22 files, 192 tests passed (was 191). Not tried in the running app; CI not run (branch not pushed, by the owner's choice).
+
+**Files changed:** `crates/nulis-syntax/src/lib.rs`, `crates/nulis-syntax/tests/detection_golden.rs` (new), `crates/nulis-language/` (new crate), `crates/nulis-settings/src/lib.rs`, `crates/nulis-core/src/lib.rs`, `crates/nulis-core/src/editor.rs`, `crates/nulis-core/src/editor/{line_ops,rename,print_export}.rs`, `crates/nulis-filesystem/src/session.rs`, `apps/desktop/src/{contracts.ts,App.tsx,EditorViewport.tsx,App.test.tsx}`, `Cargo.toml`, `Cargo.lock`, docs (`ARCHITECTURE.md`, `USER_GUIDE.md`, `README.md`, `settings.schema.json`, plan, matrix, this tracker).
+
+**Decisions:**
+- Indentation and completion traits are added with their first implementations (M44, M45) rather than as unused interfaces now.
+- Capability descriptors in document summaries move to M43, together with the interface that reads them.
+- `register` now takes an `AssociationSource`; built-in languages cannot be unregistered.
+- A `[language]` section in `settings.json` is the per-language override format (`"[python]": { … }`).
+
+**Known issues:** View As updates the interface's copy of the language but not its tool set until the next document summary arrives (existing behavior; fixed by capability descriptors in M43). `settings.json` has no Settings page yet (M43) and is read only at start.
 
 ### M43 — First-party migration
 
-**Status:** Not Started. **Depends on:** M42.
+**Status:** Not Started. **Depends on:** M42 (done).
 
 | Task | Status |
 | --- | --- |
