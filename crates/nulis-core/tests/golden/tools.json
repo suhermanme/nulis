@@ -1,0 +1,935 @@
+{
+  "json-bom-crlf": {
+    "beautify": {
+      "ok": {
+        "dirty": true,
+        "languageId": "json",
+        "readOnly": false,
+        "revision": "1",
+        "tool": "json"
+      },
+      "text": "﻿{\r\n  \"a\": {\r\n    \"b\": []\r\n  },\r\n  \"c\": {}\r\n}"
+    },
+    "beautifyAcceptingLoss": {
+      "ok": {
+        "dirty": true,
+        "languageId": "json",
+        "readOnly": false,
+        "revision": "1",
+        "tool": "json"
+      },
+      "text": "﻿{\r\n  \"a\": {\r\n    \"b\": []\r\n  },\r\n  \"c\": {}\r\n}"
+    },
+    "minify": {
+      "ok": {
+        "dirty": true,
+        "languageId": "json",
+        "readOnly": false,
+        "revision": "1",
+        "tool": "json"
+      },
+      "text": "﻿{\"a\":{\"b\":[]},\"c\":{}}"
+    },
+    "opened": {
+      "dirty": true,
+      "languageId": "json",
+      "readOnly": false,
+      "revision": "0",
+      "tool": "json"
+    },
+    "validate": {
+      "ok": {
+        "message": "Valid JSON",
+        "tool": "json",
+        "valid": true
+      }
+    }
+  },
+  "json-comment": {
+    "beautify": {
+      "error": "command failed: Invalid JSON: expected `,` or `}` (line 1, column 8)",
+      "text": "{\"a\":1 // note\n}"
+    },
+    "beautifyAcceptingLoss": {
+      "error": "command failed: Invalid JSON: expected `,` or `}` (line 1, column 8)",
+      "text": "{\"a\":1 // note\n}"
+    },
+    "minify": {
+      "error": "command failed: Invalid JSON: expected `,` or `}` (line 1, column 8)",
+      "text": "{\"a\":1 // note\n}"
+    },
+    "opened": {
+      "dirty": true,
+      "languageId": "json",
+      "readOnly": false,
+      "revision": "0",
+      "tool": "json"
+    },
+    "validate": {
+      "ok": {
+        "byteOffset": "7",
+        "column": 8,
+        "line": 1,
+        "message": "Invalid JSON: expected `,` or `}` (line 1, column 8)",
+        "tool": "json",
+        "valid": false
+      }
+    }
+  },
+  "json-compact": {
+    "beautify": {
+      "ok": {
+        "dirty": true,
+        "languageId": "json",
+        "readOnly": false,
+        "revision": "1",
+        "tool": "json"
+      },
+      "text": "{\n  \"a\": [\n    1,\n    2,\n    {\n      \"b\": null\n    }\n  ],\n  \"c\": \"x\\\"y\",\n  \"n\": 1.50e10\n}"
+    },
+    "beautifyAcceptingLoss": {
+      "ok": {
+        "dirty": true,
+        "languageId": "json",
+        "readOnly": false,
+        "revision": "1",
+        "tool": "json"
+      },
+      "text": "{\n  \"a\": [\n    1,\n    2,\n    {\n      \"b\": null\n    }\n  ],\n  \"c\": \"x\\\"y\",\n  \"n\": 1.50e10\n}"
+    },
+    "minify": {
+      "ok": {
+        "dirty": true,
+        "languageId": "json",
+        "readOnly": false,
+        "revision": "0",
+        "tool": "json"
+      },
+      "text": "{\"a\":[1,2,{\"b\":null}],\"c\":\"x\\\"y\",\"n\":1.50e10}"
+    },
+    "opened": {
+      "dirty": true,
+      "languageId": "json",
+      "readOnly": false,
+      "revision": "0",
+      "tool": "json"
+    },
+    "validate": {
+      "ok": {
+        "message": "Valid JSON",
+        "tool": "json",
+        "valid": true
+      }
+    }
+  },
+  "json-empty": {
+    "beautify": {
+      "error": "command failed: Invalid JSON: the document is empty (line 1, column 1)",
+      "text": "  \n"
+    },
+    "beautifyAcceptingLoss": {
+      "error": "command failed: Invalid JSON: the document is empty (line 1, column 1)",
+      "text": "  \n"
+    },
+    "minify": {
+      "error": "command failed: Invalid JSON: the document is empty (line 1, column 1)",
+      "text": "  \n"
+    },
+    "opened": {
+      "dirty": true,
+      "languageId": "json",
+      "readOnly": false,
+      "revision": "0",
+      "tool": "json"
+    },
+    "validate": {
+      "ok": {
+        "byteOffset": "0",
+        "column": 1,
+        "line": 1,
+        "message": "Invalid JSON: the document is empty (line 1, column 1)",
+        "tool": "json",
+        "valid": false
+      }
+    }
+  },
+  "json-formatted": {
+    "beautify": {
+      "ok": {
+        "dirty": true,
+        "languageId": "json",
+        "readOnly": false,
+        "revision": "0",
+        "tool": "json"
+      },
+      "text": "{\n  \"a\": 1\n}"
+    },
+    "beautifyAcceptingLoss": {
+      "ok": {
+        "dirty": true,
+        "languageId": "json",
+        "readOnly": false,
+        "revision": "0",
+        "tool": "json"
+      },
+      "text": "{\n  \"a\": 1\n}"
+    },
+    "minify": {
+      "ok": {
+        "dirty": true,
+        "languageId": "json",
+        "readOnly": false,
+        "revision": "1",
+        "tool": "json"
+      },
+      "text": "{\"a\":1}"
+    },
+    "opened": {
+      "dirty": true,
+      "languageId": "json",
+      "readOnly": false,
+      "revision": "0",
+      "tool": "json"
+    },
+    "validate": {
+      "ok": {
+        "message": "Valid JSON",
+        "tool": "json",
+        "valid": true
+      }
+    }
+  },
+  "json-invalid-utf8": {
+    "beautify": {
+      "error": "command failed: Invalid JSON: the file is not valid UTF-8 here (line 1, column 7)",
+      "text": "{\"a\":\"�\"}"
+    },
+    "beautifyAcceptingLoss": {
+      "error": "command failed: Invalid JSON: the file is not valid UTF-8 here (line 1, column 7)",
+      "text": "{\"a\":\"�\"}"
+    },
+    "minify": {
+      "error": "command failed: Invalid JSON: the file is not valid UTF-8 here (line 1, column 7)",
+      "text": "{\"a\":\"�\"}"
+    },
+    "opened": {
+      "dirty": false,
+      "languageId": "json",
+      "readOnly": false,
+      "revision": "0",
+      "tool": "json"
+    },
+    "validate": {
+      "ok": {
+        "byteOffset": "6",
+        "column": 7,
+        "line": 1,
+        "message": "Invalid JSON: the file is not valid UTF-8 here (line 1, column 7)",
+        "tool": "json",
+        "valid": false
+      }
+    }
+  },
+  "json-trailing-comma": {
+    "beautify": {
+      "error": "command failed: Invalid JSON: key must be a string (line 1, column 8)",
+      "text": "{\"a\":1,}"
+    },
+    "beautifyAcceptingLoss": {
+      "error": "command failed: Invalid JSON: key must be a string (line 1, column 8)",
+      "text": "{\"a\":1,}"
+    },
+    "minify": {
+      "error": "command failed: Invalid JSON: key must be a string (line 1, column 8)",
+      "text": "{\"a\":1,}"
+    },
+    "opened": {
+      "dirty": true,
+      "languageId": "json",
+      "readOnly": false,
+      "revision": "0",
+      "tool": "json"
+    },
+    "validate": {
+      "ok": {
+        "byteOffset": "7",
+        "column": 8,
+        "line": 1,
+        "message": "Invalid JSON: key must be a string (line 1, column 8)",
+        "tool": "json",
+        "valid": false
+      }
+    }
+  },
+  "json-unclosed": {
+    "beautify": {
+      "error": "command failed: Invalid JSON: expected `,` or `]` (line 3, column 1)",
+      "text": "{\n  \"a\": [1, 2\n}"
+    },
+    "beautifyAcceptingLoss": {
+      "error": "command failed: Invalid JSON: expected `,` or `]` (line 3, column 1)",
+      "text": "{\n  \"a\": [1, 2\n}"
+    },
+    "minify": {
+      "error": "command failed: Invalid JSON: expected `,` or `]` (line 3, column 1)",
+      "text": "{\n  \"a\": [1, 2\n}"
+    },
+    "opened": {
+      "dirty": true,
+      "languageId": "json",
+      "readOnly": false,
+      "revision": "0",
+      "tool": "json"
+    },
+    "validate": {
+      "ok": {
+        "byteOffset": "15",
+        "column": 1,
+        "line": 3,
+        "message": "Invalid JSON: expected `,` or `]` (line 3, column 1)",
+        "tool": "json",
+        "valid": false
+      }
+    }
+  },
+  "json-unicode": {
+    "beautify": {
+      "ok": {
+        "dirty": true,
+        "languageId": "json",
+        "readOnly": false,
+        "revision": "1",
+        "tool": "json"
+      },
+      "text": "{\n  \"é\": \"ü😀\",\n  \"k\": [\n    true,\n    false\n  ]\n}"
+    },
+    "beautifyAcceptingLoss": {
+      "ok": {
+        "dirty": true,
+        "languageId": "json",
+        "readOnly": false,
+        "revision": "1",
+        "tool": "json"
+      },
+      "text": "{\n  \"é\": \"ü😀\",\n  \"k\": [\n    true,\n    false\n  ]\n}"
+    },
+    "minify": {
+      "ok": {
+        "dirty": true,
+        "languageId": "json",
+        "readOnly": false,
+        "revision": "0",
+        "tool": "json"
+      },
+      "text": "{\"é\":\"ü😀\",\"k\":[true,false]}"
+    },
+    "opened": {
+      "dirty": true,
+      "languageId": "json",
+      "readOnly": false,
+      "revision": "0",
+      "tool": "json"
+    },
+    "validate": {
+      "ok": {
+        "message": "Valid JSON",
+        "tool": "json",
+        "valid": true
+      }
+    }
+  },
+  "json-via-view-as": {
+    "beautify": {
+      "ok": {
+        "dirty": true,
+        "languageId": "json",
+        "readOnly": false,
+        "revision": "1",
+        "tool": "json"
+      },
+      "text": "{\n  \"a\": 1\n}"
+    },
+    "beautifyAcceptingLoss": {
+      "ok": {
+        "dirty": true,
+        "languageId": "json",
+        "readOnly": false,
+        "revision": "1",
+        "tool": "json"
+      },
+      "text": "{\n  \"a\": 1\n}"
+    },
+    "minify": {
+      "ok": {
+        "dirty": true,
+        "languageId": "json",
+        "readOnly": false,
+        "revision": "0",
+        "tool": "json"
+      },
+      "text": "{\"a\":1}"
+    },
+    "opened": {
+      "dirty": true,
+      "languageId": "json",
+      "readOnly": false,
+      "revision": "0"
+    },
+    "validate": {
+      "ok": {
+        "message": "Valid JSON",
+        "tool": "json",
+        "valid": true
+      }
+    }
+  },
+  "plain-text": {
+    "beautify": {
+      "error": "command failed: These tools are available for JSON, XML, YAML, and plist documents",
+      "text": "{\"a\":1}"
+    },
+    "beautifyAcceptingLoss": {
+      "error": "command failed: These tools are available for JSON, XML, YAML, and plist documents",
+      "text": "{\"a\":1}"
+    },
+    "minify": {
+      "error": "command failed: These tools are available for JSON, XML, YAML, and plist documents",
+      "text": "{\"a\":1}"
+    },
+    "opened": {
+      "dirty": true,
+      "languageId": "plaintext",
+      "readOnly": false,
+      "revision": "0"
+    },
+    "validate": {
+      "error": "command failed: These tools are available for JSON, XML, YAML, and plist documents"
+    }
+  },
+  "plist-missing-value": {
+    "beautify": {
+      "error": "command failed: Invalid plist: the key \"A\" has no value (line 1, column 28)",
+      "text": "<plist version=\"1.0\"><dict><key>A</key></dict></plist>"
+    },
+    "beautifyAcceptingLoss": {
+      "error": "command failed: Invalid plist: the key \"A\" has no value (line 1, column 28)",
+      "text": "<plist version=\"1.0\"><dict><key>A</key></dict></plist>"
+    },
+    "minify": {
+      "error": "command failed: Minify is available for JSON only",
+      "text": "<plist version=\"1.0\"><dict><key>A</key></dict></plist>"
+    },
+    "opened": {
+      "dirty": true,
+      "languageId": "plist",
+      "readOnly": false,
+      "revision": "0",
+      "tool": "plist"
+    },
+    "validate": {
+      "ok": {
+        "byteOffset": "27",
+        "column": 28,
+        "line": 1,
+        "message": "Invalid plist: the key \"A\" has no value (line 1, column 28)",
+        "tool": "plist",
+        "valid": false
+      }
+    }
+  },
+  "plist-valid": {
+    "beautify": {
+      "ok": {
+        "dirty": true,
+        "languageId": "plist",
+        "readOnly": false,
+        "revision": "1",
+        "tool": "plist"
+      },
+      "text": "<?xml version=\"1.0\"?>\n<plist version=\"1.0\">\n  <dict>\n    <key>A</key>\n    <string>x</string>\n    <key>B</key>\n    <array>\n      <integer>1</integer>\n      <true/>\n    </array>\n  </dict>\n</plist>"
+    },
+    "beautifyAcceptingLoss": {
+      "ok": {
+        "dirty": true,
+        "languageId": "plist",
+        "readOnly": false,
+        "revision": "1",
+        "tool": "plist"
+      },
+      "text": "<?xml version=\"1.0\"?>\n<plist version=\"1.0\">\n  <dict>\n    <key>A</key>\n    <string>x</string>\n    <key>B</key>\n    <array>\n      <integer>1</integer>\n      <true/>\n    </array>\n  </dict>\n</plist>"
+    },
+    "minify": {
+      "error": "command failed: Minify is available for JSON only",
+      "text": "<?xml version=\"1.0\"?><plist version=\"1.0\"><dict><key>A</key><string>x</string><key>B</key><array><integer>1</integer><true/></array></dict></plist>"
+    },
+    "opened": {
+      "dirty": true,
+      "languageId": "plist",
+      "readOnly": false,
+      "revision": "0",
+      "tool": "plist"
+    },
+    "validate": {
+      "ok": {
+        "message": "Valid plist",
+        "tool": "plist",
+        "valid": true
+      }
+    }
+  },
+  "plist-wrong-root": {
+    "beautify": {
+      "error": "command failed: Invalid plist: a property list starts with <plist> (line 1, column 1)",
+      "text": "<root/>"
+    },
+    "beautifyAcceptingLoss": {
+      "error": "command failed: Invalid plist: a property list starts with <plist> (line 1, column 1)",
+      "text": "<root/>"
+    },
+    "minify": {
+      "error": "command failed: Minify is available for JSON only",
+      "text": "<root/>"
+    },
+    "opened": {
+      "dirty": true,
+      "languageId": "plist",
+      "readOnly": false,
+      "revision": "0",
+      "tool": "plist"
+    },
+    "validate": {
+      "ok": {
+        "byteOffset": "0",
+        "column": 1,
+        "line": 1,
+        "message": "Invalid plist: a property list starts with <plist> (line 1, column 1)",
+        "tool": "plist",
+        "valid": false
+      }
+    }
+  },
+  "xml-duplicate-attribute": {
+    "beautify": {
+      "error": "command failed: Invalid XML: attribute 'x' appears twice in <a> (line 1, column 10)",
+      "text": "<a x=\"1\" x=\"2\"/>"
+    },
+    "beautifyAcceptingLoss": {
+      "error": "command failed: Invalid XML: attribute 'x' appears twice in <a> (line 1, column 10)",
+      "text": "<a x=\"1\" x=\"2\"/>"
+    },
+    "minify": {
+      "error": "command failed: Minify is available for JSON only",
+      "text": "<a x=\"1\" x=\"2\"/>"
+    },
+    "opened": {
+      "dirty": true,
+      "languageId": "xml",
+      "readOnly": false,
+      "revision": "0",
+      "tool": "xml"
+    },
+    "validate": {
+      "ok": {
+        "byteOffset": "9",
+        "column": 10,
+        "line": 1,
+        "message": "Invalid XML: attribute 'x' appears twice in <a> (line 1, column 10)",
+        "tool": "xml",
+        "valid": false
+      }
+    }
+  },
+  "xml-mismatched": {
+    "beautify": {
+      "error": "command failed: Invalid XML: expected </b> to close the element opened earlier, but found </a> (line 2, column 6)",
+      "text": "<a>\n  <b></a>\n</b>"
+    },
+    "beautifyAcceptingLoss": {
+      "error": "command failed: Invalid XML: expected </b> to close the element opened earlier, but found </a> (line 2, column 6)",
+      "text": "<a>\n  <b></a>\n</b>"
+    },
+    "minify": {
+      "error": "command failed: Minify is available for JSON only",
+      "text": "<a>\n  <b></a>\n</b>"
+    },
+    "opened": {
+      "dirty": true,
+      "languageId": "xml",
+      "readOnly": false,
+      "revision": "0",
+      "tool": "xml"
+    },
+    "validate": {
+      "ok": {
+        "byteOffset": "9",
+        "column": 6,
+        "line": 2,
+        "message": "Invalid XML: expected </b> to close the element opened earlier, but found </a> (line 2, column 6)",
+        "tool": "xml",
+        "valid": false
+      }
+    }
+  },
+  "xml-nested": {
+    "beautify": {
+      "ok": {
+        "dirty": true,
+        "languageId": "xml",
+        "readOnly": false,
+        "revision": "1",
+        "tool": "xml"
+      },
+      "text": "<?xml version=\"1.0\"?>\n<root a=\"1\">\n  <item>text</item>\n  <empty/>\n  <!-- c -->\n  <b>\n    <c/>\n  </b>\n</root>"
+    },
+    "beautifyAcceptingLoss": {
+      "ok": {
+        "dirty": true,
+        "languageId": "xml",
+        "readOnly": false,
+        "revision": "1",
+        "tool": "xml"
+      },
+      "text": "<?xml version=\"1.0\"?>\n<root a=\"1\">\n  <item>text</item>\n  <empty/>\n  <!-- c -->\n  <b>\n    <c/>\n  </b>\n</root>"
+    },
+    "minify": {
+      "error": "command failed: Minify is available for JSON only",
+      "text": "<?xml version=\"1.0\"?><root a=\"1\"><item>text</item><empty/><!-- c --><b><c/></b></root>"
+    },
+    "opened": {
+      "dirty": true,
+      "languageId": "xml",
+      "readOnly": false,
+      "revision": "0",
+      "tool": "xml"
+    },
+    "validate": {
+      "ok": {
+        "message": "Valid XML",
+        "tool": "xml",
+        "valid": true
+      }
+    }
+  },
+  "xml-preserve": {
+    "beautify": {
+      "ok": {
+        "dirty": true,
+        "languageId": "xml",
+        "readOnly": false,
+        "revision": "1",
+        "tool": "xml"
+      },
+      "text": "<r>\n  <p xml:space=\"preserve\">  <i/>  </p>\n  <q>keep <b>me</b></q>\n</r>"
+    },
+    "beautifyAcceptingLoss": {
+      "ok": {
+        "dirty": true,
+        "languageId": "xml",
+        "readOnly": false,
+        "revision": "1",
+        "tool": "xml"
+      },
+      "text": "<r>\n  <p xml:space=\"preserve\">  <i/>  </p>\n  <q>keep <b>me</b></q>\n</r>"
+    },
+    "minify": {
+      "error": "command failed: Minify is available for JSON only",
+      "text": "<r><p xml:space=\"preserve\">  <i/>  </p><q>keep <b>me</b></q></r>"
+    },
+    "opened": {
+      "dirty": true,
+      "languageId": "xml",
+      "readOnly": false,
+      "revision": "0",
+      "tool": "xml"
+    },
+    "validate": {
+      "ok": {
+        "message": "Valid XML",
+        "tool": "xml",
+        "valid": true
+      }
+    }
+  },
+  "xml-two-roots": {
+    "beautify": {
+      "error": "command failed: Invalid XML: a document can have only one root element (line 1, column 5)",
+      "text": "<a/><b/>"
+    },
+    "beautifyAcceptingLoss": {
+      "error": "command failed: Invalid XML: a document can have only one root element (line 1, column 5)",
+      "text": "<a/><b/>"
+    },
+    "minify": {
+      "error": "command failed: Minify is available for JSON only",
+      "text": "<a/><b/>"
+    },
+    "opened": {
+      "dirty": true,
+      "languageId": "xml",
+      "readOnly": false,
+      "revision": "0",
+      "tool": "xml"
+    },
+    "validate": {
+      "ok": {
+        "byteOffset": "4",
+        "column": 5,
+        "line": 1,
+        "message": "Invalid XML: a document can have only one root element (line 1, column 5)",
+        "tool": "xml",
+        "valid": false
+      }
+    }
+  },
+  "xsl-stylesheet": {
+    "beautify": {
+      "ok": {
+        "dirty": true,
+        "languageId": "xsl",
+        "readOnly": false,
+        "revision": "1",
+        "tool": "xml"
+      },
+      "text": "<xsl:stylesheet version=\"1.0\" xmlns:xsl=\"http://www.w3.org/1999/XSL/Transform\">\n  <xsl:template match=\"/\">\n    <out/>\n  </xsl:template>\n</xsl:stylesheet>"
+    },
+    "beautifyAcceptingLoss": {
+      "ok": {
+        "dirty": true,
+        "languageId": "xsl",
+        "readOnly": false,
+        "revision": "1",
+        "tool": "xml"
+      },
+      "text": "<xsl:stylesheet version=\"1.0\" xmlns:xsl=\"http://www.w3.org/1999/XSL/Transform\">\n  <xsl:template match=\"/\">\n    <out/>\n  </xsl:template>\n</xsl:stylesheet>"
+    },
+    "minify": {
+      "error": "command failed: Minify is available for JSON only",
+      "text": "<xsl:stylesheet version=\"1.0\" xmlns:xsl=\"http://www.w3.org/1999/XSL/Transform\"><xsl:template match=\"/\"><out/></xsl:template></xsl:stylesheet>"
+    },
+    "opened": {
+      "dirty": true,
+      "languageId": "xsl",
+      "readOnly": false,
+      "revision": "0",
+      "tool": "xml"
+    },
+    "validate": {
+      "ok": {
+        "message": "Valid XML",
+        "tool": "xml",
+        "valid": true
+      }
+    }
+  },
+  "yaml-anchors": {
+    "beautify": {
+      "error": "command failed: Beautify writes anchors and aliases (&name, *name) out in full; values and key order are kept, but quoting and number spelling may change. Beautify again and confirm to go ahead.",
+      "text": "base: &b {x: 1}\nuse: *b\n"
+    },
+    "beautifyAcceptingLoss": {
+      "ok": {
+        "dirty": true,
+        "languageId": "yaml",
+        "readOnly": false,
+        "revision": "1",
+        "tool": "yaml"
+      },
+      "text": "base:\n  x: 1\nuse:\n  x: 1\n"
+    },
+    "minify": {
+      "error": "command failed: Minify is available for JSON only",
+      "text": "base: &b {x: 1}\nuse: *b\n"
+    },
+    "opened": {
+      "dirty": true,
+      "languageId": "yaml",
+      "readOnly": false,
+      "revision": "0",
+      "tool": "yaml"
+    },
+    "validate": {
+      "ok": {
+        "beautifyNote": "Beautify writes anchors and aliases (&name, *name) out in full; values and key order are kept, but quoting and number spelling may change.",
+        "message": "Valid YAML",
+        "tool": "yaml",
+        "valid": true
+      }
+    }
+  },
+  "yaml-comments": {
+    "beautify": {
+      "error": "command failed: Beautify removes comments; values and key order are kept, but quoting and number spelling may change. Beautify again and confirm to go ahead.",
+      "text": "# top\na: 1 # tail\n"
+    },
+    "beautifyAcceptingLoss": {
+      "ok": {
+        "dirty": true,
+        "languageId": "yaml",
+        "readOnly": false,
+        "revision": "1",
+        "tool": "yaml"
+      },
+      "text": "a: 1\n"
+    },
+    "minify": {
+      "error": "command failed: Minify is available for JSON only",
+      "text": "# top\na: 1 # tail\n"
+    },
+    "opened": {
+      "dirty": true,
+      "languageId": "yaml",
+      "readOnly": false,
+      "revision": "0",
+      "tool": "yaml"
+    },
+    "validate": {
+      "ok": {
+        "beautifyNote": "Beautify removes comments; values and key order are kept, but quoting and number spelling may change.",
+        "message": "Valid YAML",
+        "tool": "yaml",
+        "valid": true
+      }
+    }
+  },
+  "yaml-invalid": {
+    "beautify": {
+      "error": "command failed: Invalid YAML: illegal placement of ':' indicator (line 2, column 2)",
+      "text": "a: [1, 2\nb: 3\n"
+    },
+    "beautifyAcceptingLoss": {
+      "error": "command failed: Invalid YAML: illegal placement of ':' indicator (line 2, column 2)",
+      "text": "a: [1, 2\nb: 3\n"
+    },
+    "minify": {
+      "error": "command failed: Minify is available for JSON only",
+      "text": "a: [1, 2\nb: 3\n"
+    },
+    "opened": {
+      "dirty": true,
+      "languageId": "yaml",
+      "readOnly": false,
+      "revision": "0",
+      "tool": "yaml"
+    },
+    "validate": {
+      "ok": {
+        "byteOffset": "10",
+        "column": 2,
+        "line": 2,
+        "message": "Invalid YAML: illegal placement of ':' indicator (line 2, column 2)",
+        "tool": "yaml",
+        "valid": false
+      }
+    }
+  },
+  "yaml-multi-document": {
+    "beautify": {
+      "ok": {
+        "dirty": true,
+        "languageId": "yaml",
+        "readOnly": false,
+        "revision": "0",
+        "tool": "yaml"
+      },
+      "text": "a: 1\n---\nb: 2\n"
+    },
+    "beautifyAcceptingLoss": {
+      "ok": {
+        "dirty": true,
+        "languageId": "yaml",
+        "readOnly": false,
+        "revision": "0",
+        "tool": "yaml"
+      },
+      "text": "a: 1\n---\nb: 2\n"
+    },
+    "minify": {
+      "error": "command failed: Minify is available for JSON only",
+      "text": "a: 1\n---\nb: 2\n"
+    },
+    "opened": {
+      "dirty": true,
+      "languageId": "yaml",
+      "readOnly": false,
+      "revision": "0",
+      "tool": "yaml"
+    },
+    "validate": {
+      "ok": {
+        "message": "Valid YAML",
+        "tool": "yaml",
+        "valid": true
+      }
+    }
+  },
+  "yaml-plain": {
+    "beautify": {
+      "ok": {
+        "dirty": true,
+        "languageId": "yaml",
+        "readOnly": false,
+        "revision": "1",
+        "tool": "yaml"
+      },
+      "text": "a: 1\nb:\n  - x\n  - \"y\"\nc:\n  d: 2\n"
+    },
+    "beautifyAcceptingLoss": {
+      "ok": {
+        "dirty": true,
+        "languageId": "yaml",
+        "readOnly": false,
+        "revision": "1",
+        "tool": "yaml"
+      },
+      "text": "a: 1\nb:\n  - x\n  - \"y\"\nc:\n  d: 2\n"
+    },
+    "minify": {
+      "error": "command failed: Minify is available for JSON only",
+      "text": "a:   1\nb:\n    - x\n    - y\nc: {d: 2}\n"
+    },
+    "opened": {
+      "dirty": true,
+      "languageId": "yaml",
+      "readOnly": false,
+      "revision": "0",
+      "tool": "yaml"
+    },
+    "validate": {
+      "ok": {
+        "message": "Valid YAML",
+        "tool": "yaml",
+        "valid": true
+      }
+    }
+  },
+  "yaml-tags": {
+    "beautify": {
+      "error": "command failed: Invalid YAML: Beautify cannot keep YAML tags such as !Ref, so it left the document unchanged (line 1, column 1)",
+      "text": "a: !Ref thing\n"
+    },
+    "beautifyAcceptingLoss": {
+      "error": "command failed: Invalid YAML: Beautify cannot keep YAML tags such as !Ref, so it left the document unchanged (line 1, column 1)",
+      "text": "a: !Ref thing\n"
+    },
+    "minify": {
+      "error": "command failed: Minify is available for JSON only",
+      "text": "a: !Ref thing\n"
+    },
+    "opened": {
+      "dirty": true,
+      "languageId": "yaml",
+      "readOnly": false,
+      "revision": "0",
+      "tool": "yaml"
+    },
+    "validate": {
+      "ok": {
+        "beautifyNote": "Beautify cannot keep YAML tags such as !Ref, so it is not available for this document.",
+        "beautifyUnavailable": true,
+        "message": "Valid YAML",
+        "tool": "yaml",
+        "valid": true
+      }
+    }
+  }
+}
