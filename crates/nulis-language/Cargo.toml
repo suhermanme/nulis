@@ -1,0 +1,14 @@
+[package]
+name = "nulis-language"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+nulis-syntax = { path = "../nulis-syntax" }
+serde.workspace = true
+thiserror.workspace = true

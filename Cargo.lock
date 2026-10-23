@@ -2739,6 +2739,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "nulis-language"
+version = "0.4.0"
+dependencies = [
+ "nulis-syntax",
+ "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "nulis-large-file"
 version = "0.4.0"
 
