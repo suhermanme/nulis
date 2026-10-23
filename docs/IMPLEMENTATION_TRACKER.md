@@ -4,8 +4,8 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 
 ## Current state
 
-- **Current milestone:** M45 complete (2026-10-23); next is M46 (expand bundled coverage, self-hosting). M41 approved 2026-10-23 with every plan §7 recommendation accepted. Branch `feat/language-capabilities`. **To resume plan 4, read the "Plan 4" section below.** Plan 3 is complete and released in Nulis 0.4.0 (2026-10-23).
-- **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 5 of 5 milestones completed (M31–M35); plan 3: 5 of 5 completed (M36–M40, in Nulis 0.4.0); plan 4: 5 of 8 (M41–M45)
+- **Current milestone:** M46 complete (2026-10-23); next is M47 (optional LSP). M41 approved 2026-10-23 with every plan §7 recommendation accepted. Branch `feat/language-capabilities`. **To resume plan 4, read the "Plan 4" section below.** Plan 3 is complete and released in Nulis 0.4.0 (2026-10-23).
+- **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 5 of 5 milestones completed (M31–M35); plan 3: 5 of 5 completed (M36–M40, in Nulis 0.4.0); plan 4: 6 of 8 (M41–M46)
 - **Baseline before M19 (commit `66853e1`):** `cargo test -p nulis-core` 86 passed; desktop Vitest 11 files, 115 tests passed.
 
 | Milestone | Status | Handover |
@@ -37,7 +37,7 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 | M43 First-party migration (tools, Markdown preview) | Completed 2026-10-23 (checked in the app on macOS) | `handover/M43_HANDOVER.md` |
 | M44 Core auto-indentation | Completed 2026-10-23 (checked in the app on macOS) | `handover/M44_HANDOVER.md` |
 | M45 Shared autocomplete | Completed 2026-10-23 (checked in the app on macOS) | `handover/M45_HANDOVER.md` |
-| M46 Expand bundled coverage | Not Started | — |
+| M46 Expand bundled coverage | Completed 2026-10-23 (app check pending) | `handover/M46_HANDOVER.md` |
 | M47 Optional LSP | Not Started | — |
 | M48 External plugin readiness | Not Started | — |
 
@@ -193,20 +193,35 @@ Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language 
 
 ### M46 — Expand bundled coverage
 
-**Status:** Not Started. **Depends on:** M43–M45 (done), owner answer §7.4 (given: add the associations, list them in the release notes).
+**Status:** Completed 2026-10-23 (automated checks on macOS; not yet tried in the running app). Handover: `handover/M46_HANDOVER.md`.
 
 | Task | Status |
 | --- | --- |
-| Self-hosting test over this repository; ignore-file language; JSX/TSX tags; JS/TS regex literals and template `${…}` | Not Started |
-| Fill Table 2 of `LANGUAGE_MATRIX.md` for every language | Not Started |
-| Fix plan §2.9 defects (CSS comment, Python brackets, `.scpt`) | Not Started |
-| Markdown heading folds, YAML indentation folds | Not Started |
-| Approved association changes | Not Started |
-| Every-language smoke test (Enter, Tab, Backspace, Toggle Comment, completion) | Not Started |
+| Self-hosting test over this repository; ignore-file language; JSX/TSX tags; JS/TS regex literals and template `${…}` | Completed (`nulis-syntax/tests/self_hosting.rs`; TSX split from TypeScript, see decisions) |
+| Fill Table 2 of `LANGUAGE_MATRIX.md` for every language | Completed for indentation (M44) and completion (M45, M46 snippets); Validate/Format stay as planned ("—" means none) |
+| Fix plan §2.9 defects (CSS comment, Python brackets, `.scpt`) | Completed |
+| Markdown heading folds, YAML indentation folds | Completed |
+| Approved association changes | Completed (`.jsonc`, `Dockerfile.*`, `Containerfile.*`; also `.tsx` → TSX and `.tsbuildinfo` → JSON, see decisions) |
+| Every-language smoke test (Enter, Tab, Backspace, Toggle Comment, completion) | Completed (`nulis-core/tests/every_language.rs`, 44 languages) |
+
+**Acceptance:** golden detection test updated only where a change was decided, each row annotated; every language passes the smoke test; every text file of this repository gets a language (licenses, `.txt`, fuzz seeds stay Plain Text); all 74 TypeScript/JavaScript files of the repository scan without the JSX state getting stuck (checked with a probe).
+
+**Verification (macOS, 2026-10-23):** fmt and clippy clean; `cargo test --workspace` 421 passed; frontend unchanged (Vitest 198 passed at M45). Not tried in the running app; CI not run (branch not pushed).
+
+**Files changed:** `crates/nulis-syntax/src/{lib,lexer}.rs`, `crates/nulis-syntax/tests/{detection_golden,self_hosting}.rs`, `crates/nulis-language/src/completion.rs` and tests, `crates/nulis-core/src/{editor,builtin_providers}.rs`, `crates/nulis-core/tests/every_language.rs`, docs (`release-notes/v0.5.0.md` draft, user guide, matrix, architecture, plan).
+
+**Decisions:**
+- **TSX is its own language** (`tsx`, "TSX"): JSX cannot be guessed in `.ts`, where `<Type>value` is a cast. `.tsx` used to open as TypeScript; listed in the release notes.
+- **JSON with Comments is its own language** rather than JSON, because the JSON tools reject comments.
+- **`.tsbuildinfo` opens as JSON**: found by the self-hosting test; it is TypeScript's build information in JSON.
+- Name prefixes (`name.*`) are a new association kind; users can write them in `files.associations`.
+- Kotlin and PHP no longer get the C-style `for` snippet (an M45 mistake).
+
+**Known issues / later:** JSX scanning starts fresh at each viewport window, so a window that begins inside an element's text may color a few lines as code; TypeScript generics written as `<T,>` in `.tsx` arrow functions may read as an element; Dockerfile `\` continuation and Markdown list continuation are still carry-only.
 
 ### M47 — Optional LSP
 
-**Status:** Not Started. **Depends on:** M43 (diagnostics contract), M45.
+**Status:** Not Started. **Depends on:** M43 (diagnostics contract), M45 (done).
 
 | Task | Status |
 | --- | --- |

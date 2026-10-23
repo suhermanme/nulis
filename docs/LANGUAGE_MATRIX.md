@@ -54,7 +54,17 @@ Highlighter: **TS** = Tree-sitter grammar; **Lex** = table-driven lexer (mode in
 
 Only JSON has document symbols (`pair`). Since M42, detection resolves in explicit tiers (user associations, file names, longest extension, content, Plain Text; see LANGUAGE_CAPABILITIES.md §5.1); the built-in catalog has no conflicts, and a test checks that.
 
-⚠ Known issues (fix planned in M46): `.css` Toggle Comment uses `//`, which plain CSS rejects; Python has no bracket pairs; `.scpt` is binary but opens as text; Markdown has no folds; YAML has no indentation folds. Unrecognized today: `Dockerfile.dev` and similar, `.jsonc`.
+⚠ Known issues in 0.4.0, **all fixed in M46**: `.css` Toggle Comment used `//` (now `/* */`); Python had no bracket pairs (now it does); `.scpt` opened as text (now read-only hex); Markdown had no folds (now per heading); YAML had no indentation folds (now it does); `Dockerfile.dev` and `.jsonc` were Plain Text.
+
+**Added in M46 (verified by tests):**
+
+| Language | ID | Extensions; file names | Highlighter | Folds | Brackets | Toggle Comment | Tools |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| JSON with Comments | `jsonc` | jsonc | TS (JSON grammar) | object, array | yes | `//`, `/* */` | — (JSON tools reject comments) |
+| TSX | `tsx` | tsx (was TypeScript) | Lex (code, JSX) | brace | yes | `//`, `/* */` | — |
+| Ignore File | `ignore` | .gitignore .gitattributes .npmignore .dockerignore .prettierignore .eslintignore | Lex (code) | — | — | `#` | — |
+
+Also since M46: Dockerfile matches `Dockerfile.*` and `Containerfile.*`; JSON matches `.tsbuildinfo`; JavaScript and TypeScript highlight regex literals and `${…}`; JavaScript and TSX highlight JSX; Markdown folds per heading; YAML folds by indentation; snippets for Swift, Zig, Kotlin, PHP, PowerShell, Perl, Visual Basic/VBScript, and AppleScript (Kotlin and PHP no longer get the C-style `for`). A self-hosting test checks every text file in this repository opens with a language.
 
 ## Table 2 — providers (Indent: implemented in M44; Completion: implemented in M45; the other columns are planned)
 

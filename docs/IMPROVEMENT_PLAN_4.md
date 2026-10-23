@@ -74,9 +74,9 @@ Run on this Mac at `1494931` on 2026-10-23:
 
 ### 2.9 Defects found during the audit (not fixed in M41)
 
-1. Toggle Comment in a `.css` file inserts `//`, which plain CSS does not accept (the CSS spec shares one table with SCSS and Less). Fix in M46.
-2. Python has no bracket pairs, so bracket matching does nothing there. Fix in M46.
-3. `.scpt` is binary but opens as AppleScript text. Fix in M46 (detect binary content, as already done for binary plists).
+1. Toggle Comment in a `.css` file inserts `//`, which plain CSS does not accept (the CSS spec shares one table with SCSS and Less). Fixed in M46.
+2. Python has no bracket pairs, so bracket matching does nothing there. Fixed in M46.
+3. `.scpt` is binary but opens as AppleScript text. Fixed in M46 (detected by its `FasdUAS` header, opened read-only in hex).
 4. The language override is lost on a normal restart (recovery keeps it). Fixed in M42.
 5. (Found in M42.) A document whose language is not registered fails to display, which would strand documents of a removed plugin language. Fixed in M42.
 

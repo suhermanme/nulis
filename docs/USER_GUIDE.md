@@ -431,7 +431,7 @@ Nulis picks a language from the file name and extension. For names that say noth
 
 To override the choice, use the **View As** list in the editor toolbar. This also switches which tools are offered: choosing JSON, XML, YAML, or Property List turns on that language's tools for a file with any extension. Nulis remembers the choice for files it reopens at the next start.
 
-To always open a kind of file as a certain language, add it to `files.associations` in `settings.json`, in the folder where Nulis keeps its data (see "Where Nulis stores data" in the README). A pattern is either `*.ext` or an exact file name; letters match either case. Your associations come before Nulis's own. For example:
+To always open a kind of file as a certain language, add it to `files.associations` in `settings.json`, in the folder where Nulis keeps its data (see "Where Nulis stores data" in the README). A pattern is `*.ext`, an exact file name, or the start of a name followed by `*` (`Jenkinsfile.*`); letters match either case. Your associations come before Nulis's own. For example:
 
 ```json
 {
@@ -442,13 +442,16 @@ To always open a kind of file as a certain language, add it to `files.associatio
 }
 ```
 
-Nulis reads the file when it starts, so restart it after editing; files already open keep their language until reopened. A pattern that is not valid, or a language that does not exist, is ignored. Language names to use: `plaintext`, `applescript`, `bash`, `batch`, `c`, `cpp`, `csharp`, `css`, `csv`, `dockerfile`, `go`, `html`, `ini`, `java`, `javascript`, `json`, `kotlin`, `lua`, `makefile`, `markdown`, `mysql`, `objective-c`, `perl`, `php`, `plist`, `plsql`, `powershell`, `python`, `ruby`, `rust`, `sql`, `swift`, `toml`, `tsv`, `typescript`, `vb`, `vbscript`, `xml`, `xsl`, `yaml`, `zig`.
+Nulis reads the file when it starts, so restart it after editing; files already open keep their language until reopened. A pattern that is not valid, or a language that does not exist, is ignored. Language names to use: `plaintext`, `applescript`, `bash`, `batch`, `c`, `cpp`, `csharp`, `css`, `csv`, `dockerfile`, `go`, `html`, `ignore`, `ini`, `java`, `javascript`, `json`, `jsonc`, `kotlin`, `lua`, `makefile`, `markdown`, `mysql`, `objective-c`, `perl`, `php`, `plist`, `plsql`, `powershell`, `python`, `ruby`, `rust`, `sql`, `swift`, `toml`, `tsv`, `tsx`, `typescript`, `vb`, `vbscript`, `xml`, `xsl`, `yaml`, `zig`.
 
-Supported languages: AppleScript, Bash and other shells, Batch, C, C++, C#, CSS, CSV, Dockerfile, Go, HTML, INI, Java, JavaScript, JSON, Kotlin, Lua, Makefile, Markdown, MySQL / MariaDB, Objective-C / Objective-C++, Oracle PL/SQL, Perl, PHP, PowerShell, Property List (`.plist`), Python, Ruby, Rust, SQL, Swift, TOML, TSV, TypeScript, VBScript / ASP, Visual Basic, XML, XSL, YAML, and Zig. Anything else is shown as plain text.
+Supported languages: AppleScript, Bash and other shells, Batch, C, C++, C#, CSS, CSV, Dockerfile, Go, HTML, Ignore File (`.gitignore` and similar), INI, Java, JavaScript, JSON, JSON with Comments (`.jsonc`), Kotlin, Lua, Makefile, Markdown, MySQL / MariaDB, Objective-C / Objective-C++, Oracle PL/SQL, Perl, PHP, PowerShell, Property List (`.plist`), Python, Ruby, Rust, SQL, Swift, TOML, TSV, TSX (`.tsx`), TypeScript, VBScript / ASP, Visual Basic, XML, XSL, YAML, and Zig. Anything else is shown as plain text.
+
+- **JavaScript, TypeScript, and TSX** also highlight regular expressions (`/^a+$/g`), the code inside `${…}` in template strings, and, in JavaScript and TSX, JSX elements with their attributes. Plain TypeScript files do not get JSX, because there `<Type>value` is a type cast.
+- **Markdown** sections fold under their headings, and **YAML** blocks fold by indentation.
 
 - **CSV and TSV** files color each column differently, so a column keeps its color all the way down. Quoted fields may hold the separator, doubled quotes (`""`), and line breaks; text after a closing quote is marked as an error. For `.csv` files Nulis takes the separator from the first line: comma, semicolon, tab, or `|`. TSV (`.tsv`, `.tab`) always uses tabs.
 - **YAML** also marks document separators (`---`, `...`), anchors and aliases (`&name`, `*name`), tags (`!Ref`, `!!str`), block text after `|` or `>`, and quoted keys.
-- A **binary property list** (a `.plist` file in Apple's binary format) is not text: it opens read-only in the hexadecimal editor, and the status bar says why. XML property lists open as text as usual.
+- A **binary property list** (a `.plist` file in Apple's binary format) or a **compiled AppleScript** (`.scpt`) is not text: it opens read-only in the hexadecimal editor, and the status bar says why. XML property lists and AppleScript source (`.applescript`) open as text as usual.
 
 #### Text encoding
 
