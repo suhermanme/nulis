@@ -6,7 +6,7 @@ Table 1 is **verified**: read from the code and confirmed by calling `LanguageRe
 
 ## Table 1 — current state (verified)
 
-Highlighter: **TS** = Tree-sitter grammar; **Lex** = table-driven lexer (mode in brackets); **MD** = Markdown line scanner. Folds: **brace** = multi-line `()[]{}`; **element** = multi-line markup elements. Brackets = pairs used by Go to Matching Bracket. Tools: **V** Validate, **B** Beautify, **M** Minify. No language has indentation rules, completion, snippets or LSP today; Enter never carries indentation.
+Highlighter: **TS** = Tree-sitter grammar; **Lex** = table-driven lexer (mode in brackets); **MD** = Markdown line scanner. Folds: **brace** = multi-line `()[]{}`; **element** = multi-line markup elements. Brackets = pairs used by Go to Matching Bracket. Tools: **V** Validate, **B** Beautify, **M** Minify. In 0.4.0 no language had indentation rules, completion, snippets or LSP, and Enter never carried indentation. **Since M44 (verified by tests):** every language has automatic indentation as listed in the Indent column of Table 2, except where that column says "later".
 
 | Language | ID | Extensions; file names; content | Highlighter | Folds | Brackets | Toggle Comment | Tools | Preview |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -56,9 +56,9 @@ Only JSON has document symbols (`pair`). Since M42, detection resolves in explic
 
 ⚠ Known issues (fix planned in M46): `.css` Toggle Comment uses `//`, which plain CSS rejects; Python has no bracket pairs; `.scpt` is binary but opens as text; Markdown has no folds; YAML has no indentation folds. Unrecognized today: `Dockerfile.dev` and similar, `.jsonc`.
 
-## Table 2 — planned providers (not implemented)
+## Table 2 — providers (Indent: implemented in M44; the other columns are planned)
 
-Indent family as in LANGUAGE_CAPABILITIES.md §6.1. Completion: **W** document words, **K** keywords/types from the lexer table, **S** built-in snippets. LSP candidates are from prior knowledge and are **unverified**: license, platform builds and maintenance are checked in M47 before any is chosen. Nulis will not bundle servers.
+Indent family as in LANGUAGE_CAPABILITIES.md §6.1; "carry" keeps the current line's indentation. Completion: **W** document words, **K** keywords/types from the lexer table, **S** built-in snippets. LSP candidates are from prior knowledge and are **unverified**: license, platform builds and maintenance are checked in M47 before any is chosen. Nulis will not bundle servers.
 
 | Language | Indent (M44/M46) | Completion (M45/M46) | Validate | Format / compact | Preview | LSP candidates (unverified) |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -71,7 +71,7 @@ Indent family as in LANGUAGE_CAPABILITIES.md §6.1. Completion: **W** document w
 | C++ | brace | W K S | — | — | — | clangd |
 | CSS | brace | W S (properties list later) | — | — | — | vscode-css-languageserver (Node) |
 | CSV | carry | W (manual only) | — | — | — | — |
-| Dockerfile | carry + `\` continuation | W K | — | — | — | dockerfile-language-server (Node) |
+| Dockerfile | carry (`\` continuation: later) | W K | — | — | — | dockerfile-language-server (Node) |
 | Go | brace | W K S | — | — | — | gopls |
 | HTML | markup | W K (tag and attribute names) S | — | — | — | vscode-html-languageserver (Node) |
 | INI | carry | W | — | — | — | — |
@@ -81,7 +81,7 @@ Indent family as in LANGUAGE_CAPABILITIES.md §6.1. Completion: **W** document w
 | Kotlin | brace | W K S | — | — | — | kotlin-language-server (JVM) |
 | Lua | keyword-block (`function`/`then`/`do` … `end`) | W K S | — | — | — | lua-language-server |
 | Makefile | makefile (tab recipes) | W K | — | — | — | none known |
-| Markdown | carry (list continuation later) | W (manual only) | — | — | existing View mode | marksman |
+| Markdown | carry (list continuation: later) | W (manual only) | — | — | existing View mode | marksman |
 | MySQL / MariaDB | carry | W K | — | — | — | sqls |
 | Objective-C/C++ | brace | W K S | — | — | — | clangd |
 | Perl | brace | W K | — | — | — | Perl Navigator |

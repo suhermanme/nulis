@@ -84,12 +84,14 @@ pub enum FormatOutcome { Unchanged, Replaced(String) }   // the core applies it 
 // Planned (M47, shared with language servers): ranged diagnostics with severity,
 // several per document, instead of the first problem only.
 
+// As implemented in M44 (crates/nulis-language/src/indent.rs):
 pub trait IndentProvider: Send + Sync {
-    fn on_enter(&self, context: &IndentContext) -> IndentAction;
-    fn electric_tokens(&self) -> &[&str];           // tokens that may outdent the line when typed: "}", "</", "end"
-    fn on_type(&self, context: &IndentContext, typed: &str) -> Option<String>; // new leading whitespace
-    fn forced_unit(&self) -> Option<IndentUnit>;    // YAML: spaces; Makefile recipe: tab
+    fn on_enter(&self, context: &IndentContext) -> NewlineAction;
+    /// Before `typed` is inserted: the line's new leading whitespace, if it should move.
+    fn on_type(&self, context: &IndentContext, typed: char) -> Option<String>;
+    fn required_unit(&self) -> Option<RequiredUnit> { None } // YAML: spaces; Makefile: tabs
 }
+pub struct NewlineAction { pub current_indent: Option<String> /* `end` moves left */, pub indent: String, pub closing_indent: Option<String> }
 pub struct IndentContext<'a> {
     pub line_before_caret: &'a str,
     pub line_after_caret: &'a str,
@@ -97,7 +99,7 @@ pub struct IndentContext<'a> {
     pub unit: IndentUnit,                           // Tab, or Spaces(n), from settings or detection
     pub tab_width: u8,
 }
-pub struct IndentAction { pub indent: String, pub closing_line: Option<String> } // closing_line: split "{|}"
+// Closing keywords (`end`, `fi`) move left on Enter rather than while typed, so `endpoint` never jumps.
 
 pub trait CompletionProvider: Send + Sync {
     fn trigger_characters(&self) -> &[char];

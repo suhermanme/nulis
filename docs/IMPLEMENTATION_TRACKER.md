@@ -4,8 +4,8 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 
 ## Current state
 
-- **Current milestone:** M43 complete (2026-10-23); next is M44 (core auto-indentation). M41 approved 2026-10-23 with every plan §7 recommendation accepted. Branch `feat/language-capabilities`. **To resume plan 4, read the "Plan 4" section below.** Plan 3 is complete and released in Nulis 0.4.0 (2026-10-23).
-- **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 5 of 5 milestones completed (M31–M35); plan 3: 5 of 5 completed (M36–M40, in Nulis 0.4.0); plan 4: 3 of 8 (M41–M43)
+- **Current milestone:** M44 complete (2026-10-23); next is M45 (shared autocomplete). M41 approved 2026-10-23 with every plan §7 recommendation accepted. Branch `feat/language-capabilities`. **To resume plan 4, read the "Plan 4" section below.** Plan 3 is complete and released in Nulis 0.4.0 (2026-10-23).
+- **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 5 of 5 milestones completed (M31–M35); plan 3: 5 of 5 completed (M36–M40, in Nulis 0.4.0); plan 4: 4 of 8 (M41–M44)
 - **Baseline before M19 (commit `66853e1`):** `cargo test -p nulis-core` 86 passed; desktop Vitest 11 files, 115 tests passed.
 
 | Milestone | Status | Handover |
@@ -35,7 +35,7 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 | M41 Language capabilities: audit and design | Completed 2026-10-23 (approved) | this tracker, "Plan 4" section |
 | M42 Language catalog and capability contracts | Completed 2026-10-23 (checked in the app on macOS) | `handover/M42_HANDOVER.md` |
 | M43 First-party migration (tools, Markdown preview) | Completed 2026-10-23 (app check pending) | `handover/M43_HANDOVER.md` |
-| M44 Core auto-indentation | Not Started | — |
+| M44 Core auto-indentation | Completed 2026-10-23 (app check pending) | `handover/M44_HANDOVER.md` |
 | M45 Shared autocomplete | Not Started | — |
 | M46 Expand bundled coverage | Not Started | — |
 | M47 Optional LSP | Not Started | — |
@@ -137,21 +137,36 @@ Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language 
 
 ### M44 — Core auto-indentation
 
-**Status:** Not Started. **Depends on:** M42 (settings, done), owner answer §7.1 (given: `full`).
+**Status:** Completed 2026-10-23 (automated checks on macOS; not yet tried in the running app). Handover: `handover/M44_HANDOVER.md`.
 
 | Task | Status |
 | --- | --- |
-| Indentation settings and per-document detection | Not Started |
-| `editor.newline` (all carets, one undo step); UI Enter routed through the edit queue | Not Started |
-| Outdent-on-type merged into the typed character's undo step | Not Started |
-| Tab inserts indent unit; smart Backspace | Not Started |
-| Rule families: brace, python, yaml, makefile, markup, keyword-block, carry | Not Started |
-| Paste: exact by default, optional re-basing | Not Started |
-| Macro replay compatibility test; fuzz target for rules | Not Started |
+| Indentation settings and per-document detection | Completed (`editor.autoIndent` default `full`, `insertSpaces` false, `tabSize` 4, `detectIndentation` true; `[language]` overrides; Settings ▸ Editor ▸ Indentation) |
+| `editor.newline` (all carets, one undo step); UI Enter routed through the edit queue | Completed |
+| Outdent-on-type merged into the typed character's undo step | Completed (`}` `)` `]`, `</`, Python `else:`/`elif:`/`except:`/`finally:`; keyword closers move on Enter instead, so `endpoint` never jumps) |
+| Tab inserts indent unit; smart Backspace | Completed (`editor.tab`) |
+| Rule families: brace, python, yaml, makefile, markup, keyword-block, carry | Completed |
+| Paste: exact by default, optional re-basing | Exact: Completed. Optional re-basing: deferred (not needed for acceptance; no setting added) |
+| Macro replay compatibility test; fuzz target for rules | Completed (`indent_rules` fuzz target, run in CI's nightly job; awkward-text smoke test) |
+
+**Acceptance:** rule-family tests (newline, block indent, outdent, tabs vs spaces, CRLF and CR, multi-caret, read-only) pass; keys reach `editor.newline`/`editor.tab`/typed `insertText` through the edit queue; Undo restores exact bytes in one step; `autoIndent: none` inserts exactly the line ending 0.4.0 inserted (LF, CRLF, CR, last line); a line break inserted as text (old macros) is never indented.
+
+**Verification (macOS, 2026-10-23):** fmt and clippy clean; `cargo test --workspace` 394 passed (nulis-language 20, nulis-core 178 + golden); lint and typecheck clean; Vitest 22 files, 195 tests passed. Fuzz target compiles (`cargo check` in `fuzz/`); not run locally (needs nightly). Not tried in the running app; CI not run (branch not pushed).
+
+**Files changed:** `crates/nulis-language/src/indent.rs` and `indent/tests.rs` (new), `crates/nulis-language/src/lib.rs`, `crates/nulis-core/src/editor/indentation.rs` (new), `crates/nulis-core/src/{editor,lib,builtin_providers}.rs`, `crates/nulis-core/src/editor/rename.rs`, `apps/desktop/src/{contracts.ts,EditorViewport.tsx,SettingsWindow.tsx}` and tests, `fuzz/`, `.github/workflows/ci.yml`, docs.
+
+**Decisions and visible changes:**
+- Enter indents by default (owner's choice). A line holding only indentation loses it when Enter leaves it empty (no trailing spaces).
+- Tab inserts spaces when the file is already indented with spaces (detection), even with "Indent with spaces" off; Indent/Outdent do the same.
+- Two carets on one line: existing indentation is left alone (each still gets its new line's indentation).
+- Renaming a file now also refreshes its tools (bug from M43).
+- The interface no longer decides line endings; `lineBreakAt` was removed.
+
+**Known issues / later:** Dockerfile `\` continuation and Markdown list continuation are carry only; paste re-basing not implemented; brace rules ignore block comments (`/* { */`); indentation context is limited to 64 lines / 16 KiB above the caret.
 
 ### M45 — Shared autocomplete
 
-**Status:** Not Started. **Depends on:** M42, owner answers §7.2–7.3.
+**Status:** Not Started. **Depends on:** M42 (done), owner answers §7.2–7.3 (given).
 
 | Task | Status |
 | --- | --- |

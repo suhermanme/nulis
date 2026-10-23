@@ -218,7 +218,7 @@ The **Format** menu, the **Format** list in the editor toolbar, and the command 
 | To Upper Case, To Lower Case, Invert Case | Changes the letters in the selection. |
 | Capitalize Words | Starts each word in the selection with a capital and lower-cases the rest. |
 | Trim Selection | Removes spaces at both ends of the selection. |
-| Indent Lines / Outdent Lines | Adds or removes one tab at the start of each selected line (outdent also removes up to four spaces). **Tab** indents when the selection covers more than one line; **Shift Tab** always outdents. |
+| Indent Lines / Outdent Lines | Adds or removes one level of indentation at the start of each selected line, as a tab or as spaces depending on the document (see Indentation). **Tab** indents when the selection covers more than one line; **Shift Tab** always outdents. |
 | Toggle Line Comment | **Ctrl/⌘ /**. Comments out the selected lines with the language's comment marker (`//`, `#`, `--`, or `<!-- -->` for markup), lined up at the shallowest indentation; if every line is already commented, removes the markers. Plain text and JSON have no comments. |
 | Trim Trailing Spaces | Removes spaces and tabs at the end of lines. |
 | Tabs to Spaces / Leading Spaces to Tabs | Converts using tab stops every four columns. |
@@ -461,6 +461,18 @@ The status bar shows which line endings the document uses: **LF** (macOS, Linux)
 **Enter** inserts the same line ending as the line the caret is on, so a Windows file stays CRLF.
 
 To convert, click the label in the status bar, or use **Format ▸ Convert Line Endings to LF / CRLF / CR**. Every line ending in the document changes in one undo step; bookmarks stay on their lines. Conversion works on documents up to 64 MiB with at most 1,000,000 line endings to change, and not in Read-Only mode. Save the file to keep the change.
+
+### Indentation
+
+**Enter** starts the new line with the right indentation for the language: one level deeper after `{`, `(`, `[`, a Python `:`, an opening HTML or XML tag, a YAML key without a value, a Makefile rule, or a block keyword such as Ruby `def`, Lua `then`, or Bash `do`. Pressing Enter between a pair, as in `{|}` or `<p>|</p>`, puts the closing part on its own line. A closing keyword typed on its own line (`end`, `fi`, `End Sub`, `else`) moves left when you press Enter. Other languages keep the indentation of the line you were on.
+
+Typing `}`, `)`, or `]` on a line that holds only indentation moves the line to match its opening bracket; so do `</` in HTML and XML and `else:`, `elif …:`, `except …:`, and `finally:` in Python. One **Undo** takes back the move and the character together.
+
+**Tab** inserts a tab, or spaces up to the next tab stop when the document is indented with spaces. **Backspace** in indentation made of spaces removes one level at a time.
+
+Nulis looks at how each file is already indented (tabs, or 2, 4, or 8 spaces) and follows it. Otherwise it uses **Settings ▸ Editor ▸ Indentation**: Auto-indent (follow the language, keep the line's indentation, or off), tab size, and spaces instead of tabs. YAML always uses spaces and Makefile recipes always use tabs, as those formats require. To switch the language rules off for one language only, untick **Auto-indent rules** for it in **Settings ▸ Languages**. Settings for one language can also go in `settings.json`, for example `"[python]": { "editor": { "tabSize": 4, "insertSpaces": true } }`.
+
+With Auto-indent off, Enter inserts only the line break, as in earlier versions. Pasted text is inserted exactly as copied.
 
 ### Markdown preview
 
