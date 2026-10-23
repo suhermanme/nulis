@@ -7,7 +7,7 @@
 
 ## 1. Request
 
-Turn Nulis's language support into a capability-based system: a core that owns documents and the shared editing UI, bundled language providers behind stable interfaces, and a future path to external language plugins. Deliver auto-indentation and basic autocomplete without a language server, keep LSP optional, and keep every existing workflow working. Do not refactor production code before this plan is approved; then work one milestone at a time, stopping at each boundary with a handover.
+Turn Nulis's language support into a capability-based system: a core that owns documents and the shared editing UI, bundled language providers behind stable interfaces, and a future path to external language plugins. Deliver auto-indentation and basic autocomplete without a language server, keep LSP optional, and keep every existing workflow working. **Owner goal (2026-10-23):** Nulis should open and present its own whole technology stack well: Rust, TypeScript/TSX, JavaScript, JSON, TOML, YAML, Markdown, CSS, HTML, SVG/XML, shell, and the repository's dotfiles. M46 measures this with a self-hosting test (below). Do not refactor production code before this plan is approved; then work one milestone at a time, stopping at each boundary with a handover.
 
 ## 2. Audit findings
 
@@ -179,7 +179,7 @@ Deliverables: this plan, LANGUAGE_CAPABILITIES.md, LANGUAGE_MATRIX.md, tracker s
 
 ### M46 — Expand bundled coverage (M5)
 
-Fill the planned columns of LANGUAGE_MATRIX.md for every language; fix the four defects in §2.9; Markdown heading folds and YAML indentation folds; proposed new associations (`.jsonc`, `Dockerfile.*`, `CMakeLists.txt` and others listed in the matrix) only as approved in §7. A smoke test runs Enter, Tab, Backspace, Toggle Comment and completion in every language and asserts no error and plain fallback where nothing is provided.
+**Self-hosting:** a test walks every tracked text file of this repository and asserts its language (today only `.gitignore`, `.gitattributes`, the license texts and a fuzz seed open as Plain Text; licenses and the seed should stay Plain Text). Add an ignore-file language for `.gitignore`/`.gitattributes`/`.npmignore`, JSX/TSX tag highlighting (41 `.tsx` files in this repository), and regular-expression literals and `${…}` in JavaScript and TypeScript template strings. Then fill the planned columns of LANGUAGE_MATRIX.md for every language; fix the four defects in §2.9; Markdown heading folds and YAML indentation folds; proposed new associations (`.jsonc`, `Dockerfile.*`, `CMakeLists.txt` and others listed in the matrix) only as approved in §7. A smoke test runs Enter, Tab, Backspace, Toggle Comment and completion in every language and asserts no error and plain fallback where nothing is provided.
 
 ### M47 — Optional LSP (M6)
 

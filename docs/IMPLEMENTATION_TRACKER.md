@@ -136,6 +136,7 @@ Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language 
 
 | Task | Status |
 | --- | --- |
+| Self-hosting test over this repository; ignore-file language; JSX/TSX tags; JS/TS regex literals and template `${…}` | Not Started |
 | Fill Table 2 of `LANGUAGE_MATRIX.md` for every language | Not Started |
 | Fix plan §2.9 defects (CSS comment, Python brackets, `.scpt`) | Not Started |
 | Markdown heading folds, YAML indentation folds | Not Started |
