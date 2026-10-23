@@ -7,6 +7,8 @@
 //! its usual revision checks and undo records. See
 //! `docs/LANGUAGE_CAPABILITIES.md`.
 
+pub mod indent;
+
 use nulis_syntax::LanguageId;
 use serde::{Deserialize, Serialize};
 use std::{
