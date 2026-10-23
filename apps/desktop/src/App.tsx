@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { keepFocusInDialog } from "./dialogFocus";
 import { PageSetupDialog } from "./PageSetupDialog";
 import { colorChoice, loadPrintSettings, savePrintSettings, type PrintSettings } from "./printSettings";
@@ -26,6 +26,8 @@ import type {
   SearchRequest,
   ExternalChange,
   DocumentCapabilities,
+  SettingsState,
+  SuggestSettings,
   ThemeRecord,
   ValidationReport,
   WorkbenchSession,
@@ -34,6 +36,7 @@ import type {
   WorkspaceFileList,
   WorkspaceSummary,
 } from "./contracts";
+import { DEFAULT_SUGGEST_SETTINGS, suggestSettingsOf } from "./contracts";
 import { EditorViewport } from "./EditorViewport";
 import { Picker, useRestoreFocus, type PickerItem } from "./Picker";
 import { rankMatches } from "./quickOpen";
@@ -309,6 +312,17 @@ export function App() {
     { id: "python", displayName: "Python" },
   ]);
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
+  const [suggestSettings, setSuggestSettings] = useState<SuggestSettings>(DEFAULT_SUGGEST_SETTINGS);
+  /** Reads `editor.suggest` from settings.json; defaults when it cannot. */
+  const loadSuggestSettings = useCallback(async () => {
+    try {
+      const state = await executeCommand<SettingsState | null>({ id: "settings.state", context: { windowId: "main" }, arguments: {} });
+      setSuggestSettings(suggestSettingsOf(state?.document.values));
+    } catch {
+      setSuggestSettings(DEFAULT_SUGGEST_SETTINGS);
+    }
+  }, []);
+  useEffect(() => { void loadSuggestSettings(); }, [loadSuggestSettings]);
   const [tabs, setTabs] = useState<WorkTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [renameRequest, setRenameRequest] = useState<{ tabId: string | null; signal: number }>({ tabId: null, signal: 0 });
@@ -1132,6 +1146,7 @@ export function App() {
         setLineChangeOverrides({});
         applyWelcomeSetting();
       }).catch((error: unknown) => setStatus(errorMessage(error, "Could not refresh settings")));
+      void loadSuggestSettings();
       // Language settings can switch tools and previews on or off for open documents.
       void executeCommand<DocumentSummary[]>({ id: "editor.summaries", context: { windowId: "main" }, arguments: {} })
         .then((summaries) => {
@@ -2367,6 +2382,7 @@ export function App() {
           onCopyPath={() => copyPath(document)}
           onClipboardText={rememberClipboard}
           insertRequest={active ? insertRequest : undefined}
+          suggest={suggestSettings}
           onReload={document.sourcePath ? () => requestReload(document) : undefined}
           onOpenFind={active ? openFindPanel : undefined}
           searchRequest={active ? searchRequest : undefined}

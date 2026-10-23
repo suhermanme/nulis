@@ -1912,3 +1912,100 @@ test("read-only documents disable editing items and refuse line edits", async ()
   expect(executeCommand).not.toHaveBeenCalledWith(expect.objectContaining({ id: "editor.deleteForward" }));
   expect(executeCommand).not.toHaveBeenCalledWith(expect.objectContaining({ id: "editor.lineOperation" }));
 });
+
+/** A core that answers completion requests for whatever revision it is asked about. */
+function respondWithSuggestions(revisionOffset = 0) {
+  let revision = 0;
+  vi.mocked(executeCommand).mockImplementation(async (request) => {
+    const args = (request.arguments ?? {}) as Record<string, unknown>;
+    switch (request.id) {
+      case "completion.request":
+        return {
+          requestId: args.requestId, revision: String(Number(args.expectedRevision) + revisionOffset),
+          replaceStart: "0", replaceEnd: "2", prefix: "co",
+          items: [
+            { label: "const", kind: "keyword", insert: "const" },
+            { label: "counter", kind: "word", insert: "counter" },
+            { label: "for", kind: "snippet", insert: "for (${1:i}) {}", snippet: true, detail: "For loop" },
+          ],
+        } as never;
+      default:
+        revision += 1;
+        return { documentId: "document-1", name: "a.js", byteLen: "2", revision: String(revision), encoding: "utf8" } as never;
+    }
+  });
+}
+
+const SCRIPT = {
+  documentId: "document-1", name: "a.js", byteLen: "0", revision: "0", encoding: "utf8" as const,
+  capabilities: { completion: "auto" as const },
+};
+
+test("suggestions open after typing, follow the arrow keys, and Enter inserts the chosen one", async () => {
+  respondWithSuggestions();
+  render(<EditorViewport document={SCRIPT} onDocumentChange={() => undefined} onStatus={() => undefined} />);
+  const editor = await screen.findByRole("textbox", { name: "a.js editor" });
+  fireEvent.keyDown(editor, { key: "c" });
+  fireEvent.keyDown(editor, { key: "o" });
+  const list = await screen.findByRole("listbox", { name: "Suggestions" });
+  expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
+    id: "completion.request", arguments: expect.objectContaining({ explicit: false, minPrefix: 2 }),
+  }));
+  const options = within(list).getAllByRole("option");
+  expect(options.map((option) => option.textContent)).toEqual(["Kconst", "Wcounter", "SforFor loop"]);
+  expect(options[0]).toHaveAttribute("aria-selected", "true");
+  expect(editor).toHaveAttribute("aria-expanded", "true");
+  expect(editor).toHaveAttribute("aria-activedescendant", options[0].id);
+
+  fireEvent.keyDown(editor, { key: "ArrowDown" });
+  expect(within(list).getAllByRole("option")[1]).toHaveAttribute("aria-selected", "true");
+  expect(editor).toHaveAttribute("aria-activedescendant", within(list).getAllByRole("option")[1].id);
+  fireEvent.keyDown(editor, { key: "ArrowUp" });
+  fireEvent.keyDown(editor, { key: "ArrowUp" });
+  expect(within(list).getAllByRole("option")[2]).toHaveAttribute("aria-selected", "true");
+  fireEvent.keyDown(editor, { key: "Enter" });
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
+    id: "completion.accept",
+    arguments: expect.objectContaining({ replaceStart: "0", replaceEnd: "2", text: "for (${1:i}) {}", snippet: true }),
+  })));
+  expect(screen.queryByRole("listbox", { name: "Suggestions" })).not.toBeInTheDocument();
+  // Enter accepted; it did not also start a new line.
+  expect(executeCommand).not.toHaveBeenCalledWith(expect.objectContaining({ id: "editor.newline" }));
+});
+
+test("Ctrl+Space asks for suggestions anywhere and Escape closes them", async () => {
+  respondWithSuggestions();
+  render(<EditorViewport document={{ ...SCRIPT, name: "notes.txt", capabilities: { completion: "manual" } }}
+    onDocumentChange={() => undefined} onStatus={() => undefined} />);
+  const editor = await screen.findByRole("textbox", { name: "notes.txt editor" });
+  // Plain text never opens the list by itself.
+  fireEvent.keyDown(editor, { key: "c" });
+  fireEvent.keyDown(editor, { key: "o" });
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 200)); });
+  expect(executeCommand).not.toHaveBeenCalledWith(expect.objectContaining({ id: "completion.request" }));
+  fireEvent.keyDown(editor, { key: " ", code: "Space", ctrlKey: true });
+  await screen.findByRole("listbox", { name: "Suggestions" });
+  expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
+    id: "completion.request", arguments: expect.objectContaining({ explicit: true }),
+  }));
+  fireEvent.keyDown(editor, { key: "Escape" });
+  expect(screen.queryByRole("listbox", { name: "Suggestions" })).not.toBeInTheDocument();
+  expect(editor).toHaveAttribute("aria-expanded", "false");
+  // A click on an option inserts it too.
+  fireEvent.keyDown(editor, { key: " ", code: "Space", ctrlKey: true });
+  const list = await screen.findByRole("listbox", { name: "Suggestions" });
+  fireEvent.mouseDown(within(list).getAllByRole("option")[1]);
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
+    id: "completion.accept", arguments: expect.objectContaining({ text: "counter" }),
+  })));
+});
+
+test("an answer for an older revision of the text is not shown", async () => {
+  respondWithSuggestions(-1);
+  render(<EditorViewport document={SCRIPT} onDocumentChange={() => undefined} onStatus={() => undefined} />);
+  const editor = await screen.findByRole("textbox", { name: "a.js editor" });
+  fireEvent.keyDown(editor, { key: " ", code: "Space", ctrlKey: true });
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({ id: "completion.request" })));
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+  expect(screen.queryByRole("listbox", { name: "Suggestions" })).not.toBeInTheDocument();
+});

@@ -15,6 +15,7 @@ import type {
 } from "./contracts";
 import { CUSTOMIZABLE_COMMANDS } from "./commands";
 import { Icon, IconButton, type IconName } from "./icons";
+import { suggestSettingsOf } from "./contracts";
 import { executeCommand, getApplicationInfo, listCommands } from "./ipc";
 import { LAYOUT_LIMITS } from "./layout";
 import { useShowWhenReady } from "./windowTheme";
@@ -72,6 +73,7 @@ function loadSection(): SettingsSectionId {
 /** How each capability is named next to its switch. */
 const FEATURE_NAMES: Partial<Record<CapabilityKind, string>> = {
   diagnostics: "Validate", format: "Beautify", compact: "Minify", preview: "Preview", indentation: "Auto-indent rules",
+  completion: "Suggestions",
 };
 
 /** The `editor` indentation values of settings.json, with Nulis's defaults. */
@@ -80,6 +82,9 @@ interface IndentationDraft {
   insertSpaces: boolean;
   tabSize: number;
   detectIndentation: boolean;
+  /** `editor.suggest.auto` and `editor.suggest.acceptOnEnter`. */
+  suggestAuto: boolean;
+  suggestAcceptOnEnter: boolean;
 }
 
 function indentationOf(state: SettingsState | null): IndentationDraft {
@@ -87,18 +92,26 @@ function indentationOf(state: SettingsState | null): IndentationDraft {
   const values = typeof editor === "object" && editor !== null ? editor as Record<string, unknown> : {};
   const autoIndent = values.autoIndent === "keep" || values.autoIndent === "none" ? values.autoIndent : "full";
   const tabSize = typeof values.tabSize === "number" ? Math.min(16, Math.max(1, Math.round(values.tabSize))) : 4;
+  const suggest = suggestSettingsOf(state?.document.values);
   return {
     autoIndent,
     insertSpaces: values.insertSpaces === true,
     tabSize,
     detectIndentation: values.detectIndentation !== false,
+    suggestAuto: suggest.auto,
+    suggestAcceptOnEnter: suggest.acceptOnEnter,
   };
 }
 
 /** Writes the indentation draft into settings.json values, keeping other editor values. */
 function withIndentation(values: Record<string, unknown>, draft: IndentationDraft): Record<string, unknown> {
   const editor = typeof values.editor === "object" && values.editor !== null ? values.editor as Record<string, unknown> : {};
-  return { ...values, editor: { ...editor, ...draft } };
+  const suggest = typeof editor.suggest === "object" && editor.suggest !== null ? editor.suggest as Record<string, unknown> : {};
+  const { suggestAuto, suggestAcceptOnEnter, ...indentation } = draft;
+  return {
+    ...values,
+    editor: { ...editor, ...indentation, suggest: { ...suggest, auto: suggestAuto, acceptOnEnter: suggestAcceptOnEnter } },
+  };
 }
 
 type FeatureSwitches = Record<string, Partial<Record<CapabilityKind, boolean>>>;
@@ -489,6 +502,19 @@ export function SettingsWindow({
             setIndentDraft((current) => ({ ...current, detectIndentation }));
           }} /><span>Follow how each file is already indented</span></label>
         <p className="settings-help">Enter indents the new line, a closing bracket or tag typed on its own line moves left, and Backspace removes one level of spaces. YAML always uses spaces and Makefile recipes always use tabs.</p>
+      </fieldset>
+      <fieldset className="settings-group"><legend>Suggestions</legend>
+        <label className="settings-check"><input aria-label="Show suggestions while typing" type="checkbox" checked={indentDraft.suggestAuto}
+          onChange={(event) => {
+            const suggestAuto = event.currentTarget.checked;
+            setIndentDraft((current) => ({ ...current, suggestAuto }));
+          }} /><span>Show suggestions while typing</span></label>
+        <label className="settings-check"><input aria-label="Enter accepts a suggestion" type="checkbox" checked={indentDraft.suggestAcceptOnEnter}
+          onChange={(event) => {
+            const suggestAcceptOnEnter = event.currentTarget.checked;
+            setIndentDraft((current) => ({ ...current, suggestAcceptOnEnter }));
+          }} /><span>Enter accepts a suggestion (Tab always does)</span></label>
+        <p className="settings-help">Suggestions come from words in the document, the language's keywords, and snippets. They open by themselves after two letters in languages with keywords, never in Plain Text or Markdown. Show them anywhere with Ctrl+Space (on macOS also Option+Esc).</p>
       </fieldset>
       <fieldset className="settings-group"><legend>Gutter</legend>
         <label className="settings-check"><input aria-label="Show line change indicators by default" type="checkbox" checked={lineChanges}

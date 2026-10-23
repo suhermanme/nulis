@@ -316,6 +316,8 @@ export interface DocumentCapabilities {
   formatMayLoseData?: boolean;
   /** A rendered view, by kind ("markdown"). */
   preview?: string;
+  /** Completion opens while typing ("auto") or only when asked ("manual"). */
+  completion?: "auto" | "manual";
 }
 
 export type CapabilityKind = "highlight" | "comment" | "indentation" | "completion" | "diagnostics"
@@ -334,6 +336,55 @@ export interface SettingsState {
   document: { schemaVersion: 1; values: Record<string, unknown> };
   rejectedAssociations: string[];
   loadError: string | null;
+}
+
+/** One suggestion from `completion.request`. */
+export interface CompletionItem {
+  label: string;
+  kind: "snippet" | "keyword" | "type" | "word";
+  /** Replaces the typed word; for a snippet, the snippet body. */
+  insert: string;
+  snippet?: boolean;
+  detail?: string;
+}
+
+/** The answer to `completion.request`, for one revision of the document. */
+export interface CompletionList {
+  requestId: number;
+  revision: string;
+  replaceStart: string;
+  replaceEnd: string;
+  prefix: string;
+  items: CompletionItem[];
+}
+
+/** When the suggestion list opens and how it is accepted (settings.json `editor.suggest`). */
+export interface SuggestSettings {
+  /** Open while typing in languages with their own words. */
+  auto: boolean;
+  /** Enter accepts (Tab always does). */
+  acceptOnEnter: boolean;
+  /** Characters of a word typed before the list opens by itself. */
+  minChars: number;
+  /** Pause after typing before asking, in milliseconds. */
+  delayMs: number;
+}
+
+export const DEFAULT_SUGGEST_SETTINGS: SuggestSettings = { auto: true, acceptOnEnter: true, minChars: 2, delayMs: 120 };
+
+/** Reads `editor.suggest` from settings.json values; anything missing keeps its default. */
+export function suggestSettingsOf(values: Record<string, unknown> | undefined): SuggestSettings {
+  const editor = values?.editor;
+  const suggest = typeof editor === "object" && editor !== null ? (editor as { suggest?: unknown }).suggest : undefined;
+  const read = typeof suggest === "object" && suggest !== null ? suggest as Record<string, unknown> : {};
+  const number = (value: unknown, fallback: number, minimum: number, maximum: number) =>
+    typeof value === "number" && Number.isFinite(value) ? Math.min(maximum, Math.max(minimum, Math.round(value))) : fallback;
+  return {
+    auto: typeof read.auto === "boolean" ? read.auto : DEFAULT_SUGGEST_SETTINGS.auto,
+    acceptOnEnter: typeof read.acceptOnEnter === "boolean" ? read.acceptOnEnter : DEFAULT_SUGGEST_SETTINGS.acceptOnEnter,
+    minChars: number(read.minChars, DEFAULT_SUGGEST_SETTINGS.minChars, 1, 10),
+    delayMs: number(read.delayMs, DEFAULT_SUGGEST_SETTINGS.delayMs, 0, 2000),
+  };
 }
 
 export interface ValidationReport {

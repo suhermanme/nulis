@@ -1153,3 +1153,24 @@ kbd,
 .replace-open { color: var(--warning); }
 .replace-failures li > span:last-child { color: var(--danger); white-space: normal; }
 .find-confirm > span { flex: 1; font-size: 12px; }
+
+/* Completion suggestions under the caret. */
+.completion-popup {
+  position: fixed; z-index: 400; min-width: 220px; max-width: 480px; max-height: 240px; margin: 0; padding: 4px;
+  overflow-y: auto; list-style: none; border: 1px solid var(--border); border-radius: 6px; background: var(--menu);
+  box-shadow: 0 12px 32px #0007; font-family: var(--editor-font-family); font-size: 12px; line-height: 1.5;
+}
+.completion-popup li {
+  display: flex; align-items: center; gap: 8px; padding: 2px 8px; border-radius: 4px; color: var(--ui-text);
+  white-space: nowrap; cursor: default;
+}
+.completion-popup li[aria-selected="true"] { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.completion-kind {
+  display: inline-grid; flex: none; place-items: center; width: 16px; height: 16px; border-radius: 3px;
+  color: var(--muted); border: 1px solid var(--border); font-size: 9px; font-family: var(--ui-font, inherit);
+}
+.completion-label { overflow: hidden; text-overflow: ellipsis; }
+.completion-detail { margin-left: auto; padding-left: 12px; color: var(--muted); font-size: 11px; }
+@media (forced-colors: active) {
+  .completion-popup li[aria-selected="true"] { outline: 2px solid Highlight; background: Highlight; color: HighlightText; }
+}

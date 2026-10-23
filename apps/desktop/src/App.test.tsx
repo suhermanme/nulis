@@ -845,14 +845,16 @@ test("language features can be switched off per language and are saved to settin
     ] },
     { id: "markdown", displayName: "Markdown", capabilities: [{ kind: "preview", label: "Markdown", enabled: true }] },
   ];
-  responses["settings.state"] = [{
+  const settingsAtStart = {
     revision: 3, loadError: null, rejectedAssociations: ["src/*.x"],
     document: { schemaVersion: 1, values: {
       editor: { tabSize: 2 },
       files: { associations: { "*.h": "cpp", "src/*.x": "rust" } },
       "[json]": { disabledCapabilities: ["someOtherKind"], note: "kept" },
     } },
-  }];
+  };
+  // The editor window reads settings at start, then the Settings window does.
+  responses["settings.state"] = [settingsAtStart, settingsAtStart];
   responses["language.capabilities"] = [rows];
   const dialog = await openSettings();
   fireEvent.click(within(dialog).getByRole("tab", { name: "Languages" }));
@@ -884,10 +886,12 @@ test("language features can be switched off per language and are saved to settin
 });
 
 test("indentation settings are saved to settings.json and keep other editor values", async () => {
-  responses["settings.state"] = [{
+  const settingsAtStart = {
     revision: 1, loadError: null, rejectedAssociations: [],
     document: { schemaVersion: 1, values: { editor: { tabSize: 2, wordWrap: true } } },
-  }];
+  };
+  // The editor window reads settings at start, then the Settings window does.
+  responses["settings.state"] = [settingsAtStart, settingsAtStart];
   responses["language.capabilities"] = [[]];
   const dialog = await openSettings();
   fireEvent.click(within(dialog).getByRole("tab", { name: "Editor" }));
@@ -906,6 +910,7 @@ test("indentation settings are saved to settings.json and keep other editor valu
     expectedRevision: 1,
     document: { schemaVersion: 1, values: { editor: {
       tabSize: 2, wordWrap: true, autoIndent: "none", insertSpaces: true, detectIndentation: true,
+      suggest: { auto: true, acceptOnEnter: true },
     } } },
   });
 });

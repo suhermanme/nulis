@@ -10,6 +10,7 @@ export const EDITOR_ACTIONS = {
   "edit.moveLinesUp": "moveLinesUp",
   "edit.moveLinesDown": "moveLinesDown",
   "edit.insertLineBelow": "insertLineBelow",
+  "edit.triggerSuggest": "triggerSuggest",
   "format.uppercase": "uppercase",
   "format.lowercase": "lowercase",
   "format.capitalize": "capitalize",

@@ -2538,6 +2538,7 @@ const WORKBENCH_ACTIONS: &[(&str, &str, &str)] = &[
     ("edit.moveLinesUp", "Move Line Up", "Edit"),
     ("edit.moveLinesDown", "Move Line Down", "Edit"),
     ("edit.insertLineBelow", "Insert Line Below", "Edit"),
+    ("edit.triggerSuggest", "Show Suggestions", "Edit"),
     ("format.uppercase", "To Upper Case", "Format"),
     ("format.lowercase", "To Lower Case", "Format"),
     ("format.capitalize", "Capitalize Words", "Format"),

@@ -10,10 +10,12 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useId,
   useRef,
   useState,
 } from "react";
+import { CompletionPopup, completionOptionId } from "./CompletionPopup";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import type {
   CaretPosition,
@@ -45,7 +47,10 @@ import type {
   TextEncoding,
   ViewportCursor,
   ViewportSnapshot,
+  CompletionList,
+  SuggestSettings,
 } from "./contracts";
+import { DEFAULT_SUGGEST_SETTINGS } from "./contracts";
 import { Icon, IconButton } from "./icons";
 import { ContextMenu, type MenuItem } from "./Toolbar";
 import { LINE_ENDING_LABELS, type EditorActionName } from "./commands";
@@ -147,9 +152,11 @@ const MAX_NAVIGATION_HISTORY = 100;
 
 const EDITOR_ACTION_KINDS: Record<EditorActionName,
   { line: LineOperation } | { transform: TextTransformName } | { insertDateTime: true } | { navigate: NavigationAction }
+  | { suggest: true }
   | { lineEnding: LineEnding } | { clipboard: ClipboardMode } | { justify: Justify } | { column: "insertNumbers" | "sumNumbers" }> = {
   selectLines: { line: "selectLines" }, duplicateLines: { line: "duplicateLines" }, deleteLines: { line: "deleteLines" },
   moveLinesUp: { line: "moveLinesUp" }, moveLinesDown: { line: "moveLinesDown" }, insertLineBelow: { line: "insertLineBelow" },
+  triggerSuggest: { suggest: true },
   uppercase: { transform: "uppercase" }, lowercase: { transform: "lowercase" }, capitalize: { transform: "capitalize" },
   invertCase: { transform: "invertCase" }, trimSelection: { transform: "trimWhitespace" },
   indent: { line: "indent" }, outdent: { line: "outdent" }, toggleComment: { line: "toggleComment" },
@@ -424,6 +431,8 @@ interface EditorViewportProps {
   onClipboardText?(text: string): void;
   /** Text to insert as if pasted (from the clipboard history); a new `id` inserts again. */
   insertRequest?: { id: number; text: string };
+  /** When suggestions open and how they are accepted. */
+  suggest?: SuggestSettings;
 }
 
 export function EditorViewport({
@@ -460,6 +469,7 @@ export function EditorViewport({
   columnMarker,
   onClipboardText,
   insertRequest,
+  suggest = DEFAULT_SUGGEST_SETTINGS,
 }: EditorViewportProps) {
   const rowHeight = Math.max(12, Math.min(100, lineHeight));
   // Several panes can show views at once, so element IDs are per view.
@@ -795,7 +805,8 @@ export function EditorViewport({
   refreshRef.current = refresh;
   const queueEdit = useCallback(
     (
-      id: "editor.insertText" | "editor.newline" | "editor.tab" | "editor.deleteBackward" | "editor.deleteForward",
+      id: "editor.insertText" | "editor.newline" | "editor.tab" | "editor.deleteBackward" | "editor.deleteForward"
+        | "completion.accept",
       details: Record<string, unknown>,
     ) => {
       const run = async () => {
@@ -843,6 +854,81 @@ export function EditorViewport({
     },
     [onStatus, queueEdit, refuseEdit],
   );
+
+  // Suggestions: one list at a time, for the revision it was asked for.
+  const [completion, setCompletion] = useState<{ list: CompletionList; index: number } | null>(null);
+  const [completionAt, setCompletionAt] = useState<{ left: number; top: number }>({ left: 0, top: 0 });
+  const completionRequestRef = useRef(0);
+  const completionTimerRef = useRef<number | null>(null);
+  const completionListId = `${viewDomId}-suggestions`;
+  const closeCompletion = useCallback(() => {
+    completionRequestRef.current += 1;
+    if (completionTimerRef.current !== null) window.clearTimeout(completionTimerRef.current);
+    completionTimerRef.current = null;
+    setCompletion(null);
+  }, []);
+  /**
+   * Asks the core for suggestions once pending typing has been applied.
+   * `shortcut`: always, even for no typed word. `typing`: only for a word of
+   * `minChars`. `refresh`: the list is open; it closes when the word is gone.
+   */
+  const requestCompletion = useCallback((mode: "shortcut" | "typing" | "refresh") => {
+    if (readOnly) return;
+    const id = completionRequestRef.current + 1;
+    completionRequestRef.current = id;
+    void editChainRef.current.then(async () => {
+      const revision = editRevisionRef.current;
+      if (id !== completionRequestRef.current || revision === null) return;
+      try {
+        const list = await executeCommand<CompletionList>({
+          id: "completion.request",
+          context: { windowId: "main", documentId: document.documentId },
+          arguments: { expectedRevision: revision, requestId: id, explicit: mode !== "typing", minPrefix: suggest.minChars },
+        });
+        // An answer for an older request or revision is dropped.
+        if (id !== completionRequestRef.current || list.revision !== editRevisionRef.current) return;
+        const keep = list.items.length > 0 && (mode === "shortcut" || list.prefix.length > 0);
+        setCompletion(keep ? { list, index: 0 } : null);
+        if (mode === "shortcut" && list.items.length === 0) onStatus("No suggestions");
+      } catch {
+        // The document changed while asking; the next keystroke asks again.
+      }
+    });
+  }, [document.documentId, onStatus, readOnly, suggest.minChars]);
+  const scheduleCompletion = useCallback((mode: "typing" | "refresh") => {
+    if (completionTimerRef.current !== null) window.clearTimeout(completionTimerRef.current);
+    completionTimerRef.current = window.setTimeout(() => {
+      completionTimerRef.current = null;
+      requestCompletion(mode);
+    }, mode === "refresh" ? 0 : suggest.delayMs);
+  }, [requestCompletion, suggest.delayMs]);
+  const acceptCompletion = useCallback(async (index: number) => {
+    const current = completion;
+    const item = current?.list.items[index];
+    closeCompletion();
+    if (!current || !item) return;
+    if (current.list.revision !== editRevisionRef.current) {
+      requestCompletion("refresh");
+      return;
+    }
+    try {
+      await queueEdit("completion.accept", {
+        replaceStart: current.list.replaceStart, replaceEnd: current.list.replaceEnd,
+        text: item.insert, ...(item.snippet ? { snippet: true } : {}),
+      });
+      onStatus(item.snippet ? `Inserted ${item.label}; Tab moves to the next placeholder` : `Inserted ${item.label}`);
+    } catch (error: unknown) {
+      onStatus(error instanceof Error ? error.message : "Could not insert the suggestion");
+    }
+  }, [closeCompletion, completion, onStatus, queueEdit, requestCompletion]);
+  useEffect(() => closeCompletion, [closeCompletion, document.documentId]);
+  // The list sits under the primary caret, in window coordinates.
+  useLayoutEffect(() => {
+    if (!completion) return;
+    const caret = surfaceRef.current?.querySelector(".caret");
+    const bounds = caret?.getBoundingClientRect();
+    if (bounds) setCompletionAt({ left: bounds.left, top: bounds.bottom + 2 });
+  }, [completion, snapshot, scrollTop]);
 
   const transferSelection = useCallback(
     async (cut: boolean, append = false) => {
@@ -1360,6 +1446,7 @@ export function EditorViewport({
     else if ("transform" in kind) void transformSelections(kind.transform);
     else if ("navigate" in kind) void navigate(kind.navigate);
     else if ("lineEnding" in kind) void convertLineEndings(kind.lineEnding);
+    else if ("suggest" in kind) requestCompletion("shortcut");
     else void insertText(formatDateTime(new Date()));
   };
   const runEditorActionRef = useRef(runEditorAction);
@@ -1858,6 +1945,37 @@ export function EditorViewport({
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    const composing = composingRef.current || event.nativeEvent.isComposing;
+    if (completion && !composing) {
+      const count = completion.list.items.length;
+      const move = (index: number) => {
+        event.preventDefault();
+        setCompletion({ ...completion, index: (index + count) % count });
+      };
+      const plain = !event.metaKey && !event.ctrlKey && !event.altKey;
+      if (plain && event.key === "ArrowDown") return move(completion.index + 1);
+      if (plain && event.key === "ArrowUp") return move(completion.index - 1);
+      if (plain && event.key === "PageDown") return move(Math.min(completion.index + 8, count - 1));
+      if (plain && event.key === "PageUp") return move(Math.max(completion.index - 8, 0));
+      if (plain && !event.shiftKey && (event.key === "Tab" || (event.key === "Enter" && suggest.acceptOnEnter))) {
+        event.preventDefault();
+        void acceptCompletion(completion.index);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeCompletion();
+        return;
+      }
+      if (["ArrowLeft", "ArrowRight", "Home", "End", "Enter", "Tab"].includes(event.key) || !plain) closeCompletion();
+    }
+    // Ctrl+Space everywhere, and Option+Esc on macOS where Ctrl+Space switches input sources.
+    if (!composing && ((event.ctrlKey && !event.metaKey && !event.altKey && (event.key === " " || event.code === "Space"))
+      || (isApplePlatform() && event.altKey && !event.metaKey && !event.ctrlKey && event.key === "Escape"))) {
+      event.preventDefault();
+      requestCompletion("shortcut");
+      return;
+    }
     if (handleEditingKey(event)) return;
     const modifier = event.metaKey || event.ctrlKey;
     if (modifier && !event.altKey && (event.key.toLowerCase() === "f" || event.key.toLowerCase() === "h")) {
@@ -1939,6 +2057,7 @@ export function EditorViewport({
       if (refuseEdit()) return;
       void queueEdit("editor.deleteBackward", {}).catch((error: unknown) => onStatus(
         error instanceof Error ? error.message : "Could not delete"));
+      if (completion) scheduleCompletion("refresh");
     } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
       event.preventDefault();
       void moveHorizontal(event.key === "ArrowLeft" ? "left" : "right", event.shiftKey);
@@ -1954,6 +2073,12 @@ export function EditorViewport({
     } else if (event.key.length === 1) {
       event.preventDefault();
       void insertText(event.key, true);
+      if (/^[\p{L}\p{N}_$]$/u.test(event.key)) {
+        if (completion) scheduleCompletion("refresh");
+        else if (suggest.auto && document.capabilities?.completion === "auto") scheduleCompletion("typing");
+      } else {
+        closeCompletion();
+      }
     }
   };
 
@@ -2428,13 +2553,21 @@ export function EditorViewport({
           }
         }}
       >
+        {completion ? <CompletionPopup id={completionListId} items={completion.list.items} index={completion.index}
+          left={completionAt.left} top={completionAt.top}
+          onPick={(index) => { void acceptCompletion(index); }}
+          onHover={(index) => setCompletion((current) => current ? { ...current, index } : current)} /> : null}
         <textarea
           ref={inputRef}
           className="editor-input-capture"
           aria-label={`${document.name} editor${viewId ? ` ${viewId}` : ""}`}
           aria-multiline="true"
           aria-describedby={instructionsId}
-          aria-controls={linesId}
+          aria-controls={completion ? `${linesId} ${completionListId}` : linesId}
+          aria-autocomplete="list"
+          aria-expanded={completion !== null}
+          aria-activedescendant={completion ? completionOptionId(completionListId, completion.index) : undefined}
+          onBlur={() => closeCompletion()}
           aria-keyshortcuts="Control+F Meta+F Control+H Meta+H Control+D Meta+D Control+G Meta+G ArrowLeft ArrowRight ArrowUp ArrowDown Shift+ArrowLeft Shift+ArrowRight Shift+ArrowUp Shift+ArrowDown PageUp PageDown"
           spellCheck={false}
           autoCapitalize="off"
