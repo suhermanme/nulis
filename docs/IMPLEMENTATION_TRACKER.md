@@ -34,9 +34,9 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 | M40 Docs and release | Complete 2026-10-22 | `handover/M40_HANDOVER.md` |
 | M41 Language capabilities: audit and design | Completed 2026-10-23 (approved) | this tracker, "Plan 4" section |
 | M42 Language catalog and capability contracts | Completed 2026-10-23 (checked in the app on macOS) | `handover/M42_HANDOVER.md` |
-| M43 First-party migration (tools, Markdown preview) | Completed 2026-10-23 (app check pending) | `handover/M43_HANDOVER.md` |
-| M44 Core auto-indentation | Completed 2026-10-23 (app check pending) | `handover/M44_HANDOVER.md` |
-| M45 Shared autocomplete | Completed 2026-10-23 (app check pending) | `handover/M45_HANDOVER.md` |
+| M43 First-party migration (tools, Markdown preview) | Completed 2026-10-23 (checked in the app on macOS) | `handover/M43_HANDOVER.md` |
+| M44 Core auto-indentation | Completed 2026-10-23 (checked in the app on macOS) | `handover/M44_HANDOVER.md` |
+| M45 Shared autocomplete | Completed 2026-10-23 (checked in the app on macOS) | `handover/M45_HANDOVER.md` |
 | M46 Expand bundled coverage | Not Started | — |
 | M47 Optional LSP | Not Started | — |
 | M48 External plugin readiness | Not Started | — |
@@ -107,7 +107,7 @@ Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language 
 
 ### M43 — First-party migration
 
-**Status:** Completed 2026-10-23 (automated checks on macOS; not yet tried in the running app). Handover: `handover/M43_HANDOVER.md`.
+**Status:** Completed 2026-10-23 (automated checks on macOS; checked in the app on macOS by the owner). Handover: `handover/M43_HANDOVER.md`. **App check (macOS release build of `9c86d84`, 2026-10-23, by the owner):** auto-indent, closing-bracket outdent, YAML/Makefile units, suggestions and snippets, keyword case, View As tools, and the Settings pages worked as expected. User data was backed up before and restored after.
 
 | Task | Status |
 | --- | --- |
@@ -137,7 +137,7 @@ Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language 
 
 ### M44 — Core auto-indentation
 
-**Status:** Completed 2026-10-23 (automated checks on macOS; not yet tried in the running app). Handover: `handover/M44_HANDOVER.md`.
+**Status:** Completed 2026-10-23 (automated checks on macOS; checked in the app on macOS by the owner). Handover: `handover/M44_HANDOVER.md`. **App check (macOS release build of `9c86d84`, 2026-10-23, by the owner):** auto-indent, closing-bracket outdent, YAML/Makefile units, suggestions and snippets, keyword case, View As tools, and the Settings pages worked as expected. User data was backed up before and restored after.
 
 | Task | Status |
 | --- | --- |
@@ -166,7 +166,7 @@ Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language 
 
 ### M45 — Shared autocomplete
 
-**Status:** Completed 2026-10-23 (automated checks on macOS; not yet tried in the running app). Handover: `handover/M45_HANDOVER.md`.
+**Status:** Completed 2026-10-23 (automated checks on macOS; checked in the app on macOS by the owner). Handover: `handover/M45_HANDOVER.md`. **App check (macOS release build of `9c86d84`, 2026-10-23, by the owner):** auto-indent, closing-bracket outdent, YAML/Makefile units, suggestions and snippets, keyword case, View As tools, and the Settings pages worked as expected. User data was backed up before and restored after.
 
 | Task | Status |
 | --- | --- |
