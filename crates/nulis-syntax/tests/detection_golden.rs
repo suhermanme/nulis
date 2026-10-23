@@ -412,7 +412,8 @@ const COMMENTS: &[CommentRow] = &[
     ("c", Some("//"), Some(("/*", "*/"))),
     ("csharp", Some("//"), Some(("/*", "*/"))),
     ("cpp", Some("//"), Some(("/*", "*/"))),
-    ("css", Some("//"), Some(("/*", "*/"))),
+    // M46: plain CSS rejects `//`; Toggle Comment writes `/* */` (release notes).
+    ("css", None, Some(("/*", "*/"))),
     ("csv", None, None),
     ("dockerfile", Some("#"), None),
     ("go", Some("//"), Some(("/*", "*/"))),

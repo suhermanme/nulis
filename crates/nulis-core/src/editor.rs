@@ -1289,11 +1289,11 @@ impl DocumentManager {
             || path.display().to_string(),
             |name| name.to_string_lossy().into_owned(),
         );
-        // A binary property list is not text: it opens read-only, for viewing as bytes.
+        // A binary file is not text: it opens read-only, for viewing as bytes.
         let head = document
             .table()
             .read_vec(0, document.table().len().min(8))?;
-        if head.starts_with(b"bplist") {
+        if binary_kind(&head).is_some() {
             document.set_read_only(true);
         }
         let mut language_id = self.languages().detect_path(path);
@@ -4355,12 +4355,22 @@ fn summary(document_id: &DocumentId, session: &EditorSession) -> DocumentSummary
     }
 }
 
-/// Binary formats recognized by their first bytes.
+/// Binary formats recognized by their first bytes: they are not text, so
+/// they open read-only in the hexadecimal view.
+fn binary_kind(head: &[u8]) -> Option<&'static str> {
+    if head.starts_with(b"bplist") {
+        Some("binary property list")
+    } else if head.starts_with(b"FasdUAS") {
+        Some("compiled AppleScript")
+    } else {
+        None
+    }
+}
+
 fn binary_format(session: &EditorSession) -> Option<&'static str> {
     let table = session.document.table();
     let head = table.read_vec(0, table.len().min(8)).ok()?;
-    head.starts_with(b"bplist")
-        .then_some("binary property list")
+    binary_kind(&head)
 }
 
 fn syntax_snapshot(analysis: SyntaxAnalysis) -> SyntaxSnapshot {
@@ -8075,6 +8085,26 @@ mod tests {
         assert!(manager
             .format_document(&opened.document_id, opened.revision, false, true)
             .is_err());
+    }
+
+    #[test]
+    fn a_compiled_applescript_opens_read_only_as_bytes() {
+        let root = tempfile::tempdir().expect("temporary root");
+        let path = root.path().join("Script.scpt");
+        fs::write(&path, b"FasdUAS 1.101.10\x0e\x00\x00").expect("fixture");
+        let manager = DocumentManager::new(root.path().join("sessions"));
+        let document = manager.open_file(&path).expect("open");
+        assert_eq!(
+            document.binary_format.as_deref(),
+            Some("compiled AppleScript")
+        );
+        assert!(document.read_only);
+        // AppleScript source is ordinary text.
+        let source = root.path().join("Script.applescript");
+        fs::write(&source, "tell application \"Finder\"\nend tell\n").expect("fixture");
+        let document = manager.open_file(&source).expect("open");
+        assert_eq!(document.binary_format, None);
+        assert!(!document.read_only);
     }
 
     #[test]

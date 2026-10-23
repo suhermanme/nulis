@@ -215,7 +215,11 @@ impl LanguageModule {
     fn lexical(spec: &'static lexer::LexerSpec) -> Self {
         let owned = |items: &[&str]| items.iter().map(|item| (*item).to_owned()).collect();
         let comments = CommentSyntax {
-            line: spec.line_comments.first().copied(),
+            line: spec
+                .line_comments
+                .first()
+                .copied()
+                .filter(|_| spec.toggles_line_comments),
             // Markup comments are recognized by the markup scanner itself.
             block: spec.block_comments.first().copied().or(matches!(
                 spec.mode,
@@ -771,7 +775,19 @@ fn python_module() -> LanguageModule {
         ],
         vec!["function_definition", "class_definition"],
         None,
-        Vec::new(),
+        vec![
+            "argument_list",
+            "parameters",
+            "list",
+            "dictionary",
+            "set",
+            "tuple",
+            "parenthesized_expression",
+            "list_comprehension",
+            "dictionary_comprehension",
+            "set_comprehension",
+            "generator_expression",
+        ],
     )
     .with_comments(CommentSyntax {
         line: Some("#"),
@@ -1046,7 +1062,21 @@ fn collect_node(
     if Some(kind) == module.symbol_node_kind {
         collect_symbol(source, node, base_byte, base_line, analysis);
     }
-    if module.bracket_node_kinds.contains(&kind) && node.end_byte() > node.start_byte() + 1 {
+    // A pair needs matching bracket characters at both ends (a Python call
+    // or list node also covers what precedes the bracket in some grammars).
+    let brackets_at_ends = matches!(
+        (
+            source.get(node.start_byte()),
+            node.end_byte()
+                .checked_sub(1)
+                .and_then(|last| source.get(last))
+        ),
+        (Some(b'('), Some(b')')) | (Some(b'['), Some(b']')) | (Some(b'{'), Some(b'}'))
+    );
+    if module.bracket_node_kinds.contains(&kind)
+        && node.end_byte() > node.start_byte() + 1
+        && brackets_at_ends
+    {
         if analysis.bracket_pairs.len() < MAX_BRACKET_PAIRS {
             if let Some((open_byte, end_byte)) = absolute_range(node, base_byte) {
                 analysis.bracket_pairs.push(BracketPair {
@@ -1731,7 +1761,7 @@ mod tests {
 mod catalog_tests {
     use super::{
         AssociationSource, FileMatcher, LanguageDescriptor, LanguageId, LanguageModule,
-        LanguageRegistry, Scanner, SyntaxError,
+        LanguageRegistry, Scanner, SyntaxError, SyntaxToken,
     };
     use std::path::Path;
 
@@ -1866,6 +1896,32 @@ mod catalog_tests {
             "better-json"
         );
         assert_eq!(registry.detect_path(Path::new("x.nim")).as_str(), "nim-b");
+    }
+
+    #[test]
+    fn python_brackets_pair_up_and_css_comments_with_blocks() {
+        let registry = LanguageRegistry::with_builtins();
+        let analysis = registry
+            .analyze(&id("python"), b"f(a, [1, {2: (3)}])\n", 0, 1)
+            .expect("analysis");
+        let mut pairs: Vec<(u64, u64)> = analysis
+            .bracket_pairs
+            .iter()
+            .map(|pair| (pair.open_byte, pair.close_byte))
+            .collect();
+        pairs.sort_unstable();
+        assert_eq!(pairs, [(1, 18), (5, 17), (9, 16), (13, 15)]);
+        let css = registry.comment_syntax(&id("css")).expect("css");
+        assert_eq!(css.line, None);
+        assert_eq!(css.block, Some(("/*", "*/")));
+        // SCSS `//` comments are still highlighted as comments.
+        let analysis = registry
+            .analyze(&id("css"), b"// note\na { }\n", 0, 1)
+            .expect("analysis");
+        assert!(analysis
+            .highlights
+            .iter()
+            .any(|span| span.token == SyntaxToken::Comment && span.start_byte == 0));
     }
 
     #[test]

@@ -86,6 +86,9 @@ pub(crate) struct LexerSpec {
     /// Extra words offered by completion that are not highlighted as
     /// keywords (HTML element names).
     pub completion_words: &'static [&'static str],
+    /// Toggle Comment may use the first line comment. Off for CSS, whose
+    /// table also reads SCSS and Less `//` comments that plain CSS rejects.
+    pub toggles_line_comments: bool,
 }
 
 const BASE: LexerSpec = LexerSpec {
@@ -110,6 +113,7 @@ const BASE: LexerSpec = LexerSpec {
     delimiter: None,
     yaml: false,
     completion_words: &[],
+    toggles_line_comments: true,
 };
 
 const C_STRINGS: &[StringRule] = &[
@@ -1866,6 +1870,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         line_comments: SLASH_COMMENTS,
         block_comments: C_BLOCK,
         strings: C_STRINGS,
+        toggles_line_comments: false,
         ..BASE
     },
     LexerSpec {
