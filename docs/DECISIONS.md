@@ -181,3 +181,27 @@ The opened-folder explorer is confined to a canonical root and refuses symlinks.
 Printing through the webview alone would mean rendering the whole document as HTML, which fails on files larger than memory and lays out pages differently on each system's engine. Instead `nulis-print` paginates in Rust: a streaming `Paginator` reads the document in bounded windows (64 KiB with highlighting, 256 KiB without) and produces pages of rows on a fixed grid of character cells. Export to PDF writes those pages straight to disk with `pdf-writer`, one object at a time, so memory stays flat at any size. Print sends the same pages, as text pieces placed on the grid, to a separate Print Preview window that draws them as fixed-size HTML pages and calls the system print dialog. Both therefore break lines and pages identically.
 
 Consequences: pages use one bundled font (JetBrains Mono, embedded whole) with installed TrueType fonts as fallback and no text shaping, so joined and reordering scripts do not print correctly. Print keeps its pages in memory until the preview closes, so it stops at 5,000 pages; Export to PDF has no page limit. The Print Preview window may read only the prepared pages, or the Markdown text of the document the editor chose, and cannot open, save, or export. Page Setup values are stored with the other view preferences in the editor and checked by the core on every use; they are not part of `settings.json`.
+
+## ADR-0014 — Language features are capabilities with providers
+
+**Status:** Proposed (M41, plan 4)
+
+Language-specific behavior is spread over ID checks: `ToolKind` in the core, its copies in TypeScript and the native menu, and `languageId === "markdown"` in the interface. A new pure crate, `nulis-language`, defines capability kinds (highlight, comment, indentation, completion, diagnostics, format, compact, preview, commands, symbols), provider traits, and a registry that resolves providers per language. The interface receives a capability descriptor per document instead of a language ID to compare. Mature algorithms (the JSON/XML/YAML/plist tools, the lexers) stay where they are and are registered as built-in providers. Consequences: one extra crate and an IPC change; adding a language feature no longer touches unrelated editor code. Details: `LANGUAGE_CAPABILITIES.md`.
+
+## ADR-0015 — Indentation and completion run in the core, without a language server
+
+**Status:** Proposed (M41, plan 4)
+
+The interface holds only a viewport, and edits are revision-checked core commands. Auto-indent (`editor.newline`, outdent-on-type) and completion (`completion.request`) are therefore core commands that read bounded context from the piece table, apply to every caret, and record one undo step. Indentation rules are data evaluated with the linear-time `regex` crate; completion starts from document words, the lexer keyword tables, and built-in snippets. A language server can add providers later but is never required.
+
+## ADR-0016 — Language servers are opt-in, user-configured processes
+
+**Status:** Proposed (M41, plan 4)
+
+One LSP client (`nulis-lsp`) adapts servers into the same capability contracts. Nulis bundles no servers. A server runs only when the user configures its exact program and arguments in user settings and approves it; workspace files and plugin manifests cannot start one. This keeps packaging unchanged and prevents an opened repository from running code.
+
+## ADR-0017 — External language plugins are declarative first
+
+**Status:** Proposed (M41, plan 4)
+
+Plugin API v2 adds `contributes.languages`: associations, comments, brackets, lexer tables, indentation rules, keywords and snippets, as bounded, validated data with no code. Executable providers, if added, run only in the existing worker sandbox for whole-document validate/format with user-approved permissions, never per keystroke and never in the webview. API v1 manifests remain valid; Nulis versions that know only v1 reject v2 manifests.

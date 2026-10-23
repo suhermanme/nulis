@@ -1,11 +1,11 @@
-# Implementation tracker (M19–M40)
+# Implementation tracker (M19–M48)
 
-Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30), `IMPROVEMENT_PLAN_2.md` (M31–M35), and `IMPROVEMENT_PLAN_3.md` (M36–M40). Keep it in step with the repository; never mark work complete without the verification listed.
+Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30), `IMPROVEMENT_PLAN_2.md` (M31–M35), `IMPROVEMENT_PLAN_3.md` (M36–M40), and `IMPROVEMENT_PLAN_4.md` (M41–M48). Keep it in step with the repository; never mark work complete without the verification listed.
 
 ## Current state
 
-- **Current milestone:** none. Plan 3 (M36–M40, print and Export to PDF) is complete and released in Nulis 0.4.0 (2026-10-23), checked by hand on macOS, Windows, and Linux; Remote (SFTP) was removed in the same release. **To resume, read `handover/PLAN3_RESUME.md`.**
-- **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 5 of 5 milestones completed (M31–M35); plan 3: 5 of 5 completed (M36–M40, in Nulis 0.4.0)
+- **Current milestone:** M41 (plan 4, language capabilities: audit and design), complete and awaiting the owner's approval and answers to plan 4 §7. Branch `feat/language-capabilities`. **To resume plan 4, read the "Plan 4" section below.** Plan 3 is complete and released in Nulis 0.4.0 (2026-10-23).
+- **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 5 of 5 milestones completed (M31–M35); plan 3: 5 of 5 completed (M36–M40, in Nulis 0.4.0); plan 4: 1 of 8 (M41, design only)
 - **Baseline before M19 (commit `66853e1`):** `cargo test -p nulis-core` 86 passed; desktop Vitest 11 files, 115 tests passed.
 
 | Milestone | Status | Handover |
@@ -32,6 +32,140 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 | M38 Scope, large files, other views | Done; checked in the app on macOS 2026-10-22 | `handover/M38_HANDOVER.md` |
 | M39 Print window and Page Setup dialog | Complete (macOS checked 2026-10-22; Windows/Linux pending) | `handover/M39_HANDOVER.md` |
 | M40 Docs and release | Complete 2026-10-22 | `handover/M40_HANDOVER.md` |
+| M41 Language capabilities: audit and design | Completed 2026-10-23 (awaiting approval) | this tracker, "Plan 4" section |
+| M42 Language catalog and capability contracts | Not Started | — |
+| M43 First-party migration (tools, Markdown preview) | Not Started | — |
+| M44 Core auto-indentation | Not Started | — |
+| M45 Shared autocomplete | Not Started | — |
+| M46 Expand bundled coverage | Not Started | — |
+| M47 Optional LSP | Not Started | — |
+| M48 External plugin readiness | Not Started | — |
+
+## Plan 4 (M41–M48) — language capabilities
+
+Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language state: `LANGUAGE_MATRIX.md`. The request's milestones M0–M7 are M41–M48. Statuses: Not Started, In Progress, Blocked, Completed.
+
+### Handover for the next agent
+
+1. Read `IMPROVEMENT_PLAN_4.md` (§2 findings and §5 milestones), then `LANGUAGE_CAPABILITIES.md`. Check §7 of the plan for the owner's answers; do not start M44 or M45 defaults without them.
+2. Work on branch `feat/language-capabilities` (or a branch per milestone from it). One milestone at a time; stop at each boundary with a handover in `docs/handover/M4x_HANDOVER.md` and an update here.
+3. Commit golden tests **before** any migration (detection table in M42, tool messages in M43), so the refactor shows no change.
+4. Run the full check before marking anything Completed: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, and in `apps/desktop` `npm run lint`, `npm run typecheck`, `npx vitest run`. Record counts here.
+5. Running a desktop build uses the user's real data (`docs/handover/PLAN3_RESUME.md`, "Running a test build safely"): ask first and back up.
+6. Bump `IPC_PROTOCOL_VERSION` in `crates/nulis-core/src/lib.rs` and `apps/desktop/src/contracts.ts` together whenever a DTO changes.
+
+### M41 — Audit and design
+
+**Status:** Completed 2026-10-23, awaiting approval. No production code changed.
+
+| Task | Status |
+| --- | --- |
+| Audit: stack, detection, highlighting, preview, tools, editing, settings, plugins, tests | Completed |
+| Probe the registry (comments, brackets, folds, detection edge cases) from a scratch crate outside the repo | Completed |
+| Baseline test run | Completed |
+| `IMPROVEMENT_PLAN_4.md`, `LANGUAGE_CAPABILITIES.md`, `LANGUAGE_MATRIX.md` | Completed |
+| ADR-0014 to ADR-0017 (proposed) in `DECISIONS.md`; roadmap row | Completed |
+| Owner approval and answers to plan §7 | Blocked (waiting for the owner) |
+
+**Baseline (commit `1494931`, macOS, 2026-10-23):** `cargo test --workspace` passed, 345 tests (nulis-core 165, nulis-syntax 15, nulis-plugin-host 9 unit, nulis-settings 4, nulis-desktop 9); Vitest 22 files, 191 tests passed. fmt, clippy, lint and typecheck not re-run (no code changed; CI passed on `1494931`).
+
+**Files changed:** `docs/IMPROVEMENT_PLAN_4.md`, `docs/LANGUAGE_CAPABILITIES.md`, `docs/LANGUAGE_MATRIX.md` (new); `docs/IMPLEMENTATION_TRACKER.md`, `docs/DECISIONS.md`, `docs/ROADMAP.md` (updated).
+
+**Decisions:** documents follow the repository's names (`IMPROVEMENT_PLAN_4.md` plays the role of the requested `IMPLEMENTATION_PLAN.md`; this tracker is the requested `IMPLEMENTATION_TRACKER.md`); milestone numbers continue at M41.
+
+**Known issues found (not fixed):** see plan §2.9 — `.css` Toggle Comment uses `//`; Python has no bracket matching; `.scpt` opens as text; the View As language is not persisted although `ARCHITECTURE.md` says the recovery manifest records it.
+
+### M42 — Language catalog and capability contracts
+
+**Status:** Not Started. **Depends on:** M41 approval.
+
+| Task | Status |
+| --- | --- |
+| Golden detection test of every current mapping (commit first) | Not Started |
+| `LanguageCatalog`: association sources, precedence tiers, compound extensions, `unregister`, conflict report | Not Started |
+| New crate `nulis-language`: contracts, registry, resolution, enable/disable, isolation wrapper | Not Started |
+| Remove ID special cases in `analyze` and `comment_syntax` | Not Started |
+| Persist `settings.json` (user and per-language layers); `files.associations` | Not Started |
+| Persist the View As override (recovery manifest, workbench session); fix `ARCHITECTURE.md` | Not Started |
+| `DocumentSummary.capabilities`, `language.list` associations; IPC 43 | Not Started |
+
+**Acceptance:** plan §5, M42.
+
+### M43 — First-party migration
+
+**Status:** Not Started. **Depends on:** M42.
+
+| Task | Status |
+| --- | --- |
+| Golden tests for every tool message, caret target and output (commit first) | Not Started |
+| JSON, XML/XSL, YAML, plist as `Validator`/`Formatter` providers; remove `ToolKind` matching | Not Started |
+| Replace TS `ToolKind`, `TOOL_LABELS`, native `TOOL_SETS` with the capability descriptor | Not Started |
+| Markdown as `PreviewProvider`; UI renderer registry replaces `languageId === "markdown"` | Not Started |
+| Settings ▸ Languages capability switches | Not Started |
+| Disable/re-enable and provider-failure tests | Not Started |
+
+### M44 — Core auto-indentation
+
+**Status:** Not Started. **Depends on:** M42 (settings), owner answer §7.1.
+
+| Task | Status |
+| --- | --- |
+| Indentation settings and per-document detection | Not Started |
+| `editor.newline` (all carets, one undo step); UI Enter routed through the edit queue | Not Started |
+| Outdent-on-type merged into the typed character's undo step | Not Started |
+| Tab inserts indent unit; smart Backspace | Not Started |
+| Rule families: brace, python, yaml, makefile, markup, keyword-block, carry | Not Started |
+| Paste: exact by default, optional re-basing | Not Started |
+| Macro replay compatibility test; fuzz target for rules | Not Started |
+
+### M45 — Shared autocomplete
+
+**Status:** Not Started. **Depends on:** M42, owner answers §7.2–7.3.
+
+| Task | Status |
+| --- | --- |
+| `completion.request` / `completion.cancel` with revision and request ID | Not Started |
+| Word, keyword and snippet providers; ranking and deduplication | Not Started |
+| Shared `CompletionPopup` (keyboard, mouse, ARIA, IME) and snippet placeholders | Not Started |
+| Settings and `editor.triggerSuggest` shortcut | Not Started |
+| First languages: JavaScript, TypeScript, Python, Rust, SQL, HTML | Not Started |
+
+### M46 — Expand bundled coverage
+
+**Status:** Not Started. **Depends on:** M43–M45, owner answer §7.4.
+
+| Task | Status |
+| --- | --- |
+| Fill Table 2 of `LANGUAGE_MATRIX.md` for every language | Not Started |
+| Fix plan §2.9 defects (CSS comment, Python brackets, `.scpt`) | Not Started |
+| Markdown heading folds, YAML indentation folds | Not Started |
+| Approved association changes | Not Started |
+| Every-language smoke test (Enter, Tab, Backspace, Toggle Comment, completion) | Not Started |
+
+### M47 — Optional LSP
+
+**Status:** Not Started. **Depends on:** M43 (diagnostics contract), M45.
+
+| Task | Status |
+| --- | --- |
+| Verify candidate servers (license, platforms, maintenance); choose the second server | Not Started |
+| `nulis-lsp`: JSON-RPC client, lifecycle, timeouts, cancel, restart, position encoding | Not Started |
+| Settings, approval bound to the exact command | Not Started |
+| Adapters: completion, diagnostics, formatting; shared diagnostics UI | Not Started |
+| Fake-server CI tests on three platforms; manual check with rust-analyzer | Not Started |
+
+### M48 — External plugin readiness
+
+**Status:** Not Started. **Depends on:** M42–M46.
+
+| Task | Status |
+| --- | --- |
+| Plugin API v2 manifest (`apiVersion`, declarative languages); v1 still valid | Not Started |
+| Owned run-time `LexerSpec`; regex and size validation | Not Started |
+| Enable, disable, remove per plugin and per capability; conflict UI | Not Started |
+| Hostile-manifest and isolation tests | Not Started |
+| `PLUGIN_API.md` v2, `PLUGIN_GUIDE.md` chapter, declarative example plugin | Not Started |
+| Security review before any executable language provider | Not Started |
 
 ## M19 — Audit and foundation
 
