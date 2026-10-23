@@ -333,6 +333,7 @@ fn indentation_providers() -> Vec<(ProviderInfo, Provider)> {
                 "go",
                 "java",
                 "javascript",
+                "jsonc",
                 "kotlin",
                 "objective-c",
                 "php",

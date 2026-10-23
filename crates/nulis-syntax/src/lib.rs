@@ -311,19 +311,22 @@ pub enum FileMatcher {
     FileName(String),
     /// The end of the file name after a dot; may itself contain dots (`d.ts`).
     Extension(String),
+    /// The start of the file name, written `dockerfile.*` (`Dockerfile.dev`).
+    Prefix(String),
 }
 
 impl FileMatcher {
-    /// Reads a `files.associations` key: `*.ext` or an exact file name.
+    /// Reads a `files.associations` key: `*.ext`, `name.*`, or an exact file name.
     ///
     /// # Errors
     /// Returns an error for an empty pattern, a path, or any other wildcard.
     pub fn parse(pattern: &str) -> Result<Self, SyntaxError> {
         let invalid = || SyntaxError::InvalidAssociation(pattern.to_owned());
         let lower = pattern.trim().to_ascii_lowercase();
-        let (matcher, value) = match lower.strip_prefix("*.") {
-            Some(extension) => (Self::Extension(extension.to_owned()), extension.to_owned()),
-            None => (Self::FileName(lower.clone()), lower),
+        let (matcher, value) = match (lower.strip_prefix("*."), lower.strip_suffix('*')) {
+            (Some(extension), _) => (Self::Extension(extension.to_owned()), extension.to_owned()),
+            (None, Some(prefix)) => (Self::Prefix(prefix.to_owned()), prefix.to_owned()),
+            (None, None) => (Self::FileName(lower.clone()), lower),
         };
         if value.is_empty()
             || value.len() > 255
@@ -338,6 +341,9 @@ impl FileMatcher {
     fn matches(&self, file_name: &str) -> bool {
         match self {
             Self::FileName(name) => file_name == name,
+            Self::Prefix(prefix) => {
+                file_name.len() > prefix.len() && file_name.starts_with(prefix.as_str())
+            }
             Self::Extension(extension) => {
                 // `name.ext`: a dot, and something before it, so `.bashrc` has no extension.
                 file_name.len() > extension.len() + 1
@@ -347,10 +353,12 @@ impl FileMatcher {
         }
     }
 
-    /// Ranks matches within a tier: file names first, then longer extensions.
+    /// Ranks matches: exact file names, then name prefixes, then
+    /// extensions; longer ones first within each.
     fn specificity(&self) -> (u8, usize) {
         match self {
-            Self::FileName(name) => (1, name.len()),
+            Self::FileName(name) => (2, name.len()),
+            Self::Prefix(prefix) => (1, prefix.len()),
             Self::Extension(extension) => (0, extension.len()),
         }
     }
@@ -400,6 +408,7 @@ impl LanguageRegistry {
         let builtins = [
             plain_text_module(),
             json_module(),
+            json_with_comments_module(),
             python_module(),
             markdown_module(),
         ]
@@ -497,7 +506,13 @@ impl LanguageRegistry {
             let matchers = descriptor
                 .filenames
                 .iter()
-                .map(|name| FileMatcher::FileName(name.to_ascii_lowercase()))
+                .map(|name| {
+                    let name = name.to_ascii_lowercase();
+                    match name.strip_suffix('*') {
+                        Some(prefix) => FileMatcher::Prefix(prefix.to_owned()),
+                        None => FileMatcher::FileName(name),
+                    }
+                })
                 .chain(
                     descriptor
                         .extensions
@@ -720,6 +735,33 @@ fn json_module() -> LanguageModule {
         Some("pair"),
         vec!["object", "array"],
     )
+    .with_vocabulary(Vocabulary {
+        keywords: vec!["true", "false", "null"],
+        ..Vocabulary::default()
+    })
+}
+
+/// JSON with `//` and `/* */` comments (`.jsonc`). The JSON grammar reads
+/// comments; the JSON tools do not, so this language has none.
+fn json_with_comments_module() -> LanguageModule {
+    let json = json_module();
+    LanguageModule::tree_sitter(
+        LanguageDescriptor {
+            id: LanguageId("jsonc".into()),
+            display_name: "JSON with Comments".into(),
+            extensions: vec!["jsonc".into()],
+            filenames: Vec::new(),
+        },
+        tree_sitter_json::LANGUAGE.into(),
+        json.token_rules.clone(),
+        json.fold_node_kinds.clone(),
+        json.symbol_node_kind,
+        json.bracket_node_kinds.clone(),
+    )
+    .with_comments(CommentSyntax {
+        line: Some("//"),
+        block: Some(("/*", "*/")),
+    })
     .with_vocabulary(Vocabulary {
         keywords: vec!["true", "false", "null"],
         ..Vocabulary::default()
@@ -1950,6 +1992,46 @@ mod catalog_tests {
         for none in ["plaintext", "markdown", "csv"] {
             assert_eq!(registry.vocabulary(&id(none)), None, "{none}");
         }
+    }
+
+    #[test]
+    fn name_prefixes_rank_between_exact_names_and_extensions() {
+        let mut registry = LanguageRegistry::with_builtins();
+        assert_eq!(
+            registry.detect_path(Path::new("Dockerfile.prod")).as_str(),
+            "dockerfile"
+        );
+        assert_eq!(
+            registry.detect_path(Path::new("Dockerfile.")).as_str(),
+            "plaintext"
+        );
+        // An exact name beats a prefix; a prefix beats an extension.
+        registry
+            .register(
+                plugin_language("special", &["yaml"], &["dockerfile.yaml"]),
+                plugin("acme.special"),
+            )
+            .expect("register");
+        assert_eq!(
+            registry.detect_path(Path::new("Dockerfile.yaml")).as_str(),
+            "special"
+        );
+        assert_eq!(
+            registry.detect_path(Path::new("Dockerfile.yml")).as_str(),
+            "dockerfile"
+        );
+        let rejected = registry.set_user_associations([("Jenkinsfile.*", "ruby")]);
+        assert_eq!(rejected, Vec::<String>::new());
+        assert_eq!(
+            registry
+                .detect_path(Path::new("Jenkinsfile.release"))
+                .as_str(),
+            "ruby"
+        );
+        assert_eq!(
+            FileMatcher::parse("Jenkinsfile.*").expect("prefix"),
+            FileMatcher::Prefix("jenkinsfile.".into())
+        );
     }
 
     #[test]

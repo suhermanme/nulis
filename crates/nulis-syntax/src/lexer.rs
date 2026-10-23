@@ -1874,6 +1874,20 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         ..BASE
     },
     LexerSpec {
+        id: "ignore",
+        name: "Ignore File",
+        filenames: &[
+            ".gitignore",
+            ".gitattributes",
+            ".npmignore",
+            ".dockerignore",
+            ".prettierignore",
+            ".eslintignore",
+        ],
+        line_comments: HASH,
+        ..BASE
+    },
+    LexerSpec {
         id: "csv",
         name: "CSV",
         extensions: &["csv"],
@@ -1885,7 +1899,12 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         id: "dockerfile",
         name: "Dockerfile",
         extensions: &["dockerfile"],
-        filenames: &["dockerfile", "containerfile"],
+        filenames: &[
+            "dockerfile",
+            "containerfile",
+            "dockerfile.*",
+            "containerfile.*",
+        ],
         keywords: DOCKER_KEYWORDS,
         line_comments: HASH,
         strings: C_STRINGS,
