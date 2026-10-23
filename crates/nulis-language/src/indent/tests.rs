@@ -288,3 +288,91 @@ fn indentation_is_detected_from_the_text() {
     assert_eq!(detect_unit("one\ntwo\n  three\n"), None);
     assert_eq!(detect_unit(""), None);
 }
+
+#[test]
+fn no_family_panics_on_awkward_text_and_all_results_are_whitespace() {
+    let samples = [
+        "",
+        " ",
+        "\t",
+        "é",
+        "日本語 {",
+        "\"unterminated {",
+        "'a' // { ",
+        "<",
+        "</",
+        "<a",
+        "<a href=\"x>\">",
+        "|",
+        "do |",
+        "x:",
+        ": |",
+        "a: >+",
+        "#!",
+        "-- end",
+        "end",
+        "End Sub",
+        "else:",
+        "}}}}",
+        "(((",
+        "\u{feff}{",
+        "\r",
+        "  \t \t",
+        "tell \"x\" to",
+        "Ω:",
+        "<é>",
+        "\\",
+        "a\\\"{",
+    ];
+    let families = [
+        Family::Carry,
+        Family::Brace,
+        Family::Python,
+        Family::Yaml,
+        Family::Makefile,
+        Family::Markup,
+        Family::Keywords(&RUBY),
+        Family::Keywords(&LUA),
+        Family::Keywords(&BASH),
+        Family::Keywords(&VISUAL_BASIC),
+        Family::Keywords(&PLSQL),
+        Family::Keywords(&APPLESCRIPT),
+    ];
+    let long = format!("{}{{", "x".repeat(20_000));
+    let whitespace = |text: &str| {
+        text.chars()
+            .all(|character| character == ' ' || character == '\t')
+    };
+    for family in families {
+        for comment in [None, Some("//"), Some("#"), Some("--"), Some("'")] {
+            let rules = RuleIndenter {
+                family,
+                line_comment: comment,
+            };
+            for before in samples.iter().copied().chain([long.as_str()]) {
+                for after in ["", "}", "</a>", " end", "é"] {
+                    let previous: Vec<&str> = samples.iter().rev().copied().collect();
+                    for unit in [IndentUnit::Tab, IndentUnit::Spaces(3)] {
+                        let context = IndentContext {
+                            before,
+                            after,
+                            previous: &previous,
+                            unit,
+                            tab_width: 4,
+                        };
+                        let action = rules.on_enter(&context);
+                        assert!(whitespace(&action.indent), "{before:?}");
+                        assert!(action.closing_indent.as_deref().is_none_or(whitespace));
+                        assert!(action.current_indent.as_deref().is_none_or(whitespace));
+                        for typed in ['}', ')', ':', '/', 'd', 'é'] {
+                            assert!(rules
+                                .on_type(&context, typed)
+                                .as_deref()
+                                .is_none_or(whitespace));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

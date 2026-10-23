@@ -11,6 +11,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 nulis-document = { path = "../crates/nulis-document" }
 nulis-large-file = { path = "../crates/nulis-large-file" }
+nulis-language = { path = "../crates/nulis-language" }
 
 [[bin]]
 name = "piece_table"
@@ -21,3 +22,10 @@ bench = false
 
 [workspace]
 members = ["."]
+
+[[bin]]
+name = "indent_rules"
+path = "fuzz_targets/indent_rules.rs"
+test = false
+doc = false
+bench = false

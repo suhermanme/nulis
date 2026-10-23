@@ -900,6 +900,18 @@ mod tests {
     }
 
     #[test]
+    fn line_breaks_inserted_as_text_are_never_indented() {
+        // Macros recorded before automatic indentation replay Enter as this.
+        let manager = DocumentManager::default();
+        manager.set_indent_settings(settings(AutoIndent::Full, true));
+        let (id, revision) = open(&manager, "a.rs", "    fn a() {|");
+        manager
+            .insert_text(&id, revision, "\n", false)
+            .expect("insert");
+        assert_eq!(shown(&manager, &id), "    fn a() {\n|");
+    }
+
+    #[test]
     fn read_only_documents_refuse_enter_and_tab() {
         let manager = DocumentManager::default();
         let (id, revision) = open(&manager, "a.rs", "x|");

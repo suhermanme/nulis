@@ -265,6 +265,7 @@ jobs:
           workspaces: fuzz
       - run: cargo install cargo-fuzz --locked
       - run: cargo +nightly fuzz run piece_table -- -max_total_time=60
+      - run: cargo +nightly fuzz run indent_rules -- -max_total_time=60
 
   performance:
     name: Large-file smoke benchmark
