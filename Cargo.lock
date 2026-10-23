@@ -2665,6 +2665,7 @@ dependencies = [
  "nulis-document",
  "nulis-filesystem",
  "nulis-hex",
+ "nulis-language",
  "nulis-large-file",
  "nulis-plugin-host",
  "nulis-print",

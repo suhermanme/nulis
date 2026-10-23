@@ -1732,7 +1732,10 @@ test("languages chosen with View As are restored and saved again; an unavailable
     if (request.id === "language.set") {
       const { languageId } = request.arguments as { languageId: string };
       if (languageId === "nim") throw new Error("unknown language");
-      return languageId as never;
+      return {
+        documentId: request.context.documentId, name: "notes.txt", byteLen: "4", revision: "0", encoding: "utf8",
+        sourcePath: "/tmp/notes.txt", languageId, languageOverride: true,
+      } as never;
     }
     if (request.id === "plugin.activateStartup") return [] as never;
     return null as never;
@@ -2087,8 +2090,8 @@ test("closing all other tabs stops at an unsaved file until it is resolved", asy
 test("JSON and XML tools appear only for those documents and validate, beautify, and minify", async () => {
   responses["file.new"] = [
     { documentId: "document-1", name: "notes.txt", byteLen: "2", revision: "0", encoding: "utf8", languageId: "plaintext" },
-    { documentId: "document-2", name: "data.json", byteLen: "9", revision: "3", encoding: "utf8", languageId: "json", tool: "json" },
-    { documentId: "document-3", name: "feed.xml", byteLen: "9", revision: "0", encoding: "utf8", languageId: "xml", tool: "xml" },
+    { documentId: "document-2", name: "data.json", byteLen: "9", revision: "3", encoding: "utf8", languageId: "json", capabilities: { validate: "JSON", format: "JSON", compact: "JSON" } },
+    { documentId: "document-3", name: "feed.xml", byteLen: "9", revision: "0", encoding: "utf8", languageId: "xml", capabilities: { validate: "XML", format: "XML" } },
   ];
   vi.mocked(isTauri).mockReturnValue(false);
   render(<App />);
@@ -2110,7 +2113,7 @@ test("JSON and XML tools appear only for those documents and validate, beautify,
 
   // Validate reports the problem and moves the caret to it.
   responses["tools.validate"] = [{
-    tool: "json", valid: false, message: "Invalid JSON: expected value (line 2, column 10)", byteOffset: "17", line: 2, column: 10,
+    valid: false, message: "Invalid JSON: expected value (line 2, column 10)", byteOffset: "17", line: 2, column: 10,
   }];
   fireEvent.click(tool("Validate JSON")!);
   await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Invalid JSON: expected value (line 2, column 10)"));
@@ -2121,8 +2124,8 @@ test("JSON and XML tools appear only for those documents and validate, beautify,
 
   // Beautify runs against the observed revision and reports the change.
   responses["tools.beautify"] = [
-    { documentId: "document-2", name: "data.json", byteLen: "30", revision: "4", encoding: "utf8", languageId: "json", tool: "json", dirty: true },
-    { documentId: "document-2", name: "data.json", byteLen: "30", revision: "4", encoding: "utf8", languageId: "json", tool: "json", dirty: true },
+    { documentId: "document-2", name: "data.json", byteLen: "30", revision: "4", encoding: "utf8", languageId: "json", capabilities: { validate: "JSON", format: "JSON", compact: "JSON" }, dirty: true },
+    { documentId: "document-2", name: "data.json", byteLen: "30", revision: "4", encoding: "utf8", languageId: "json", capabilities: { validate: "JSON", format: "JSON", compact: "JSON" }, dirty: true },
   ];
   fireEvent.click(tool("Beautify JSON")!);
   await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Beautified JSON"));
@@ -2141,7 +2144,7 @@ test("JSON and XML tools appear only for those documents and validate, beautify,
   expect(tool("Validate XML")).not.toBeNull();
   expect(tool("Beautify XML")).not.toBeNull();
   expect(tool("Minify JSON")).toBeNull();
-  responses["tools.validate"] = [{ tool: "xml", valid: true, message: "Valid XML" }];
+  responses["tools.validate"] = [{ valid: true, message: "Valid XML" }];
   await chooseMenu("Tools", "Validate XML");
   await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Valid XML"));
 
@@ -2152,8 +2155,8 @@ test("JSON and XML tools appear only for those documents and validate, beautify,
 
 test("YAML Beautify asks before losing comments, and plist has Validate and Beautify", async () => {
   responses["file.new"] = [
-    { documentId: "document-1", name: "ci.yml", byteLen: "40", revision: "2", encoding: "utf8", languageId: "yaml", tool: "yaml" },
-    { documentId: "document-2", name: "Info.plist", byteLen: "60", revision: "0", encoding: "utf8", languageId: "plist", tool: "plist" },
+    { documentId: "document-1", name: "ci.yml", byteLen: "40", revision: "2", encoding: "utf8", languageId: "yaml", capabilities: { validate: "YAML", format: "YAML", formatMayLoseData: true } },
+    { documentId: "document-2", name: "Info.plist", byteLen: "60", revision: "0", encoding: "utf8", languageId: "plist", capabilities: { validate: "plist", format: "plist" } },
   ];
   vi.mocked(isTauri).mockReturnValue(false);
   render(<App />);
@@ -2168,7 +2171,7 @@ test("YAML Beautify asks before losing comments, and plist has Validate and Beau
 
   // Beautify checks first; with comments it asks, and Cancel changes nothing.
   const note = "Beautify removes comments; values and key order are kept, but quoting and number spelling may change.";
-  responses["tools.validate"] = [{ tool: "yaml", valid: true, message: "Valid YAML", beautifyNote: note }];
+  responses["tools.validate"] = [{ valid: true, message: "Valid YAML", beautifyNote: note }];
   fireEvent.click(tool("Beautify YAML")!);
   const dialog = await screen.findByRole("dialog", { name: "Beautify ci.yml?" });
   expect(dialog).toHaveTextContent("removes comments");
@@ -2177,9 +2180,9 @@ test("YAML Beautify asks before losing comments, and plist has Validate and Beau
   expect(executeCommand).not.toHaveBeenCalledWith(expect.objectContaining({ id: "tools.beautify" }));
 
   // Agreeing runs Beautify with the loss accepted.
-  responses["tools.validate"] = [{ tool: "yaml", valid: true, message: "Valid YAML", beautifyNote: note }];
+  responses["tools.validate"] = [{ valid: true, message: "Valid YAML", beautifyNote: note }];
   responses["tools.beautify"] = [
-    { documentId: "document-1", name: "ci.yml", byteLen: "30", revision: "3", encoding: "utf8", languageId: "yaml", tool: "yaml", dirty: true },
+    { documentId: "document-1", name: "ci.yml", byteLen: "30", revision: "3", encoding: "utf8", languageId: "yaml", capabilities: { validate: "YAML", format: "YAML", formatMayLoseData: true }, dirty: true },
   ];
   fireEvent.click(tool("Beautify YAML")!);
   fireEvent.click(within(await screen.findByRole("dialog", { name: "Beautify ci.yml?" })).getByRole("button", { name: "Beautify" }));
@@ -2191,7 +2194,7 @@ test("YAML Beautify asks before losing comments, and plist has Validate and Beau
 
   // Tags make Beautify unavailable, with the reason.
   responses["tools.validate"] = [{
-    tool: "yaml", valid: true, message: "Valid YAML", beautifyUnavailable: true,
+    valid: true, message: "Valid YAML", beautifyUnavailable: true,
     beautifyNote: "Beautify cannot keep YAML tags such as !Ref, so it is not available for this document.",
   }];
   fireEvent.click(tool("Beautify YAML")!);
@@ -2226,26 +2229,26 @@ test("an invalid document is not reformatted, and the native Tools menu follows 
     if (request.id === "session.load") return DEFAULT_SESSION as never;
     if (request.id === "plugin.activateStartup") return [] as never;
     if (request.id === "file.new") return {
-      documentId: "document-1", name: "feed.xml", byteLen: "9", revision: "0", encoding: "utf8", languageId: "xml", tool: "xml",
+      documentId: "document-1", name: "feed.xml", byteLen: "9", revision: "0", encoding: "utf8", languageId: "xml", capabilities: { validate: "XML", format: "XML" },
     } as never;
     if (request.id === "tools.beautify") throw new Error("Invalid XML: <a> is never closed (line 1, column 1)");
     if (request.id === "tools.validate") return {
-      tool: "xml", valid: false, message: "Invalid XML: <a> is never closed (line 1, column 1)", byteOffset: "0", line: 1, column: 1,
+      valid: false, message: "Invalid XML: <a> is never closed (line 1, column 1)", byteOffset: "0", line: 1, column: 1,
     } as never;
     return null as never;
   });
   render(<App />);
   await screen.findByText("Nulis 0.1.0");
-  await waitFor(() => expect(setToolsMenu).toHaveBeenLastCalledWith(null));
+  await waitFor(() => expect(setToolsMenu).toHaveBeenLastCalledWith({ validate: undefined, beautify: undefined, minify: undefined }));
   fireEvent.click(screen.getByRole("button", { name: "New text file" }));
   await screen.findByText("feed.xml editor");
-  await waitFor(() => expect(setToolsMenu).toHaveBeenLastCalledWith("xml"));
+  await waitFor(() => expect(setToolsMenu).toHaveBeenLastCalledWith({ validate: "XML", beautify: "XML", minify: undefined }));
 
   fireEvent.click(screen.getByRole("button", { name: "Beautify XML" }));
   await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({ id: "editor.setSelections" })));
   expect(screen.getByRole("status")).toHaveTextContent("Invalid XML: <a> is never closed (line 1, column 1)");
   // Hexadecimal view is not text: the tools step aside.
   fireEvent.click(screen.getByRole("button", { name: "Show hexadecimal editor" }));
-  await waitFor(() => expect(setToolsMenu).toHaveBeenLastCalledWith(null));
+  await waitFor(() => expect(setToolsMenu).toHaveBeenLastCalledWith({ validate: undefined, beautify: undefined, minify: undefined }));
   expect(screen.queryByRole("button", { name: "Beautify XML" })).not.toBeInTheDocument();
 });

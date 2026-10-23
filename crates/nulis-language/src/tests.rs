@@ -279,6 +279,14 @@ fn switching_a_capability_off_for_a_language_hides_it_and_switching_on_restores_
         .resolve(&language("xml"), CapabilityKind::Format)
         .is_some());
     registry.set_capability_enabled(&json, CapabilityKind::Format, true);
+    registry.replace_disabled([(language("xml"), CapabilityKind::Format)]);
+    assert!(registry
+        .resolve(&language("xml"), CapabilityKind::Format)
+        .is_none());
+    registry.replace_disabled([]);
+    assert!(registry
+        .resolve(&language("xml"), CapabilityKind::Format)
+        .is_some());
     assert_eq!(
         registry
             .capabilities(&json)

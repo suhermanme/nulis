@@ -6,8 +6,6 @@
 //! attribute, comment, and text run byte for byte, changing only the
 //! whitespace between elements.
 
-use serde::Serialize;
-
 const INDENT: &str = "  ";
 /// Deeper levels share this indent, so output stays linear in the input size.
 const MAX_INDENT_DEPTH: usize = 256;
@@ -25,39 +23,6 @@ fn fail<T>(message: impl Into<String>, offset: usize) -> Result<T, ToolError> {
         message: message.into(),
         offset,
     })
-}
-
-/// Which built-in tool set applies to a language.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub enum ToolKind {
-    Json,
-    Xml,
-    Yaml,
-    Plist,
-}
-
-impl ToolKind {
-    #[must_use]
-    pub fn for_language(language_id: &str) -> Option<Self> {
-        match language_id {
-            "json" => Some(Self::Json),
-            "xml" | "xsl" => Some(Self::Xml),
-            "yaml" => Some(Self::Yaml),
-            "plist" => Some(Self::Plist),
-            _ => None,
-        }
-    }
-
-    #[must_use]
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Json => "JSON",
-            Self::Xml => "XML",
-            Self::Yaml => "YAML",
-            Self::Plist => "plist",
-        }
-    }
 }
 
 fn line_ending(text: &str) -> &'static str {
@@ -620,7 +585,7 @@ pub(crate) fn format_xml(text: &str) -> Result<String, ToolError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_json, format_xml, validate_json, validate_xml, ToolKind};
+    use super::{format_json, format_xml, validate_json, validate_xml};
 
     #[test]
     fn json_is_validated_with_a_position_and_formatted_without_changing_values() {
@@ -720,16 +685,5 @@ mod tests {
             "<a>\r\n  <b/>\r\n</a>\r\n"
         );
         assert!(format_xml("<a><b></a>").is_err());
-    }
-
-    #[test]
-    fn tools_apply_only_to_json_and_xml_languages() {
-        assert_eq!(ToolKind::for_language("json"), Some(ToolKind::Json));
-        assert_eq!(ToolKind::for_language("xml"), Some(ToolKind::Xml));
-        assert_eq!(ToolKind::for_language("xsl"), Some(ToolKind::Xml));
-        assert_eq!(ToolKind::for_language("yaml"), Some(ToolKind::Yaml));
-        assert_eq!(ToolKind::for_language("plist"), Some(ToolKind::Plist));
-        assert_eq!(ToolKind::for_language("html"), None);
-        assert_eq!(ToolKind::for_language("plaintext"), None);
     }
 }

@@ -25,8 +25,8 @@ import type {
   RecoveryCandidate,
   SearchRequest,
   ExternalChange,
+  DocumentCapabilities,
   ThemeRecord,
-  ToolKind,
   ValidationReport,
   WorkbenchSession,
   WorkspaceDirectory,
@@ -34,7 +34,6 @@ import type {
   WorkspaceFileList,
   WorkspaceSummary,
 } from "./contracts";
-import { TOOL_LABELS } from "./contracts";
 import { EditorViewport } from "./EditorViewport";
 import { Picker, useRestoreFocus, type PickerItem } from "./Picker";
 import { rankMatches } from "./quickOpen";
@@ -479,11 +478,11 @@ export function App() {
             const chosenLanguage = restored.languages?.[reference];
             if (chosenLanguage && chosenLanguage !== opened.languageId) {
               // A language that is no longer available leaves detection in place.
-              const languageId = await executeCommand<string>({
+              const updated = await executeCommand<DocumentSummary>({
                 id: "language.set", context: { windowId: "main", documentId: opened.documentId },
                 arguments: { languageId: chosenLanguage },
               }).catch(() => null);
-              if (languageId) opened = { ...opened, languageId, languageOverride: true };
+              if (updated) opened = updated;
             }
             if (!reopened.some((document) => document.documentId === opened.documentId)) reopened.push(opened);
             resolved.set(reference, opened.documentId);
@@ -624,15 +623,21 @@ export function App() {
   );
   const activeDocumentId = activeDocument?.documentId ?? null;
   // The core says which tools a document's language has; they exist only while it is focused as text.
-  const toolKind: ToolKind | null = !activeDocument || viewModes[activeDocument.documentId] === "hex" ? null
-    : activeDocument.tool ?? null;
-  const toolLabel = toolKind ? TOOL_LABELS[toolKind] : "";
+  const tools: DocumentCapabilities | null = !activeDocument || viewModes[activeDocument.documentId] === "hex" ? null
+    : activeDocument.capabilities ?? null;
+  const toolLabel = tools?.validate ?? tools?.format ?? tools?.compact ?? "";
   // YAML Beautify that would lose comments or anchors waits for the user's agreement here.
   const [lossyBeautify, setLossyBeautify] = useState<{ documentId: string; note: string } | null>(null);
-  const toolAvailable = (commandId: string) => toolKind !== null && (commandId !== "tools.minify" || toolKind === "json");
+  const toolFor = (commandId: string) => commandId === "tools.validate" ? tools?.validate
+    : commandId === "tools.beautify" ? tools?.format
+      : commandId === "tools.minify" ? tools?.compact : undefined;
+  const toolAvailable = (commandId: string) => toolFor(commandId) !== undefined;
   useEffect(() => {
-    if (desktopShell) void setToolsMenu(toolKind).catch(() => undefined);
-  }, [desktopShell, toolKind]);
+    if (desktopShell) {
+      void setToolsMenu({ validate: tools?.validate, beautify: tools?.format, minify: tools?.compact })
+        .catch(() => undefined);
+    }
+  }, [desktopShell, tools?.validate, tools?.format, tools?.compact]);
   const pendingCloseDocument = documents.find((document) => document.documentId === pendingCloseId);
   const secondaryDocument = useMemo(
     () => {
@@ -650,8 +655,8 @@ export function App() {
       .filter((command) => !query
         || `${command.title} ${command.category} ${command.id}`.toLocaleLowerCase().includes(query))
       .slice(0, 100);
-    // `toolAvailable` depends only on the focused document's tool set.
-  }, [commands, paletteQuery, toolKind]);
+    // `toolAvailable` depends only on the focused document's tools.
+  }, [commands, paletteQuery, tools]);
 
   useEffect(() => {
     if (!sessionReady || pluginsActivatedRef.current) return;
@@ -1746,13 +1751,13 @@ export function App() {
     }
   };
 
-  /** Runs a JSON, XML, YAML, or plist tool on the focused document. */
+  /** Runs Validate, Beautify, or Minify on the focused document. */
   const runTool = async (commandId: string, acceptLoss = false) => {
     if (!activeDocument || !toolAvailable(commandId)) {
-      setStatus(commandId === "tools.minify" ? "Minify is available for JSON documents"
-        : "These tools are available for JSON, XML, YAML, and plist documents");
+      setStatus(`${commandId === "tools.validate" ? "Validate" : commandId === "tools.minify" ? "Minify" : "Beautify"} is not available for this document`);
       return;
     }
+    const label = toolFor(commandId) ?? toolLabel;
     const context = { windowId: "main", documentId: activeDocument.documentId };
     const validate = async () => {
       const report = await executeCommand<ValidationReport>({ id: "tools.validate", context, arguments: {} });
@@ -1767,8 +1772,8 @@ export function App() {
       setMacroRefreshVersion((version) => version + 1);
     };
     if (commandId === "tools.validate") { await validate(); return; }
-    if (commandId === "tools.beautify" && toolKind === "yaml" && !acceptLoss) {
-      // Beautify re-writes YAML from its values: say what that would lose, and ask.
+    if (commandId === "tools.beautify" && tools?.formatMayLoseData && !acceptLoss) {
+      // This Beautify may drop something (YAML comments, anchors): say what, and ask.
       const report = await executeCommand<ValidationReport>({ id: "tools.validate", context, arguments: {} });
       if (!report.valid) { await validate(); return; }
       if (report.beautifyUnavailable) { setStatus(report.beautifyNote ?? "Beautify is not available for this document"); return; }
@@ -1780,14 +1785,14 @@ export function App() {
         arguments: { expectedRevision: activeDocument.revision, ...(acceptLoss ? { acceptLoss: true } : {}) },
       });
       if (updated.revision === activeDocument.revision) {
-        setStatus(`${toolLabel} is already ${commandId === "tools.minify" ? "minified" : "formatted"}`);
+        setStatus(`${label} is already ${commandId === "tools.minify" ? "minified" : "formatted"}`);
         return;
       }
       upsertDocument(updated);
       setMacroRefreshVersion((version) => version + 1);
-      setStatus(`${commandId === "tools.minify" ? "Minified" : "Beautified"} ${toolLabel}`);
+      setStatus(`${commandId === "tools.minify" ? "Minified" : "Beautified"} ${label}`);
     } catch (error: unknown) {
-      setStatus(errorMessage(error, `Could not format ${toolLabel}`));
+      setStatus(errorMessage(error, `Could not format ${label}`));
       // An invalid document is left untouched; show where the problem is.
       if (errorMessage(error, "").startsWith("Invalid")) await validate();
     }
@@ -2137,10 +2142,10 @@ export function App() {
   const commandTitle = (commandId: string) => commands.find(({ id }) => id === commandId)?.title ?? commandId;
   const runById = (commandId: string) => nativeMenuActionRef.current(commandId);
   const hasNextTab = activeTab ? tabs.indexOf(activeTab) < tabs.length - 1 : false;
-  const toolItems = toolKind === null ? [] : [
-    { command: "tools.validate", caption: "Validate", label: `Validate ${toolLabel}` },
-    { command: "tools.beautify", caption: "Beautify", label: `Beautify ${toolLabel}` },
-    ...(toolKind === "json" ? [{ command: "tools.minify", caption: "Minify", label: "Minify JSON" }] : []),
+  const toolItems = [
+    ...(tools?.validate ? [{ command: "tools.validate", caption: "Validate", label: `Validate ${tools.validate}` }] : []),
+    ...(tools?.format ? [{ command: "tools.beautify", caption: "Beautify", label: `Beautify ${tools.format}` }] : []),
+    ...(tools?.compact ? [{ command: "tools.minify", caption: "Minify", label: `Minify ${tools.compact}` }] : []),
   ];
   const needsDocument = (commandId: string) => commandId.startsWith("file.save") || commandId === "workbench.closeFile";
   const toolbarItems: ToolbarItem[] = [

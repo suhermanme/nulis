@@ -101,6 +101,9 @@ const MIN_VISIBLE_FRAME: (i64, i64) = (160, 120);
 /// Everything the Settings webview may ask the core to do. It receives no
 /// document, workspace, file system, terminal, or automation authority.
 const SETTINGS_COMMANDS: &[&str] = &[
+    "settings.state",
+    "settings.saveChecked",
+    "language.capabilities",
     "customization.state",
     "customization.saveChecked",
     "customization.reset",
@@ -111,6 +114,7 @@ const SETTINGS_COMMANDS: &[&str] = &[
     "plugin.list",
 ];
 const CUSTOMIZATION_MUTATIONS: &[&str] = &[
+    "settings.saveChecked",
     "customization.save",
     "customization.saveChecked",
     "customization.reset",
@@ -255,43 +259,48 @@ struct WindowFrame {
 #[derive(Default)]
 struct SettingsFrame(Mutex<Option<WindowFrame>>);
 
-/// Tools menu entries: command ID, title prefix, and whether XML has it.
-/// Tools menu items: ID, title, and whether every tool set has it (Minify is JSON only).
-const TOOLS_MENU_COMMANDS: &[(&str, &str, bool)] = &[
-    ("tools.validate", "Validate", true),
-    ("tools.beautify", "Beautify", true),
-    ("tools.minify", "Minify", false),
+/// Tools menu items: command ID and title.
+const TOOLS_MENU_COMMANDS: &[(&str, &str)] = &[
+    ("tools.validate", "Validate"),
+    ("tools.beautify", "Beautify"),
+    ("tools.minify", "Minify"),
 ];
-/// Tool sets the editor may name, with the label shown after each item.
-const TOOL_SETS: &[(&str, &str)] = &[
-    ("json", " JSON"),
-    ("xml", " XML"),
-    ("yaml", " YAML"),
-    ("plist", " plist"),
-];
+const MAX_TOOL_LABEL_CHARS: usize = 64;
 
-/// The Tools menu items and the tool set of the focused document, if any.
+/// What the focused document offers in the Tools menu: the label of each
+/// tool it has ("JSON"), in `TOOLS_MENU_COMMANDS` order.
+#[derive(Clone, Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ToolsMenuState {
+    validate: Option<String>,
+    beautify: Option<String>,
+    minify: Option<String>,
+}
+
+impl ToolsMenuState {
+    fn labels(&self) -> [Option<&str>; 3] {
+        [
+            self.validate.as_deref(),
+            self.beautify.as_deref(),
+            self.minify.as_deref(),
+        ]
+    }
+}
+
+/// The Tools menu items and what the focused document offers.
 #[cfg(desktop)]
 #[derive(Default)]
-struct ToolsMenu(Mutex<(Vec<tauri::menu::MenuItem<tauri::Wry>>, Option<String>)>);
+struct ToolsMenu(Mutex<(Vec<tauri::menu::MenuItem<tauri::Wry>>, ToolsMenuState)>);
 
-/// Names and enables the Tools items for the focused document: `json`,
-/// `xml`, or neither.
+/// Names and enables each Tools item: "Validate JSON" when the document has
+/// it, a plain disabled "Validate" when not.
 #[cfg(desktop)]
-fn apply_tools_menu(items: &[tauri::menu::MenuItem<tauri::Wry>], kind: Option<&str>) {
-    let label = TOOL_SETS
-        .iter()
-        .find(|(id, _)| Some(*id) == kind)
-        .map_or("", |(_, label)| *label);
-    for (item, (_, title, for_every_set)) in items.iter().zip(TOOLS_MENU_COMMANDS) {
-        let available = kind == Some("json") || (kind.is_some() && *for_every_set);
-        let suffix = if available || *for_every_set {
-            label
-        } else {
-            " JSON"
-        };
-        let _ = item.set_text(format!("{title}{suffix}"));
-        let _ = item.set_enabled(available);
+fn apply_tools_menu(items: &[tauri::menu::MenuItem<tauri::Wry>], tools: &ToolsMenuState) {
+    for ((item, (_, title)), label) in items.iter().zip(TOOLS_MENU_COMMANDS).zip(tools.labels()) {
+        let _ = item.set_text(
+            label.map_or_else(|| (*title).to_owned(), |label| format!("{title} {label}")),
+        );
+        let _ = item.set_enabled(label.is_some());
     }
 }
 
@@ -782,13 +791,13 @@ fn add_command_menus(app: &tauri::AppHandle, menu: &Menu<tauri::Wry>) -> tauri::
     // Tools are named and enabled for the focused document's language.
     let tools = find_or_add_submenu(app, menu, "Tools")?;
     let mut tool_items = Vec::new();
-    for (id, title, _) in TOOLS_MENU_COMMANDS {
+    for (id, title) in TOOLS_MENU_COMMANDS {
         let item = MenuItemBuilder::with_id(*id, *title).build(app)?;
         tools.append(&item)?;
         tool_items.push(item);
     }
     if let Ok(mut state) = app.state::<ToolsMenu>().0.lock() {
-        apply_tools_menu(&tool_items, state.1.as_deref());
+        apply_tools_menu(&tool_items, &state.1);
         state.0 = tool_items;
     }
     let workspace = find_or_add_submenu(app, menu, "Workspace")?;
@@ -1700,24 +1709,30 @@ fn settings_main_action(
 fn set_tools_menu(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
-    kind: Option<String>,
+    tools: ToolsMenuState,
 ) -> Result<(), String> {
     if window.label() != MAIN_WINDOW_LABEL {
         return Err("only the editor window sets the Tools menu".into());
     }
-    if kind
-        .as_deref()
-        .is_some_and(|kind| !TOOL_SETS.iter().any(|(id, _)| *id == kind))
+    let valid = |label: &str| {
+        let count = label.chars().count();
+        (1..=MAX_TOOL_LABEL_CHARS).contains(&count) && !label.chars().any(char::is_control)
+    };
+    if tools
+        .labels()
+        .into_iter()
+        .flatten()
+        .any(|label| !valid(label))
     {
-        return Err("unknown tool set".into());
+        return Err("invalid tool label".into());
     }
     #[cfg(desktop)]
     if let Ok(mut state) = app.state::<ToolsMenu>().0.lock() {
-        apply_tools_menu(&state.0, kind.as_deref());
-        state.1 = kind;
+        apply_tools_menu(&state.0, &tools);
+        state.1 = tools;
     }
     #[cfg(not(desktop))]
-    let _ = (app, kind);
+    let _ = (app, tools);
     Ok(())
 }
 

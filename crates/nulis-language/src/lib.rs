@@ -8,7 +8,7 @@
 //! `docs/LANGUAGE_CAPABILITIES.md`.
 
 use nulis_syntax::LanguageId;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
     panic::{catch_unwind, AssertUnwindSafe},
@@ -21,7 +21,7 @@ pub const MAX_CONSECUTIVE_FAILURES: u32 = 3;
 const MAX_PROVIDER_ID_BYTES: usize = 128;
 
 /// One kind of feature a language can have.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum CapabilityKind {
     Highlight,
@@ -166,6 +166,12 @@ pub enum FormatOutcome {
 pub trait Formatter: Send + Sync {
     /// The modes this formatter supports.
     fn modes(&self) -> &[FormatMode];
+
+    /// Whether formatting can drop something (comments, anchors), so the
+    /// editor asks `assess` first and gets the user's consent.
+    fn may_lose_data(&self) -> bool {
+        false
+    }
 
     /// Says, before formatting, whether the result would lose anything.
     ///
@@ -345,6 +351,15 @@ impl CapabilityRegistry {
         } else {
             self.disabled.insert(key);
         }
+    }
+
+    /// Replaces every per-language switch at once: the listed capabilities
+    /// are off, every other one is on.
+    pub fn replace_disabled(
+        &mut self,
+        disabled: impl IntoIterator<Item = (LanguageId, CapabilityKind)>,
+    ) {
+        self.disabled = disabled.into_iter().collect();
     }
 
     #[must_use]

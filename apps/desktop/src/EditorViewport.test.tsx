@@ -266,7 +266,7 @@ test("switches Markdown between editable text and a formatted safe preview", asy
   });
   vi.mocked(getMarkdownPreviewSource).mockResolvedValueOnce({ documentId: "document-1", revision: "0",
     text: "# Preview\n\n**bold**\n\n| A | B |\n| - | - |\n| one | two |\n\n<script>bad()</script>" });
-  render(<EditorViewport document={{ documentId: "document-1", name: "notes.md", byteLen: "12", revision: "0", encoding: "utf8" }}
+  render(<EditorViewport document={{ documentId: "document-1", name: "notes.md", byteLen: "12", revision: "0", encoding: "utf8", capabilities: { preview: "markdown" } }}
     onDocumentChange={() => undefined} onStatus={() => undefined} />);
   expect(await screen.findByRole("textbox", { name: "notes.md editor" })).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Edit" })).toHaveAttribute("aria-pressed", "true");
@@ -278,6 +278,35 @@ test("switches Markdown between editable text and a formatted safe preview", asy
   expect(screen.queryByText("bad()")).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Edit" }));
   expect(screen.getByRole("textbox", { name: "notes.md editor" })).toBeInTheDocument();
+});
+
+test("a Markdown file whose preview is switched off has no Edit/View switch", async () => {
+  vi.mocked(getViewport).mockResolvedValueOnce({
+    documentId: "document-1", revision: "0", documentByteLen: "9", encoding: "utf8",
+    lines: [{ line: "1", startByte: "0", endByte: "9", text: "# Preview", sourceByteWidths: Array(9).fill(1), continuation: false, truncated: false }],
+    selections: [{ anchorByte: "0", activeByte: "0" }], bookmarks: [],
+    syntax: { languageId: "markdown", parsedBytes: 9, highlights: [], folds: [], symbols: [],
+      bracketPairs: [], truncated: false, timedOut: false },
+  });
+  render(<EditorViewport document={{ documentId: "document-1", name: "notes.md", byteLen: "9", revision: "0", encoding: "utf8", languageId: "markdown" }}
+    onDocumentChange={() => undefined} onStatus={() => undefined} />);
+  expect(await screen.findByRole("textbox", { name: "notes.md editor" })).toBeInTheDocument();
+  expect(screen.queryByRole("group", { name: "Markdown mode" })).not.toBeInTheDocument();
+});
+
+test("View As hands the new summary, with the new language's tools, to the workbench", async () => {
+  const onDocumentChange = vi.fn();
+  const updated = {
+    documentId: "document-1", name: "notes.txt", byteLen: "7", revision: "0", encoding: "utf8" as const,
+    languageId: "json", languageOverride: true, capabilities: { validate: "JSON", format: "JSON", compact: "JSON" },
+  };
+  render(<EditorViewport document={{ documentId: "document-1", name: "notes.txt", byteLen: "7", revision: "0", encoding: "utf8" }}
+    onDocumentChange={onDocumentChange} onStatus={() => undefined} />);
+  await screen.findByRole("textbox", { name: "notes.txt editor" });
+  vi.mocked(executeCommand).mockResolvedValueOnce(updated);
+  fireEvent.change(screen.getByRole("combobox", { name: "View As language" }), { target: { value: "json" } });
+  await waitFor(() => expect(onDocumentChange).toHaveBeenCalledWith(updated));
+  expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({ id: "language.set", arguments: { languageId: "json" } }));
 });
 
 test("document map tracks visible lines and scrolls within a loaded document", async () => {

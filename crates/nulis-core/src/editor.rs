@@ -1,6 +1,5 @@
-use crate::format_tools::{self, ToolKind};
+use crate::format_tools;
 use crate::line_changes::{ChangeHistory, ChangeTracker, LineChange, LineChangeStatus};
-use crate::{plist_tools, yaml_tools};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use nulis_diff::{
     compare_binary, compare_text, BinaryDiffRequest, CompareMode, DiffPage, TextDiffRequest,
@@ -8,6 +7,10 @@ use nulis_diff::{
 use nulis_document::{ByteOffset, Document, PieceTable, PieceTableSnapshot};
 use nulis_filesystem::{fingerprint, save_atomic, FileFingerprint};
 use nulis_hex::{parse_hex, replace_nibble, HexLayout};
+use nulis_language::{
+    CapabilityKind, CapabilityRegistry, DocumentText, FormatAssessment, FormatMode, FormatOutcome,
+    Provider, ProviderError,
+};
 use nulis_large_file::{DiskAppendStore, FileSource, ReadAt};
 use nulis_search::{
     expand_replacements, plan_replacements_each, search, validate_pattern, CancellationToken,
@@ -159,9 +162,9 @@ pub struct DocumentSummary {
     pub language_override: bool,
     /// Whether the document currently refuses every content change.
     pub read_only: bool,
-    /// The built-in tools the document's language has, if any.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool: Option<ToolKind>,
+    /// What the document's language offers right now (tools, preview).
+    #[serde(skip_serializing_if = "DocumentCapabilities::is_empty")]
+    pub capabilities: DocumentCapabilities,
     /// A binary format the document is in, such as "binary property list":
     /// it is not text, so the editor shows it in the hexadecimal view.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -190,11 +193,66 @@ pub struct CharacterCount {
     pub line_ending: LineEndingStyle,
 }
 
+/// The language features a document has right now, each named by the label
+/// its provider shows ("JSON"), so the interface needs no list of languages.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentCapabilities {
+    /// Validate, by label.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub validate: Option<String>,
+    /// Beautify, by label.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
+    /// Minify, by label.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compact: Option<String>,
+    /// Beautify may drop something; ask (Validate reports what) before running it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub format_may_lose_data: bool,
+    /// A rendered view, by kind ("markdown").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preview: Option<String>,
+}
+
+impl DocumentCapabilities {
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self == &Self::default()
+    }
+
+    /// The name shown with the tools ("JSON"), if the document has any.
+    fn tool_label(&self) -> Option<&str> {
+        self.validate
+            .as_deref()
+            .or(self.format.as_deref())
+            .or(self.compact.as_deref())
+    }
+}
+
+/// One capability of a language, as Settings lists it.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapabilitySwitch {
+    pub kind: CapabilityKind,
+    /// The provider's label ("JSON").
+    pub label: String,
+    pub enabled: bool,
+}
+
+/// A language and the capabilities that can be switched off for it.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LanguageCapabilities {
+    pub id: String,
+    pub display_name: String,
+    pub capabilities: Vec<CapabilitySwitch>,
+}
+
 /// The outcome of checking a document with a built-in tool.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ValidationReport {
-    pub tool: ToolKind,
     pub valid: bool,
     pub message: String,
     /// Where the first problem is, as a decimal byte offset.
@@ -703,6 +761,8 @@ struct EditorSession {
     language_id: LanguageId,
     /// The user chose the language (View As) instead of detection.
     language_override: bool,
+    /// Resolved when the language or the registry changes.
+    capabilities: DocumentCapabilities,
     selections: Vec<Selection>,
     rectangular_selection: Option<RectangularSelection>,
     preferred_scalar_columns: Vec<Option<u64>>,
@@ -763,6 +823,7 @@ pub struct DocumentManager {
     next_id: AtomicU64,
     session_root: PathBuf,
     languages: std::sync::RwLock<LanguageRegistry>,
+    capabilities: std::sync::RwLock<CapabilityRegistry>,
     sessions: Mutex<BTreeMap<DocumentId, EditorSession>>,
 }
 
@@ -836,12 +897,121 @@ impl DocumentManager {
             .set_user_associations(entries)
     }
 
+    fn capability_registry(&self) -> std::sync::RwLockReadGuard<'_, CapabilityRegistry> {
+        self.capabilities
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// What a language offers right now, from the capability registry.
+    fn document_capabilities(&self, language: &LanguageId) -> DocumentCapabilities {
+        let registry = self.capability_registry();
+        let label = |kind| {
+            registry
+                .resolve(language, kind)
+                .map(|resolved| resolved.info.label)
+        };
+        let formatter = registry.resolve(language, CapabilityKind::Format);
+        DocumentCapabilities {
+            validate: label(CapabilityKind::Diagnostics),
+            format: formatter.as_ref().map(|resolved| resolved.info.label.clone()),
+            compact: label(CapabilityKind::Compact),
+            format_may_lose_data: formatter.is_some_and(|resolved| {
+                matches!(resolved.provider, Provider::Formatter(formatter) if formatter.may_lose_data())
+            }),
+            preview: registry
+                .resolve(language, CapabilityKind::Preview)
+                .and_then(|resolved| match resolved.provider {
+                    Provider::Preview(preview) => Some(preview.kind().to_owned()),
+                    _ => None,
+                }),
+        }
+    }
+
+    /// Switches capabilities off per language (`"[json]": { "disabledCapabilities":
+    /// ["format"] }` in `settings.json`); everything not listed is on. Open
+    /// documents take the change at once; their content is untouched.
+    pub fn set_disabled_capabilities(
+        &self,
+        disabled: impl IntoIterator<Item = (LanguageId, CapabilityKind)>,
+    ) {
+        self.capabilities
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .replace_disabled(disabled);
+        if let Ok(mut sessions) = self.sessions.lock() {
+            for session in sessions.values_mut() {
+                session.capabilities = self.document_capabilities(&session.language_id);
+            }
+        }
+    }
+
+    /// Every language that has a switchable capability, with each capability's
+    /// provider label and whether it is on, for Settings.
+    #[must_use]
+    pub fn language_capabilities(&self) -> Vec<LanguageCapabilities> {
+        let registry = self.capability_registry();
+        let providers = registry.providers();
+        self.language_descriptors()
+            .into_iter()
+            .filter_map(|descriptor| {
+                let language = LanguageId::new(descriptor.id.clone()).ok()?;
+                let mut capabilities: Vec<CapabilitySwitch> = Vec::new();
+                for (info, _) in providers
+                    .iter()
+                    .filter(|(info, _)| info.languages.contains(&language))
+                {
+                    if capabilities.iter().any(|item| item.kind == info.kind) {
+                        continue;
+                    }
+                    capabilities.push(CapabilitySwitch {
+                        kind: info.kind,
+                        label: info.label.clone(),
+                        enabled: registry.is_capability_enabled(&language, info.kind),
+                    });
+                }
+                (!capabilities.is_empty()).then_some(LanguageCapabilities {
+                    id: descriptor.id,
+                    display_name: descriptor.display_name,
+                    capabilities,
+                })
+            })
+            .collect()
+    }
+
+    /// Reads the whole document for a tool, named by its provider's label.
+    fn tool_source(
+        &self,
+        session: &EditorSession,
+    ) -> Result<(String, Result<String, ToolProblem>), EditorError> {
+        tool_source(session, || {
+            self.provider_labels(CapabilityKind::Diagnostics)
+        })
+    }
+
+    /// The labels of every registered provider of one kind, in registration
+    /// order without repeats ("JSON, XML, YAML, and plist").
+    fn provider_labels(&self, kind: CapabilityKind) -> String {
+        let mut labels: Vec<String> = Vec::new();
+        for (info, _) in self.capability_registry().providers() {
+            if info.kind == kind && !labels.contains(&info.label) {
+                labels.push(info.label);
+            }
+        }
+        match labels.as_slice() {
+            [] => String::new(),
+            [one] => one.clone(),
+            [rest @ .., last] => format!("{}, and {last}", rest.join(", ")),
+        }
+    }
+
     #[must_use]
     pub fn new(session_root: PathBuf) -> Self {
         Self {
             next_id: AtomicU64::new(0),
             session_root,
             languages: std::sync::RwLock::new(LanguageRegistry::default()),
+            capabilities: std::sync::RwLock::new(crate::builtin_providers::builtin_registry()),
             sessions: Mutex::new(BTreeMap::new()),
         }
     }
@@ -915,9 +1085,10 @@ impl DocumentManager {
             language_id: language_id.as_str().to_owned(),
             language_override: false,
             read_only: false,
-            tool: ToolKind::for_language(language_id.as_str()),
+            capabilities: self.document_capabilities(&language_id),
             binary_format: None,
         };
+        let capabilities = self.document_capabilities(&language_id);
         self.sessions
             .lock()
             .map_err(|_| EditorError::StateUnavailable)?
@@ -934,6 +1105,7 @@ impl DocumentManager {
                     encoding: TextEncoding::Utf8,
                     language_id,
                     language_override: false,
+                    capabilities,
                     selections: vec![Selection::caret(0)],
                     rectangular_selection: None,
                     preferred_scalar_columns: vec![None],
@@ -1086,6 +1258,7 @@ impl DocumentManager {
                 language_id = detected;
             }
         }
+        let capabilities = self.document_capabilities(&language_id);
         let session = EditorSession {
             name,
             source_path: Some(path.to_path_buf()),
@@ -1097,6 +1270,7 @@ impl DocumentManager {
             encoding: TextEncoding::Utf8,
             language_id,
             language_override: false,
+            capabilities,
             selections: vec![Selection::caret(0)],
             rectangular_selection: None,
             preferred_scalar_columns: vec![None],
@@ -1195,6 +1369,7 @@ impl DocumentManager {
         session.source_fingerprint = Some(saved);
         session.language_id = self.languages().detect_path(destination);
         session.language_override = false;
+        session.capabilities = self.document_capabilities(&session.language_id);
         rebase_saved_session(session, &self.session_root, destination)?;
         Ok(summary(document_id, session))
     }
@@ -1377,6 +1552,7 @@ impl DocumentManager {
         }
         let number = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
         let id = DocumentId(format!("document-{number}"));
+        let capabilities = self.document_capabilities(&language_id);
         let session = EditorSession {
             name: record.name,
             source_path: record.document_path,
@@ -1392,6 +1568,7 @@ impl DocumentManager {
             encoding: record.encoding,
             language_id,
             language_override,
+            capabilities,
             selections: vec![Selection::caret(0)],
             rectangular_selection: None,
             preferred_scalar_columns: vec![None],
@@ -3033,6 +3210,7 @@ impl DocumentManager {
             .ok_or_else(|| EditorError::UnknownDocument(document_id.clone()))?;
         session.language_id = language_id;
         session.language_override = true;
+        session.capabilities = self.document_capabilities(&session.language_id);
         Ok(session.language_id.as_str().to_owned())
     }
 
@@ -3518,7 +3696,8 @@ impl DocumentManager {
         Ok(())
     }
 
-    /// Checks a JSON or XML document and reports the first problem, if any.
+    /// Checks a document with its language's validator and reports the
+    /// first problem, if any, with what Beautify would lose.
     ///
     /// # Errors
     /// Returns an error for an unknown document, a language without tools, or
@@ -3534,34 +3713,66 @@ impl DocumentManager {
         let session = sessions
             .get(document_id)
             .ok_or_else(|| EditorError::UnknownDocument(document_id.clone()))?;
-        let (tool, source) = tool_source(session)?;
+        let (label, source) = self.tool_source(session)?;
+        let registry = self.capability_registry();
+        let validator = registry
+            .resolve(&session.language_id, CapabilityKind::Diagnostics)
+            .ok_or_else(|| {
+                EditorError::Tool(format!("Validate is not available for {label} documents"))
+            })?;
+        let Provider::Validator(check) = validator.provider.clone() else {
+            return Err(EditorError::Tool(format!(
+                "Validate is not available for {label} documents"
+            )));
+        };
+        let formatter = registry.resolve(&session.language_id, CapabilityKind::Format);
         let checked = source.and_then(|text| {
-            let result = match tool {
-                ToolKind::Json => format_tools::validate_json(&text).map(|()| None),
-                ToolKind::Xml => format_tools::validate_xml(&text).map(|()| None),
-                ToolKind::Plist => plist_tools::validate_plist(&text).map(|()| None),
-                ToolKind::Yaml => yaml_tools::validate_yaml(&text).map(Some),
+            let input = DocumentText {
+                language: &session.language_id,
+                text: &text,
             };
-            result.map_err(|error| ToolProblem::locate(session.encoding, &text, error))
+            let problem = registry
+                .call(&validator.info, || check.validate(&input))
+                .map_err(|error| ToolProblem::from_provider(session.encoding, &text, error))?;
+            if let Some(problem) = problem {
+                return Err(ToolProblem::from_provider(
+                    session.encoding,
+                    &text,
+                    ProviderError::Content(problem),
+                ));
+            }
+            // What Beautify would do to this document, so the editor can ask first.
+            let assessment = match &formatter {
+                Some(resolved) => match &resolved.provider {
+                    Provider::Formatter(format) => registry
+                        .call(&resolved.info, || format.assess(&input))
+                        .unwrap_or(FormatAssessment::Ready),
+                    _ => FormatAssessment::Ready,
+                },
+                None => FormatAssessment::Ready,
+            };
+            Ok(assessment)
         });
         Ok(match checked {
-            Ok(features) => {
-                let features = features.unwrap_or_default();
+            Ok(assessment) => {
+                let (beautify_note, beautify_unavailable) = match assessment {
+                    FormatAssessment::Ready => (None, false),
+                    FormatAssessment::Lossy(note) => (Some(note), false),
+                    FormatAssessment::Unavailable(note) => (Some(note), true),
+                };
                 ValidationReport {
-                    tool,
                     valid: true,
-                    message: format!("Valid {}", tool.label()),
+                    message: format!("Valid {label}"),
                     byte_offset: None,
                     line: None,
                     column: None,
-                    beautify_note: yaml_beautify_note(features),
-                    beautify_unavailable: features.tags,
+                    beautify_note,
+                    beautify_unavailable,
                 }
             }
             Err(problem) => ValidationReport {
-                tool,
                 valid: false,
-                message: problem.describe(tool),
+                message: problem.describe(&label),
                 byte_offset: Some(problem.byte_offset.to_string()),
                 line: Some(problem.line),
                 column: Some(problem.column),
@@ -3571,10 +3782,10 @@ impl DocumentManager {
         })
     }
 
-    /// Re-indents a valid JSON, XML, YAML, or plist document, or minifies
-    /// JSON, as one revision-checked undo step. An already formatted document
-    /// is unchanged. YAML Beautify loses comments and writes anchors out in
-    /// full, so it runs on such a document only with `accept_loss`.
+    /// Re-indents a document with its language's formatter, or minifies it,
+    /// as one revision-checked undo step. An already formatted document is
+    /// unchanged. A formatter that would lose something (YAML comments and
+    /// anchors) runs only with `accept_loss`.
     ///
     /// # Errors
     /// Returns an error for a stale revision, a language without tools, an
@@ -3594,40 +3805,43 @@ impl DocumentManager {
             .get_mut(document_id)
             .ok_or_else(|| EditorError::UnknownDocument(document_id.clone()))?;
         validate_revision(session, expected_revision)?;
-        let (tool, source) = tool_source(session)?;
+        let (label, source) = self.tool_source(session)?;
+        let (kind, mode) = if minify {
+            (CapabilityKind::Compact, FormatMode::Compact)
+        } else {
+            (CapabilityKind::Format, FormatMode::Beautify)
+        };
+        let resolved = self
+            .capability_registry()
+            .resolve(&session.language_id, kind);
         let formatted = source.and_then(|text| {
-            let result = match tool {
-                ToolKind::Json => format_tools::format_json(&text, minify),
-                _ if minify => return Err(ToolProblem::plain("Minify is available for JSON only")),
-                ToolKind::Xml | ToolKind::Plist => {
-                    let checked = if tool == ToolKind::Plist {
-                        plist_tools::validate_plist(&text)
-                    } else {
-                        Ok(())
-                    };
-                    checked.and_then(|()| format_tools::format_xml(&text))
-                }
-                ToolKind::Yaml => match yaml_tools::validate_yaml(&text) {
-                    Ok(features)
-                        if (features.comments || features.anchors)
-                            && !accept_loss
-                            && !features.tags =>
-                    {
-                        return Err(ToolProblem::plain(&format!(
-                            "{} Beautify again and confirm to go ahead.",
-                            yaml_beautify_note(features).unwrap_or_default()
-                        )))
-                    }
-                    Ok(_) => yaml_tools::format_yaml(&text),
-                    Err(error) => Err(error),
-                },
+            let Some(resolved) = resolved else {
+                return Err(ToolProblem::plain(&if minify {
+                    format!(
+                        "Minify is available for {} only",
+                        self.provider_labels(CapabilityKind::Compact)
+                    )
+                } else {
+                    format!("Beautify is not available for {label} documents")
+                }));
             };
-            match result {
-                Ok(formatted) => Ok((formatted != text).then_some(formatted)),
-                Err(error) => Err(ToolProblem::locate(session.encoding, &text, error)),
+            let Provider::Formatter(format) = &resolved.provider else {
+                return Err(ToolProblem::plain("This provider cannot format"));
+            };
+            let input = DocumentText {
+                language: &session.language_id,
+                text: &text,
+            };
+            match self
+                .capability_registry()
+                .call(&resolved.info, || format.format(&input, mode, accept_loss))
+            {
+                Ok(FormatOutcome::Unchanged) => Ok(None),
+                Ok(FormatOutcome::Replaced(formatted)) => Ok(Some(formatted)),
+                Err(error) => Err(ToolProblem::from_provider(session.encoding, &text, error)),
             }
         });
-        let formatted = formatted.map_err(|problem| EditorError::Tool(problem.describe(tool)))?;
+        let formatted = formatted.map_err(|problem| EditorError::Tool(problem.describe(&label)))?;
         let Some(formatted) = formatted else {
             return Ok(summary(document_id, session));
         };
@@ -3757,14 +3971,28 @@ impl ToolProblem {
         }
     }
 
-    fn describe(&self, tool: ToolKind) -> String {
+    /// Places a provider's error: a content problem gets a line and column.
+    fn from_provider(encoding: TextEncoding, text: &str, error: ProviderError) -> Self {
+        match error {
+            ProviderError::Content(problem) => Self::locate(
+                encoding,
+                text,
+                format_tools::ToolError {
+                    message: problem.message,
+                    offset: problem.offset,
+                },
+            ),
+            ProviderError::Refused(message) | ProviderError::Failed(message) => {
+                Self::plain(&message)
+            }
+        }
+    }
+
+    fn describe(&self, label: &str) -> String {
         if self.located {
             format!(
-                "Invalid {}: {} (line {}, column {})",
-                tool.label(),
-                self.message,
-                self.line,
-                self.column
+                "Invalid {label}: {} (line {}, column {})",
+                self.message, self.line, self.column
             )
         } else {
             self.message.clone()
@@ -3776,17 +4004,22 @@ impl ToolProblem {
 /// tool cannot run at all; the inner one is a problem with the content.
 fn tool_source(
     session: &EditorSession,
-) -> Result<(ToolKind, Result<String, ToolProblem>), EditorError> {
-    let tool = ToolKind::for_language(session.language_id.as_str()).ok_or_else(|| {
-        EditorError::Tool(
-            "These tools are available for JSON, XML, YAML, and plist documents".into(),
-        )
-    })?;
+    available_for: impl FnOnce() -> String,
+) -> Result<(String, Result<String, ToolProblem>), EditorError> {
+    let label = session
+        .capabilities
+        .tool_label()
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            EditorError::Tool(format!(
+                "These tools are available for {} documents",
+                available_for()
+            ))
+        })?;
     let table = session.document.table();
     if table.len() > MAX_TOOL_BYTES {
         return Err(EditorError::Tool(format!(
-            "{} tools handle documents up to {} MiB",
-            tool.label(),
+            "{label} tools handle documents up to {} MiB",
             MAX_TOOL_BYTES / (1024 * 1024)
         )));
     }
@@ -3806,27 +4039,7 @@ fn tool_source(
         }),
         TextEncoding::Windows1252 => Ok(decode_text(session.encoding, &bytes).0),
     };
-    Ok((tool, text))
-}
-
-/// What YAML Beautify would lose, in one sentence, if anything.
-fn yaml_beautify_note(features: yaml_tools::YamlFeatures) -> Option<String> {
-    if features.tags {
-        return Some("Beautify cannot keep YAML tags such as !Ref, so it is not available for this document.".into());
-    }
-    let mut losses = Vec::new();
-    if features.comments {
-        losses.push("removes comments");
-    }
-    if features.anchors {
-        losses.push("writes anchors and aliases (&name, *name) out in full");
-    }
-    (!losses.is_empty()).then(|| {
-        format!(
-            "Beautify {}; values and key order are kept, but quoting and number spelling may change.",
-            losses.join(" and ")
-        )
-    })
+    Ok((label, text))
 }
 
 fn primary_selection_range(session: &EditorSession) -> (u64, u64) {
@@ -4066,10 +4279,11 @@ fn summary(document_id: &DocumentId, session: &EditorSession) -> DocumentSummary
         language_id: session.language_id.as_str().to_owned(),
         language_override: session.language_override,
         read_only: session.document.is_read_only(),
-        tool: binary_format(session)
-            .is_none()
-            .then(|| ToolKind::for_language(session.language_id.as_str()))
-            .flatten(),
+        capabilities: if binary_format(session).is_some() {
+            DocumentCapabilities::default()
+        } else {
+            session.capabilities.clone()
+        },
         binary_format: binary_format(session).map(str::to_owned),
     }
 }
@@ -7740,7 +7954,8 @@ mod tests {
         let manager = DocumentManager::new(root.path().join("sessions"));
         let document = manager.open_file(&path).expect("open");
         let id = &document.document_id;
-        assert_eq!(document.tool, Some(super::ToolKind::Yaml));
+        assert_eq!(document.capabilities.validate.as_deref(), Some("YAML"));
+        assert!(document.capabilities.format_may_lose_data);
 
         let report = manager.validate_document(id).expect("report");
         assert!(report.valid, "{}", report.message);
@@ -7802,7 +8017,7 @@ mod tests {
             Some("binary property list")
         );
         assert!(document.read_only);
-        assert_eq!(document.tool, None);
+        assert!(document.capabilities.is_empty());
         // An XML property list is ordinary text.
         let xml = root.path().join("Info.plist");
         fs::write(&xml, "<plist><dict/></plist>\n").expect("fixture");
@@ -7824,7 +8039,7 @@ mod tests {
         let document = manager.open_file(&path).expect("open");
         let id = &document.document_id;
         assert_eq!(document.language_id, "plist");
-        assert_eq!(document.tool, Some(super::ToolKind::Plist));
+        assert_eq!(document.capabilities.validate.as_deref(), Some("plist"));
         let report = manager.validate_document(id).expect("report");
         assert!(!report.valid);
         assert!(

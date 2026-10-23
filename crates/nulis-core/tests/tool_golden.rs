@@ -125,20 +125,40 @@ fn open(case: &Case, directory: &Path) -> (NulisCore, String, Value) {
 }
 
 /// Keeps what the interface reads from a summary, leaving out run-specific IDs.
+///
+/// M43 replaced the summary's `tool` (`"json"`, `"xml"`, …) with
+/// `capabilities`; the old value is rebuilt from the Validate label so the
+/// 0.4.0 record still says which tool set a document had.
 fn summary_fields(value: &Value) -> Value {
     let keep = ["revision", "dirty", "languageId", "tool", "readOnly"];
     let Some(object) = value.as_object() else {
         return value.clone();
     };
-    Value::Object(
-        keep.iter()
-            .filter_map(|key| {
-                object
-                    .get(*key)
-                    .map(|field| ((*key).to_owned(), field.clone()))
-            })
-            .collect::<Map<_, _>>(),
-    )
+    let mut fields: Map<String, Value> = keep
+        .iter()
+        .filter_map(|key| {
+            object
+                .get(*key)
+                .map(|field| ((*key).to_owned(), field.clone()))
+        })
+        .collect();
+    if let Some(label) = object
+        .get("capabilities")
+        .and_then(|capabilities| capabilities.get("validate"))
+        .and_then(Value::as_str)
+    {
+        fields.insert("tool".into(), json!(label.to_ascii_lowercase()));
+    }
+    Value::Object(fields)
+}
+
+/// M43 removed `tool` from validation reports (the interface never read
+/// it); everything else in a report is compared.
+fn without_report_tool(mut value: Value) -> Value {
+    if let Some(report) = value.get_mut("ok").and_then(Value::as_object_mut) {
+        report.remove("tool");
+    }
+    value
 }
 
 fn record(case: &Case) -> Value {
@@ -196,7 +216,12 @@ fn tools_behave_as_in_0_4_0() {
         serde_json::from_slice(&std::fs::read(&golden_path).expect("golden file"))
             .expect("golden JSON");
     for (label, expected_case) in expected.as_object().expect("object") {
-        assert_eq!(&actual[label], expected_case, "{label}");
+        let mut expected_case = expected_case.clone();
+        let mut actual_case = actual[label].clone();
+        for case in [&mut expected_case, &mut actual_case] {
+            case["validate"] = without_report_tool(case["validate"].take());
+        }
+        assert_eq!(actual_case, expected_case, "{label}");
     }
     assert_eq!(
         actual.as_object().map(Map::len),

@@ -1,5 +1,6 @@
 //! Headless application core and public command boundary.
 
+mod builtin_providers;
 mod command;
 mod count_jobs;
 mod editor;
@@ -15,28 +16,28 @@ pub use command::{
     CommandContext, CommandDescriptor, CommandError, CommandRegistry, CommandResult,
 };
 pub use editor::{
-    BookmarkDirection, ChangeDirection, ClipboardPayload, DocumentId, DocumentManager,
-    DocumentMapChange, DocumentMapSample, DocumentMapSnapshot, DocumentSummary, EditorError,
-    ExportObserver, ExportPhase, ExportProgress, ExportScope, ExternalChange, ExternalChangeKind,
-    FileSearchScope, FileStamp, FindAllResult, FindDirection, FindResult, FoundLine, FoundMatch,
-    HexCaret, HexClipboardPayload, HexCursor, HexEditResult, HexViewportRequest, HexViewportRow,
-    HexViewportSnapshot, HorizontalDirection, Justify, LanguageDescriptor, LineEditResult,
-    LineEnding, LineEndingConversion, LineEndingStyle, LineFormatOptions, LineOperation,
-    MarkdownPreviewSource, NumberPadding, NumberSequence, NumberSum, PdfExportRequest,
-    PdfExportResult, RecoveryCandidate, RectangularSelection, ReplaceAllResult, ReplaceFileOutcome,
-    ReplacePreview, ReplacePreviewFile, ReplaceTarget, SearchMode, SearchOptions, Selection,
-    SyntaxBracketPair, SyntaxFold, SyntaxHighlight, SyntaxSnapshot, SyntaxSymbol, TextEncoding,
-    TextTransform, Unobserved, VerticalDirection, ViewportAtRequest, ViewportCursor, ViewportLine,
-    ViewportLineRequest, ViewportRequest, ViewportSnapshot, WorkspaceSearchMatch,
-    WorkspaceSearchResult, HIGHLIGHT_LOOKBACK_BYTES, HIGHLIGHT_WINDOW_BYTES, LARGE_EXPORT_PAGES,
-    LINE_ENDING_SAMPLE_BYTES, MAX_BOOKMARKS, MAX_CLIPBOARD_BYTES, MAX_EDIT_BYTES,
-    MAX_FILE_NAME_BYTES, MAX_FIND_ALL_LINES, MAX_FIND_ALL_MATCHES, MAX_HEX_CLIPBOARD_BYTES,
-    MAX_HEX_EDIT_BYTES, MAX_HEX_VIEWPORT_BYTES, MAX_LINE_ENDING_CHANGES,
-    MAX_LINE_ENDING_CONVERSION_BYTES, MAX_LINE_PREVIEW_BYTES, MAX_MARKDOWN_PREVIEW_BYTES,
-    MAX_MERGE_BYTES, MAX_RECTANGULAR_ROWS, MAX_REPLACE_FILES, MAX_SELECTIONS, MAX_VIEWPORT_BYTES,
-    MAX_WORKSPACE_SEARCH_FILES, MAX_WORKSPACE_SEARCH_RESULTS, PRINT_WINDOW_BYTES,
+    BookmarkDirection, CapabilitySwitch, ChangeDirection, ClipboardPayload, DocumentCapabilities,
+    DocumentId, DocumentManager, DocumentMapChange, DocumentMapSample, DocumentMapSnapshot,
+    DocumentSummary, EditorError, ExportObserver, ExportPhase, ExportProgress, ExportScope,
+    ExternalChange, ExternalChangeKind, FileSearchScope, FileStamp, FindAllResult, FindDirection,
+    FindResult, FoundLine, FoundMatch, HexCaret, HexClipboardPayload, HexCursor, HexEditResult,
+    HexViewportRequest, HexViewportRow, HexViewportSnapshot, HorizontalDirection, Justify,
+    LanguageCapabilities, LanguageDescriptor, LineEditResult, LineEnding, LineEndingConversion,
+    LineEndingStyle, LineFormatOptions, LineOperation, MarkdownPreviewSource, NumberPadding,
+    NumberSequence, NumberSum, PdfExportRequest, PdfExportResult, RecoveryCandidate,
+    RectangularSelection, ReplaceAllResult, ReplaceFileOutcome, ReplacePreview, ReplacePreviewFile,
+    ReplaceTarget, SearchMode, SearchOptions, Selection, SyntaxBracketPair, SyntaxFold,
+    SyntaxHighlight, SyntaxSnapshot, SyntaxSymbol, TextEncoding, TextTransform, Unobserved,
+    VerticalDirection, ViewportAtRequest, ViewportCursor, ViewportLine, ViewportLineRequest,
+    ViewportRequest, ViewportSnapshot, WorkspaceSearchMatch, WorkspaceSearchResult,
+    HIGHLIGHT_LOOKBACK_BYTES, HIGHLIGHT_WINDOW_BYTES, LARGE_EXPORT_PAGES, LINE_ENDING_SAMPLE_BYTES,
+    MAX_BOOKMARKS, MAX_CLIPBOARD_BYTES, MAX_EDIT_BYTES, MAX_FILE_NAME_BYTES, MAX_FIND_ALL_LINES,
+    MAX_FIND_ALL_MATCHES, MAX_HEX_CLIPBOARD_BYTES, MAX_HEX_EDIT_BYTES, MAX_HEX_VIEWPORT_BYTES,
+    MAX_LINE_ENDING_CHANGES, MAX_LINE_ENDING_CONVERSION_BYTES, MAX_LINE_PREVIEW_BYTES,
+    MAX_MARKDOWN_PREVIEW_BYTES, MAX_MERGE_BYTES, MAX_RECTANGULAR_ROWS, MAX_REPLACE_FILES,
+    MAX_SELECTIONS, MAX_VIEWPORT_BYTES, MAX_WORKSPACE_SEARCH_FILES, MAX_WORKSPACE_SEARCH_RESULTS,
+    PRINT_WINDOW_BYTES,
 };
-pub use format_tools::ToolKind;
 pub use line_changes::{LineChange, LineChangeStatus};
 pub use nulis_automation::{
     AutomationError, MacroDefinition, MacroRunReport, MacroSummary, RecordedCommand,
@@ -80,7 +81,7 @@ use nulis_automation::{
     CURRENT_REVISION_ARGUMENT,
 };
 
-pub const IPC_PROTOCOL_VERSION: u32 = 43;
+pub const IPC_PROTOCOL_VERSION: u32 = 44;
 pub const PRODUCT_NAME: &str = "Nulis";
 pub const APPLICATION_ID: &str = "com.nulis.editor";
 const MAX_SCRIPT_MESSAGES: usize = 100;
@@ -167,6 +168,21 @@ impl SettingsState {
             layers.replace_language(language, values);
         }
         self.layers = layers;
+        let disabled = self
+            .document
+            .language_overrides()
+            .into_iter()
+            .filter_map(|(language, values)| {
+                let language = nulis_syntax::LanguageId::new(language).ok()?;
+                let kinds = values.get("disabledCapabilities")?.as_array()?.clone();
+                Some(kinds.into_iter().filter_map(move |kind| {
+                    let kind: nulis_language::CapabilityKind = serde_json::from_value(kind).ok()?;
+                    Some((language.clone(), kind))
+                }))
+            })
+            .flatten()
+            .collect::<Vec<_>>();
+        documents.set_disabled_capabilities(disabled);
         let associations = self.document.file_associations();
         self.rejected_associations = documents.set_user_associations(
             associations
@@ -2930,6 +2946,22 @@ fn register_language_commands(commands: &mut CommandRegistry, documents: &Arc<Do
     let manager = Arc::clone(documents);
     commands
         .register(
+            CommandDescriptor::new(
+                "language.capabilities",
+                "List Language Capabilities",
+                "Language",
+            )
+            .expect("built-in command ID is valid"),
+            move |_context, _arguments| {
+                serde_json::to_value(manager.language_capabilities())
+                    .map_err(|error| serialization_command_error(&error))
+            },
+        )
+        .expect("built-in command is unique");
+
+    let manager = Arc::clone(documents);
+    commands
+        .register(
             CommandDescriptor::new("language.set", "Set Document Language", "Language")
                 .expect("built-in command ID is valid"),
             move |context, arguments| {
@@ -2937,8 +2969,12 @@ fn register_language_commands(commands: &mut CommandRegistry, documents: &Arc<Do
                 let arguments: LanguageArguments = parse_arguments(arguments)?;
                 manager
                     .set_language(&document_id, &arguments.language_id)
-                    .map(Value::String)
+                    .and_then(|_| manager.summary(&document_id))
                     .map_err(|error| editor_command_error(&error))
+                    .and_then(|summary| {
+                        serde_json::to_value(summary)
+                            .map_err(|error| serialization_command_error(&error))
+                    })
             },
         )
         .expect("built-in command is unique");
@@ -4857,7 +4893,12 @@ mod tests {
                 serde_json::json!({ "languageId": "plaintext" }),
             )
             .expect("set language");
-        assert_eq!(selected, "plaintext");
+        // The new summary comes back, so tools follow View As at once.
+        assert_eq!(selected["languageId"], "plaintext");
+        assert_eq!(selected["languageOverride"], true);
+        assert!(selected.get("capabilities").is_none());
+        assert_eq!(created["capabilities"]["validate"], "JSON");
+        assert_eq!(created["capabilities"]["compact"], "JSON");
     }
 
     #[test]
@@ -5177,6 +5218,101 @@ mod settings_tests {
         );
         assert!(invalid.is_err());
         assert_eq!(state(&core)["revision"], 2);
+    }
+
+    #[test]
+    fn capabilities_can_be_switched_off_per_language_and_open_documents_follow() {
+        let root = tempfile::tempdir().expect("application data");
+        std::fs::write(
+            root.path().join("settings.json"),
+            r#"{"schemaVersion":1,"values":{
+                "[json]":{"disabledCapabilities":["format","compact","unknownKind"]},
+                "[markdown]":{"disabledCapabilities":["preview"]}
+            }}"#,
+        )
+        .expect("write settings");
+        let core = NulisCore::with_session_root(root.path().into());
+        let json = core
+            .execute_command(
+                "file.new",
+                CommandContext::default(),
+                json!({ "name": "a.json", "initialText": "{\"a\":1}" }),
+            )
+            .expect("create");
+        assert_eq!(json["capabilities"], json!({ "validate": "JSON" }));
+        let id = json["documentId"].as_str().expect("id").to_owned();
+        let context = CommandContext {
+            window_id: None,
+            document_id: Some(id.clone()),
+        };
+        let refused = core
+            .execute_command(
+                "tools.beautify",
+                context.clone(),
+                json!({ "expectedRevision": "0" }),
+            )
+            .expect_err("beautify is off");
+        assert!(refused
+            .to_string()
+            .contains("Beautify is not available for JSON documents"));
+        assert_eq!(
+            core.execute_command("tools.validate", context.clone(), Value::Null)
+                .expect("validate")["message"],
+            "Valid JSON"
+        );
+        let markdown = core
+            .execute_command(
+                "file.new",
+                CommandContext::default(),
+                json!({ "name": "a.md", "initialText": "# A" }),
+            )
+            .expect("create");
+        assert!(markdown.get("capabilities").is_none());
+
+        let listed = core
+            .execute_command(
+                "language.capabilities",
+                CommandContext::default(),
+                Value::Null,
+            )
+            .expect("list");
+        let json_row = listed
+            .as_array()
+            .expect("array")
+            .iter()
+            .find(|row| row["id"] == "json")
+            .expect("json row")
+            .clone();
+        assert_eq!(
+            json_row["capabilities"],
+            json!([
+                { "kind": "diagnostics", "label": "JSON", "enabled": true },
+                { "kind": "format", "label": "JSON", "enabled": false },
+                { "kind": "compact", "label": "JSON", "enabled": false }
+            ])
+        );
+        assert!(listed
+            .as_array()
+            .expect("array")
+            .iter()
+            .all(|row| row["id"] != "rust"));
+
+        // Turning everything back on reaches the open document without reopening it.
+        core.execute_command(
+            "settings.saveChecked",
+            CommandContext::default(),
+            json!({ "expectedRevision": 0, "document": { "schemaVersion": 1, "values": {} } }),
+        )
+        .expect("save");
+        let beautified = core
+            .execute_command(
+                "tools.beautify",
+                context,
+                json!({ "expectedRevision": "0" }),
+            )
+            .expect("beautify");
+        assert_eq!(beautified["capabilities"]["format"], "JSON");
+        assert_eq!(beautified["revision"], "1");
     }
 
     #[test]

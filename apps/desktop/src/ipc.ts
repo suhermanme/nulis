@@ -7,7 +7,6 @@ import {
   type DocumentMapSnapshot,
   type EditorPreferences,
   type MarkdownPreviewSource,
-  type ToolKind,
   type ExecuteCommandRequest,
   type HexViewportRequest,
   type HexViewportSnapshot,
@@ -138,8 +137,9 @@ export function requestMainAction(action: string): Promise<void> {
 }
 
 /** Names and enables the native Tools menu for the focused document. */
-export function setToolsMenu(kind: ToolKind | null): Promise<void> {
-  return invoke<void>("set_tools_menu", { kind });
+/** Names and enables the native Tools items: each label ("JSON") the focused document has. */
+export function setToolsMenu(tools: { validate?: string; beautify?: string; minify?: string }): Promise<void> {
+  return invoke<void>("set_tools_menu", { tools });
 }
 
 /** Opens the separate Find and Replace window, or brings it forward. */

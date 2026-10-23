@@ -615,11 +615,11 @@ export function EditorViewport({
     setPreviewError(null);
   }, [document.documentId]);
 
+  // The Edit/View switch exists while the document has a Markdown preview.
+  const markdownPreview = document.capabilities?.preview === "markdown";
   useEffect(() => {
-    if (snapshot?.syntax?.languageId && snapshot.syntax.languageId !== "markdown") {
-      setMarkdownMode("edit");
-    }
-  }, [snapshot?.syntax?.languageId]);
+    if (!markdownPreview) setMarkdownMode("edit");
+  }, [markdownPreview]);
 
   useEffect(() => {
     onMarkdownView?.(markdownMode === "view");
@@ -1442,14 +1442,14 @@ export function EditorViewport({
 
   const setLanguage = useCallback(
     async (languageId: string) => {
-      await executeCommand<string>({
+      const updated = await executeCommand<DocumentSummary>({
         id: "language.set",
         context: { windowId: "main", documentId: document.documentId },
         arguments: { languageId },
       });
       setCollapsedFolds([]);
-      // The workbench offers language-specific tools from the document summary.
-      onDocumentChange({ ...document, languageId, languageOverride: true });
+      // The summary carries the new language's tools and preview.
+      onDocumentChange(updated);
       await load(currentCursor);
       onStatus(`Language: ${languages.find((language) => language.id === languageId)?.displayName ?? languageId}`);
     },
@@ -2017,7 +2017,7 @@ export function EditorViewport({
     truncated: false,
     timedOut: false,
   };
-  const isMarkdownView = syntax.languageId === "markdown" && markdownMode === "view";
+  const isMarkdownView = markdownPreview && markdownMode === "view";
   const currentPreview = previewSource?.documentId === document.documentId
     && previewSource.revision === document.revision ? previewSource : null;
   const currentMap = documentMap?.documentId === document.documentId
@@ -2242,7 +2242,7 @@ export function EditorViewport({
         <IconButton icon="close" label="Close go to line" shortcut="Escape" onClick={() => setGoToOpen(false)} />
       </div> : null}
       <div className="editor-toolbar" role="toolbar" aria-label="Editor tools">
-        {syntax.languageId === "markdown" ? <div className="markdown-mode-switch" role="group" aria-label="Markdown mode">
+        {markdownPreview ? <div className="markdown-mode-switch" role="group" aria-label="Markdown mode">
           <IconButton icon="edit" label="Edit" tooltip="Edit Markdown source" pressed={!isMarkdownView} onClick={() => setMarkdownMode("edit")} />
           <IconButton icon="preview" label="View" tooltip="Preview formatted Markdown" pressed={isMarkdownView} onClick={() => setMarkdownMode("view")} />
         </div> : null}

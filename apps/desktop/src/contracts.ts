@@ -1,5 +1,5 @@
 /** Versioned JSON-compatible values mirrored from nulis-core's public IPC DTOs. */
-export const IPC_PROTOCOL_VERSION = 43 as const;
+export const IPC_PROTOCOL_VERSION = 44 as const;
 
 export interface ThemeRecord {
   schema?: string;
@@ -293,20 +293,48 @@ export interface DocumentSummary {
   languageOverride?: boolean;
   /** Whether the document currently refuses every content change. */
   readOnly?: boolean;
-  /** The built-in tools its language has (Validate, Beautify, and for JSON Minify). */
-  tool?: ToolKind;
+  /** What the document's language offers right now; absent when nothing. */
+  capabilities?: DocumentCapabilities;
   /** A binary format such as "binary property list": shown in the hexadecimal view. */
   binaryFormat?: string;
 }
 
-/** The built-in tool set a document's language has, if any. */
-export type ToolKind = "json" | "xml" | "yaml" | "plist";
+/**
+ * Language features of a document, each named by its provider's label
+ * ("JSON"). The interface asks for features, never for language IDs.
+ */
+export interface DocumentCapabilities {
+  /** Validate, by label. */
+  validate?: string;
+  /** Beautify, by label. */
+  format?: string;
+  /** Minify, by label. */
+  compact?: string;
+  /** Beautify may drop something: run Validate first and ask before Beautify. */
+  formatMayLoseData?: boolean;
+  /** A rendered view, by kind ("markdown"). */
+  preview?: string;
+}
 
-/** How each tool set is named in menus and messages. */
-export const TOOL_LABELS: Record<ToolKind, string> = { json: "JSON", xml: "XML", yaml: "YAML", plist: "plist" };
+export type CapabilityKind = "highlight" | "comment" | "indentation" | "completion" | "diagnostics"
+  | "format" | "compact" | "preview" | "commands" | "symbols";
+
+/** A language and the capabilities Settings can switch off for it. */
+export interface LanguageCapabilities {
+  id: string;
+  displayName: string;
+  capabilities: { kind: CapabilityKind; label: string; enabled: boolean }[];
+}
+
+/** The user's settings.json as the core reports it. */
+export interface SettingsState {
+  revision: number;
+  document: { schemaVersion: 1; values: Record<string, unknown> };
+  rejectedAssociations: string[];
+  loadError: string | null;
+}
 
 export interface ValidationReport {
-  tool: ToolKind;
   valid: boolean;
   message: string;
   byteOffset?: string;
