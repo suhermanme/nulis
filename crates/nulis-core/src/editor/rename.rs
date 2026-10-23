@@ -64,6 +64,7 @@ impl DocumentManager {
         session.source_fingerprint =
             fingerprint(&destination).map_err(|error| EditorError::io(&error))?;
         session.language_id = self.languages().detect_path(&destination);
+        session.language_override = false;
         session.source_path = Some(destination);
         Ok(summary(document_id, session))
     }

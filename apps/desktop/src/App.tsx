@@ -473,9 +473,18 @@ export function App() {
           }
           if (!reference.startsWith("path:")) continue;
           try {
-            const opened = await executeCommand<DocumentSummary>({
+            let opened = await executeCommand<DocumentSummary>({
               id: "file.open", context: { windowId: "main" }, arguments: { path: reference.slice("path:".length) },
             });
+            const chosenLanguage = restored.languages?.[reference];
+            if (chosenLanguage && chosenLanguage !== opened.languageId) {
+              // A language that is no longer available leaves detection in place.
+              const languageId = await executeCommand<string>({
+                id: "language.set", context: { windowId: "main", documentId: opened.documentId },
+                arguments: { languageId: chosenLanguage },
+              }).catch(() => null);
+              if (languageId) opened = { ...opened, languageId, languageOverride: true };
+            }
             if (!reopened.some((document) => document.documentId === opened.documentId)) reopened.push(opened);
             resolved.set(reference, opened.documentId);
           } catch {
@@ -532,6 +541,13 @@ export function App() {
             ? [[reference, viewModes[document.documentId] ?? "text"]] : [];
         })),
       };
+      // Languages chosen with View As come back on the next start.
+      const languages = Object.fromEntries(documents.flatMap((document) => {
+        const reference = documentReference(document);
+        return reference && document.languageOverride && document.languageId && stored.documents.includes(reference)
+          ? [[reference, document.languageId]] : [];
+      }));
+      if (Object.keys(languages).length > 0) session.languages = languages;
       void executeCommand({
         id: "session.save", context: { windowId: "main" }, arguments: session,
       }).catch((error: unknown) => setStatus(errorMessage(error, "Could not save session")));

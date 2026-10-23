@@ -15,6 +15,8 @@ const MAX_SESSION_BYTES: u64 = 1024 * 1024;
 const MAX_SESSION_DOCUMENTS: usize = 128;
 const MAX_SESSION_PATH_BYTES: usize = 4_096;
 const MAX_LAYOUT_ID_BYTES: usize = 64;
+/// The same limit as `nulis_syntax::LanguageId`.
+const MAX_LANGUAGE_ID_BYTES: usize = 64;
 const MIN_SIDEBAR_WIDTH: u16 = 180;
 const MAX_SIDEBAR_WIDTH: u16 = 480;
 const MIN_SPLIT_RATIO: u16 = 100;
@@ -80,6 +82,11 @@ pub struct WorkbenchSession {
     pub sidebar_width: u16,
     pub active_panel: String,
     pub view_modes: BTreeMap<String, String>,
+    /// Languages the user chose with View As, by document reference. Left
+    /// out of the file when empty, so such sessions stay readable by Nulis
+    /// 0.4.0 and earlier.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub languages: BTreeMap<String, String>,
 }
 
 #[derive(Deserialize)]
@@ -155,6 +162,7 @@ impl From<WorkbenchSessionV1> for WorkbenchSession {
                 .into_iter()
                 .map(|(path, mode)| (path_reference(&path), mode))
                 .collect(),
+            languages: BTreeMap::new(),
         }
     }
 }
@@ -171,6 +179,7 @@ impl Default for WorkbenchSession {
             sidebar_width: 260,
             active_panel: "files".into(),
             view_modes: BTreeMap::new(),
+            languages: BTreeMap::new(),
         }
     }
 }
@@ -329,6 +338,18 @@ impl WorkbenchSession {
         {
             return Err(SessionError::ViewMode(mode.clone()));
         }
+        for (reference, language) in &self.languages {
+            let valid_id = !language.is_empty()
+                && language.len() <= MAX_LANGUAGE_ID_BYTES
+                && language.bytes().all(|byte| {
+                    byte.is_ascii_lowercase()
+                        || byte.is_ascii_digit()
+                        || matches!(byte, b'-' | b'.')
+                });
+            if !self.documents.contains(reference) || !valid_id {
+                return Err(SessionError::Language(reference.clone()));
+            }
+        }
         Ok(())
     }
 }
@@ -444,6 +465,8 @@ pub enum SessionError {
     ActivePanel(String),
     #[error("unsupported session view mode {0:?}")]
     ViewMode(String),
+    #[error("invalid session language for {0:?}")]
+    Language(String),
     #[error("session state is {0} bytes and exceeds the limit")]
     TooLarge(u64),
     #[error("session file has no parent directory")]
@@ -511,6 +534,44 @@ mod tests {
             active_layout: Some("layout-1".into()),
             ..WorkbenchSession::default()
         }
+    }
+
+    #[test]
+    fn chosen_languages_round_trip_and_are_left_out_when_there_are_none() {
+        let root = tempfile::tempdir().expect("session root");
+        let store = SessionStore::new(root.path().join("workbench.json"));
+        let pane = LayoutNode::Pane {
+            id: "pane-1".into(),
+            tabs: vec!["path:/p/notes.txt".into()],
+            active_tab: Some("path:/p/notes.txt".into()),
+        };
+        let plain = session_with(pane.clone(), &["path:/p/notes.txt"]);
+        let json = serde_json::to_value(&plain).expect("json");
+        assert!(json.get("languages").is_none(), "{json}");
+
+        let mut chosen = plain;
+        chosen
+            .languages
+            .insert("path:/p/notes.txt".into(), "markdown".into());
+        store.save(&chosen).expect("save");
+        assert_eq!(store.load().expect("load").languages, chosen.languages);
+
+        let mut dangling = session_with(pane.clone(), &["path:/p/notes.txt"]);
+        dangling
+            .languages
+            .insert("path:/p/other.txt".into(), "markdown".into());
+        assert!(matches!(
+            dangling.validate(),
+            Err(SessionError::Language(_))
+        ));
+        let mut malformed = session_with(pane, &["path:/p/notes.txt"]);
+        malformed
+            .languages
+            .insert("path:/p/notes.txt".into(), "Mark Down".into());
+        assert!(matches!(
+            malformed.validate(),
+            Err(SessionError::Language(_))
+        ));
     }
 
     #[test]

@@ -1449,7 +1449,7 @@ export function EditorViewport({
       });
       setCollapsedFolds([]);
       // The workbench offers language-specific tools from the document summary.
-      onDocumentChange({ ...document, languageId });
+      onDocumentChange({ ...document, languageId, languageOverride: true });
       await load(currentCursor);
       onStatus(`Language: ${languages.find((language) => language.id === languageId)?.displayName ?? languageId}`);
     },

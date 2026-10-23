@@ -1,5 +1,5 @@
 /** Versioned JSON-compatible values mirrored from nulis-core's public IPC DTOs. */
-export const IPC_PROTOCOL_VERSION = 42 as const;
+export const IPC_PROTOCOL_VERSION = 43 as const;
 
 export interface ThemeRecord {
   schema?: string;
@@ -289,6 +289,8 @@ export interface DocumentSummary {
   recoveryId?: string;
   /** The language the document is highlighted as. */
   languageId?: string;
+  /** The user chose the language with View As instead of detection. */
+  languageOverride?: boolean;
   /** Whether the document currently refuses every content change. */
   readOnly?: boolean;
   /** The built-in tools its language has (Validate, Beautify, and for JSON Minify). */
@@ -526,6 +528,8 @@ export interface WorkbenchSession {
   sidebarWidth: number;
   activePanel: "files" | "search";
   viewModes: Record<string, "text" | "hex">;
+  /** Languages chosen with View As, by document reference; omitted when empty. */
+  languages?: Record<string, string>;
 }
 
 export interface CustomizationState {

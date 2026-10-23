@@ -154,6 +154,9 @@ pub struct DocumentSummary {
     pub recovery_id: Option<String>,
     /// The language the document is highlighted as.
     pub language_id: String,
+    /// The user chose the language with View As; detection would pick another.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub language_override: bool,
     /// Whether the document currently refuses every content change.
     pub read_only: bool,
     /// The built-in tools the document's language has, if any.
@@ -698,6 +701,8 @@ struct EditorSession {
     document: Document,
     encoding: TextEncoding,
     language_id: LanguageId,
+    /// The user chose the language (View As) instead of detection.
+    language_override: bool,
     selections: Vec<Selection>,
     rectangular_selection: Option<RectangularSelection>,
     preferred_scalar_columns: Vec<Option<u64>>,
@@ -908,6 +913,7 @@ impl DocumentManager {
             source_path: None,
             recovery_id: Some(recovery_id.clone()),
             language_id: language_id.as_str().to_owned(),
+            language_override: false,
             read_only: false,
             tool: ToolKind::for_language(language_id.as_str()),
             binary_format: None,
@@ -927,6 +933,7 @@ impl DocumentManager {
                     document,
                     encoding: TextEncoding::Utf8,
                     language_id,
+                    language_override: false,
                     selections: vec![Selection::caret(0)],
                     rectangular_selection: None,
                     preferred_scalar_columns: vec![None],
@@ -1089,6 +1096,7 @@ impl DocumentManager {
             document,
             encoding: TextEncoding::Utf8,
             language_id,
+            language_override: false,
             selections: vec![Selection::caret(0)],
             rectangular_selection: None,
             preferred_scalar_columns: vec![None],
@@ -1186,6 +1194,7 @@ impl DocumentManager {
         session.source_path = Some(destination.to_path_buf());
         session.source_fingerprint = Some(saved);
         session.language_id = self.languages().detect_path(destination);
+        session.language_override = false;
         rebase_saved_session(session, &self.session_root, destination)?;
         Ok(summary(document_id, session))
     }
@@ -1345,6 +1354,15 @@ impl DocumentManager {
             &record.table,
         )?;
         let language_id = LanguageId::new(record.language_id)?;
+        // Checkpoints do not record whether the language was chosen by hand;
+        // one that detection would not pick was.
+        let language_override = language_id
+            != self.languages().detect_path(
+                record
+                    .document_path
+                    .as_deref()
+                    .unwrap_or_else(|| Path::new(&record.name)),
+            );
         let changes = record
             .unsaved_changes
             .as_deref()
@@ -1373,6 +1391,7 @@ impl DocumentManager {
             document,
             encoding: record.encoding,
             language_id,
+            language_override,
             selections: vec![Selection::caret(0)],
             rectangular_selection: None,
             preferred_scalar_columns: vec![None],
@@ -3013,6 +3032,7 @@ impl DocumentManager {
             .get_mut(document_id)
             .ok_or_else(|| EditorError::UnknownDocument(document_id.clone()))?;
         session.language_id = language_id;
+        session.language_override = true;
         Ok(session.language_id.as_str().to_owned())
     }
 
@@ -4044,6 +4064,7 @@ fn summary(document_id: &DocumentId, session: &EditorSession) -> DocumentSummary
             .map(|path| path.to_string_lossy().into_owned()),
         recovery_id: session.recovery_id.clone(),
         language_id: session.language_id.as_str().to_owned(),
+        language_override: session.language_override,
         read_only: session.document.is_read_only(),
         tool: binary_format(session)
             .is_none()
@@ -4950,9 +4971,18 @@ fn session_viewport(
                 .changes
                 .line_change(line.start_byte, line.end_byte, last_line, &is_line_start);
     }
-    let syntax = languages
-        .analyze(&session.language_id, &bytes, start_byte, start_line)
-        .map(syntax_snapshot)?;
+    // A language that is no longer registered (a removed plugin) shows as
+    // Plain Text; the document keeps its language ID and stays readable.
+    let analysis = match languages.analyze(&session.language_id, &bytes, start_byte, start_line) {
+        Err(nulis_syntax::SyntaxError::UnknownLanguage(_)) => languages.analyze(
+            &LanguageId::new("plaintext")?,
+            &bytes,
+            start_byte,
+            start_line,
+        ),
+        other => other,
+    };
+    let syntax = analysis.map(syntax_snapshot)?;
     Ok(ViewportSnapshot {
         document_id: document_id.clone(),
         revision: session.document.table().revision(),
@@ -6308,6 +6338,82 @@ mod tests {
             .discard_recovery(&candidates[0].recovery_id)
             .expect("discard conflict");
         assert_eq!(reopened.recovery_candidates().expect("after discard"), []);
+    }
+
+    #[test]
+    fn view_as_marks_the_language_as_chosen_until_save_as_detects_again() {
+        let root = tempfile::tempdir().expect("temporary root");
+        let manager = DocumentManager::new(root.path().to_path_buf());
+        let document = manager
+            .create_untitled("notes.txt".into(), "# Title".into())
+            .expect("document");
+        assert!(!document.language_override);
+        manager
+            .set_language(&document.document_id, "markdown")
+            .expect("set language");
+        let edited = manager
+            .insert_text(&document.document_id, document.revision, "x", false)
+            .expect("edit");
+        assert_eq!(edited.language_id, "markdown");
+        assert!(edited.language_override);
+        assert_eq!(
+            serde_json::to_value(&edited).expect("json")["languageOverride"],
+            true
+        );
+        let saved = manager
+            .save_as(
+                &document.document_id,
+                edited.revision,
+                &root.path().join("data.json"),
+            )
+            .expect("save as");
+        assert_eq!(saved.language_id, "json");
+        assert!(!saved.language_override);
+        assert!(serde_json::to_value(&saved)
+            .expect("json")
+            .get("languageOverride")
+            .is_none());
+    }
+
+    #[test]
+    fn a_document_whose_language_is_no_longer_registered_stays_readable() {
+        let root = tempfile::tempdir().expect("temporary root");
+        let manager = DocumentManager::new(root.path().to_path_buf());
+        let document = manager
+            .create_untitled("notes.nim".into(), "echo 1".into())
+            .expect("document");
+        manager
+            .checkpoint_recovery(&document.document_id)
+            .expect("checkpoint");
+        let candidate = manager.recovery_candidates().expect("candidate").remove(0);
+        drop(manager);
+        // The checkpoint names a language from a plugin that is gone now.
+        let manifest = root
+            .path()
+            .join("recovery")
+            .join(format!("{}.json", candidate.recovery_id));
+        let mut record: serde_json::Value =
+            serde_json::from_slice(&fs::read(&manifest).expect("manifest")).expect("record");
+        record["languageId"] = serde_json::json!("nim");
+        fs::write(&manifest, serde_json::to_vec(&record).expect("serialize")).expect("write");
+
+        let reopened = DocumentManager::new(root.path().to_path_buf());
+        let restored = reopened
+            .restore_recovery(&candidate.recovery_id)
+            .expect("restore");
+        assert_eq!(restored.language_id, "nim");
+        let view = reopened
+            .viewport(&ViewportRequest {
+                document_id: restored.document_id.clone(),
+                start_byte: 0,
+                start_line: 1,
+                line_continuation: false,
+                max_bytes: 1024,
+            })
+            .expect("viewport");
+        assert_eq!(view.lines[0].text, "echo 1");
+        assert_eq!(view.syntax.language_id, "plaintext");
+        assert_eq!(view.syntax.highlights, Vec::new());
     }
 
     #[test]

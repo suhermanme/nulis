@@ -1708,6 +1708,46 @@ test("restores tabs, named workspaces, and hexadecimal mode, removing only missi
   expect(screen.getByRole("button", { name: "Close split view" })).toBeInTheDocument();
 });
 
+test("languages chosen with View As are restored and saved again; an unavailable one is skipped", async () => {
+  const notes = "path:/tmp/notes.txt";
+  const script = "path:/tmp/script.nim";
+  vi.mocked(executeCommand).mockImplementation(async (request: ExecuteCommandRequest) => {
+    if (request.id === "session.load") return {
+      ...DEFAULT_SESSION,
+      documents: [notes, script],
+      layouts: [{
+        id: "tab-1", name: "Workspace", activePane: "pane-1",
+        root: { kind: "pane", id: "pane-1", tabs: [notes, script], activeTab: notes },
+      }],
+      activeLayout: "tab-1",
+      languages: { [notes]: "markdown", [script]: "nim" },
+    } as never;
+    if (request.id === "file.open") {
+      const path = (request.arguments as { path: string }).path;
+      return {
+        documentId: path, name: path.split("/").pop(), byteLen: "4", revision: "0", encoding: "utf8",
+        sourcePath: path, languageId: "plaintext",
+      } as never;
+    }
+    if (request.id === "language.set") {
+      const { languageId } = request.arguments as { languageId: string };
+      if (languageId === "nim") throw new Error("unknown language");
+      return languageId as never;
+    }
+    if (request.id === "plugin.activateStartup") return [] as never;
+    return null as never;
+  });
+
+  render(<App />);
+  expect(await screen.findByText("notes.txt editor")).toBeInTheDocument();
+  expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
+    id: "language.set", context: { windowId: "main", documentId: "/tmp/notes.txt" }, arguments: { languageId: "markdown" },
+  }));
+  await waitFor(() => expect(saveRequests().length).toBeGreaterThan(0));
+  const saved = saveRequests().at(-1);
+  expect(saved?.languages).toEqual({ [notes]: "markdown" });
+});
+
 test("a recovered untitled document returns to the pane it had before the restart", async () => {
   const draft = "recovery:document-old";
   vi.mocked(executeCommand).mockImplementation(async (request: ExecuteCommandRequest) => {
