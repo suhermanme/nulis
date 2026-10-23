@@ -4,7 +4,7 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 
 ## Current state
 
-- **Current milestone:** M41 (plan 4, language capabilities: audit and design), complete and awaiting the owner's approval and answers to plan 4 §7. Branch `feat/language-capabilities`. **To resume plan 4, read the "Plan 4" section below.** Plan 3 is complete and released in Nulis 0.4.0 (2026-10-23).
+- **Current milestone:** M42 (plan 4, language catalog and capability contracts), in progress. M41 approved 2026-10-23 with every plan §7 recommendation accepted. Branch `feat/language-capabilities`. **To resume plan 4, read the "Plan 4" section below.** Plan 3 is complete and released in Nulis 0.4.0 (2026-10-23).
 - **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 5 of 5 milestones completed (M31–M35); plan 3: 5 of 5 completed (M36–M40, in Nulis 0.4.0); plan 4: 1 of 8 (M41, design only)
 - **Baseline before M19 (commit `66853e1`):** `cargo test -p nulis-core` 86 passed; desktop Vitest 11 files, 115 tests passed.
 
@@ -32,8 +32,8 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 | M38 Scope, large files, other views | Done; checked in the app on macOS 2026-10-22 | `handover/M38_HANDOVER.md` |
 | M39 Print window and Page Setup dialog | Complete (macOS checked 2026-10-22; Windows/Linux pending) | `handover/M39_HANDOVER.md` |
 | M40 Docs and release | Complete 2026-10-22 | `handover/M40_HANDOVER.md` |
-| M41 Language capabilities: audit and design | Completed 2026-10-23 (awaiting approval) | this tracker, "Plan 4" section |
-| M42 Language catalog and capability contracts | Not Started | — |
+| M41 Language capabilities: audit and design | Completed 2026-10-23 (approved) | this tracker, "Plan 4" section |
+| M42 Language catalog and capability contracts | In Progress | — |
 | M43 First-party migration (tools, Markdown preview) | Not Started | — |
 | M44 Core auto-indentation | Not Started | — |
 | M45 Shared autocomplete | Not Started | — |
@@ -56,7 +56,7 @@ Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language 
 
 ### M41 — Audit and design
 
-**Status:** Completed 2026-10-23, awaiting approval. No production code changed.
+**Status:** Completed and approved 2026-10-23. No production code changed.
 
 | Task | Status |
 | --- | --- |
@@ -64,8 +64,8 @@ Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language 
 | Probe the registry (comments, brackets, folds, detection edge cases) from a scratch crate outside the repo | Completed |
 | Baseline test run | Completed |
 | `IMPROVEMENT_PLAN_4.md`, `LANGUAGE_CAPABILITIES.md`, `LANGUAGE_MATRIX.md` | Completed |
-| ADR-0014 to ADR-0017 (proposed) in `DECISIONS.md`; roadmap row | Completed |
-| Owner approval and answers to plan §7 | Blocked (waiting for the owner) |
+| ADR-0014 to ADR-0017 in `DECISIONS.md`; roadmap row | Completed |
+| Owner approval and answers to plan §7 | Completed (all recommendations accepted) |
 
 **Baseline (commit `1494931`, macOS, 2026-10-23):** `cargo test --workspace` passed, 345 tests (nulis-core 165, nulis-syntax 15, nulis-plugin-host 9 unit, nulis-settings 4, nulis-desktop 9); Vitest 22 files, 191 tests passed. fmt, clippy, lint and typecheck not re-run (no code changed; CI passed on `1494931`).
 
@@ -77,7 +77,7 @@ Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language 
 
 ### M42 — Language catalog and capability contracts
 
-**Status:** Not Started. **Depends on:** M41 approval.
+**Status:** In Progress. **Depends on:** M41 approval (given).
 
 | Task | Status |
 | --- | --- |

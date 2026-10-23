@@ -184,24 +184,24 @@ Consequences: pages use one bundled font (JetBrains Mono, embedded whole) with i
 
 ## ADR-0014 — Language features are capabilities with providers
 
-**Status:** Proposed (M41, plan 4)
+**Status:** Accepted (M41, plan 4; approved 2026-10-23)
 
 Language-specific behavior is spread over ID checks: `ToolKind` in the core, its copies in TypeScript and the native menu, and `languageId === "markdown"` in the interface. A new pure crate, `nulis-language`, defines capability kinds (highlight, comment, indentation, completion, diagnostics, format, compact, preview, commands, symbols), provider traits, and a registry that resolves providers per language. The interface receives a capability descriptor per document instead of a language ID to compare. Mature algorithms (the JSON/XML/YAML/plist tools, the lexers) stay where they are and are registered as built-in providers. Consequences: one extra crate and an IPC change; adding a language feature no longer touches unrelated editor code. Details: `LANGUAGE_CAPABILITIES.md`.
 
 ## ADR-0015 — Indentation and completion run in the core, without a language server
 
-**Status:** Proposed (M41, plan 4)
+**Status:** Accepted (M41, plan 4; approved 2026-10-23)
 
 The interface holds only a viewport, and edits are revision-checked core commands. Auto-indent (`editor.newline`, outdent-on-type) and completion (`completion.request`) are therefore core commands that read bounded context from the piece table, apply to every caret, and record one undo step. Indentation rules are data evaluated with the linear-time `regex` crate; completion starts from document words, the lexer keyword tables, and built-in snippets. A language server can add providers later but is never required.
 
 ## ADR-0016 — Language servers are opt-in, user-configured processes
 
-**Status:** Proposed (M41, plan 4)
+**Status:** Accepted (M41, plan 4; approved 2026-10-23)
 
 One LSP client (`nulis-lsp`) adapts servers into the same capability contracts. Nulis bundles no servers. A server runs only when the user configures its exact program and arguments in user settings and approves it; workspace files and plugin manifests cannot start one. This keeps packaging unchanged and prevents an opened repository from running code.
 
 ## ADR-0017 — External language plugins are declarative first
 
-**Status:** Proposed (M41, plan 4)
+**Status:** Accepted (M41, plan 4; approved 2026-10-23)
 
 Plugin API v2 adds `contributes.languages`: associations, comments, brackets, lexer tables, indentation rules, keywords and snippets, as bounded, validated data with no code. Executable providers, if added, run only in the existing worker sandbox for whole-document validate/format with user-approved permissions, never per keystroke and never in the webview. API v1 manifests remain valid; Nulis versions that know only v1 reject v2 manifests.

@@ -1,6 +1,6 @@
 # Improvement plan 4: language capabilities (M41–M48)
 
-**Status:** M41 (audit and design) complete, awaiting approval. No production code has changed. Progress lives in `IMPLEMENTATION_TRACKER.md`; handovers in `docs/handover/`.
+**Status:** approved 2026-10-23 with every §7 recommendation accepted (answers recorded in §7). M41 complete; M42 in progress. Progress lives in `IMPLEMENTATION_TRACKER.md`; handovers in `docs/handover/`.
 **Date:** 2026-10-23, against commit `1494931` (Nulis 0.4.0), branch `feat/language-capabilities`.
 **Milestone numbering:** continues `IMPROVEMENT_PLAN_3.md` (M36–M40). The request's M0–M7 are M41–M48 here.
 **Companion documents:** [LANGUAGE_CAPABILITIES.md](LANGUAGE_CAPABILITIES.md) (contracts, registry, lifecycle, resolution, plugin API v2) and [LANGUAGE_MATRIX.md](LANGUAGE_MATRIX.md) (every file type: verified state and planned providers).
@@ -201,6 +201,8 @@ Plugin API v2: `apiVersion`, `contributes.languages` and associations as validat
 - **Manual checks** per milestone on the three test VMs, recorded in `PLATFORM_MATRIX.md`.
 
 ## 7. Questions for the owner
+
+**Answered 2026-10-23:** the owner accepted every recommendation below: (1) `full` auto-indent by default; (2) automatic popup after 2 identifier characters in languages with a keyword provider, never in Plain Text or Markdown; (3) Ctrl+Space everywhere plus Option+Esc on macOS, both rebindable; (4) add the proposed associations in M46 and list them in the release notes; (5) choose the second server in M47 after verification.
 
 1. **Auto-indent default.** Recommended: `full` (language rules) for new and existing users, with `none` restoring today's behavior. Alternative: `keep` (carry indentation only) by default.
 2. **Automatic suggestions.** Recommended: the popup opens automatically after 2 identifier characters in languages with a keyword provider, never in Plain Text or Markdown; manual everywhere with the shortcut.
