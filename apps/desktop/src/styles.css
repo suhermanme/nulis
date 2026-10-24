@@ -365,6 +365,45 @@ kbd { padding: 2px 6px; border: 1px solid #373e48; border-radius: 4px; color: #b
 .terminal-panel > header button { width: 25px; height: 24px; border: 0; color: var(--muted); background: transparent; font-size: 16px; cursor: pointer; }
 .terminal-host { height: calc(100% - 30px); padding: 6px 8px; overflow: hidden; }
 .terminal-host .xterm { height: 100%; }
+.problems-panel {
+  display: flex; flex: 0 0 auto; flex-direction: column; min-height: 96px; max-height: 220px;
+  border-top: 1px solid var(--border); background: var(--menu);
+}
+.problems-panel > header {
+  display: flex; flex: none; align-items: center; gap: 10px; height: 30px; padding: 0 10px;
+  border-bottom: 1px solid var(--border); font-size: 11px;
+}
+.problems-panel > header strong { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
+.problems-summary { display: flex; gap: 8px; color: var(--muted); }
+.problem-count.error { color: var(--danger); }
+.problem-count.warning { color: var(--warning); }
+.problem-count.information, .problem-count.hint { color: var(--accent); }
+.problems-server { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+.problems-spacer { flex: 1; }
+.problems-settings, .problems-panel > header button {
+  padding: 1px 8px; border: 1px solid var(--border); border-radius: 4px; color: var(--ui-text);
+  background: transparent; font: inherit; font-size: 10px; cursor: pointer;
+}
+.problems-settings:hover, .problems-panel > header button:hover { background: var(--hover); }
+.problems-error { margin: 0; padding: 6px 10px; color: var(--danger); font-size: 11px; }
+.problems-empty { margin: 0; padding: 12px 10px; color: var(--muted); font-size: 11px; }
+.problems-list { flex: 1; min-height: 0; margin: 0; padding: 2px 0; overflow: auto; list-style: none; }
+.problem-row {
+  display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 3px 10px;
+  border: 0; color: var(--ui-text); background: transparent; font: inherit; font-size: 11px;
+  text-align: left; cursor: pointer;
+}
+.problem-row:hover { background: var(--hover); }
+.problem-row:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+.problem-severity {
+  display: inline-grid; flex: none; place-items: center; width: 14px; height: 14px; border-radius: 50%;
+  color: var(--editor-bg); background: var(--muted); font: 700 9px/1 var(--ui-font, inherit);
+}
+.problem-severity.error { background: var(--danger); }
+.problem-severity.warning { background: var(--warning); }
+.problem-severity.information, .problem-severity.hint { background: var(--accent); }
+.problem-message { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.problem-source { flex: none; color: var(--muted); font-size: 10px; }
 .editor-loading { display: grid; place-items: center; height: 100%; color: var(--muted); font-size: 12px; }
 .findbar { display: grid; grid-template-columns: minmax(90px, 1fr) minmax(90px, 1fr) repeat(8, auto); gap: 5px; align-items: center; min-height: 38px; padding: 5px 8px; border-bottom: 1px solid var(--border); background: var(--tab); }
 .editor-toolbar { display: flex; align-items: center; gap: 5px; min-height: 36px; padding: 5px 8px; border-bottom: 1px solid var(--border); background: var(--toolbar); }
@@ -435,6 +474,18 @@ kbd { padding: 2px 6px; border: 1px solid #373e48; border-radius: 4px; color: #b
   border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-right: 7px solid var(--lci-deleted);
 }
 .line-change.savedDeletion { border-right-color: color-mix(in srgb, var(--lci-deleted) 55%, var(--lci-saved)); }
+.problem-dot {
+  display: inline-block; width: 6px; height: 6px; margin-right: 5px; border-radius: 50%;
+  vertical-align: 1px; background: var(--muted);
+}
+.problem-dot.error { background: var(--danger); }
+.problem-dot.warning { background: var(--warning); }
+.problem-dot.information, .problem-dot.hint { background: var(--accent); }
+.diagnostic {
+  text-decoration: underline wavy var(--danger); text-decoration-skip-ink: none; text-underline-offset: 2px;
+}
+.diagnostic-warning { text-decoration-color: var(--warning); }
+.diagnostic-information, .diagnostic-hint { text-decoration-color: var(--accent); }
 .document-map-change { position: absolute; z-index: 3; left: 0; width: 3px; height: 4px; pointer-events: none; background: var(--lci-saved); }
 .document-map-change.unsaved { background: var(--lci-unsaved); }
 .document-map-change.unsavedDeletion, .document-map-change.savedDeletion { height: 2px; background: var(--lci-deleted); }
@@ -619,6 +670,9 @@ kbd { padding: 2px 6px; border: 1px solid #373e48; border-radius: 4px; color: #b
 }
 .status-button:hover { background: color-mix(in srgb, var(--statusbar-text) 14%, transparent); }
 .status-button:focus-visible { outline: 2px solid var(--statusbar-text); outline-offset: -3px; }
+.status-problems { display: inline-flex; align-items: center; gap: 5px; }
+.status-problems.error { color: var(--danger); }
+.status-problems.warning { color: var(--warning); }
 .status-mode.read-only { color: var(--editor-bg); background: var(--warning); }
 .status-mode:focus-visible { outline: 2px solid var(--statusbar-text); outline-offset: -3px; }
 .tab-lock { display: inline-flex; flex: none; color: var(--warning); }
@@ -1010,6 +1064,13 @@ kbd,
 .settings-list li { display: flex; align-items: center; gap: 10px; padding: 5px 8px; border-radius: 4px; background: var(--raised); }
 .settings-list li strong { flex: 1; font-weight: 500; }
 .settings-list li code, .settings-list li span { color: var(--muted); font-size: 10px; }
+.settings-list.server-list li { display: grid; gap: 4px; align-items: start; }
+.server-heading { display: flex; align-items: center; gap: 8px; }
+.server-heading strong { flex: 1; }
+.server-heading .approved { color: var(--success); }
+.server-heading .approval-required, .server-stopped { color: var(--warning); }
+.server-command { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.server-error { color: var(--danger); }
 .settings-detail > footer { display: flex; flex: none; align-items: center; gap: 8px; padding: 11px 20px; border-top: 1px solid var(--border); background: var(--toolbar); }
 .settings-notice { flex: 1; min-width: 0; overflow: hidden; color: var(--muted); white-space: nowrap; text-overflow: ellipsis; }
 .settings-window .decision-backdrop { position: absolute; }

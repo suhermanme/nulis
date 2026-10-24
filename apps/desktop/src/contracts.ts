@@ -318,6 +318,48 @@ export interface DocumentCapabilities {
   preview?: string;
   /** Completion opens while typing ("auto") or only when asked ("manual"). */
   completion?: "auto" | "manual";
+  /** The approved language server for the document's language, by ID. */
+  languageServer?: string;
+}
+
+/** One configured language server, as `lsp.state` lists it. */
+export interface LanguageServerStatus {
+  id: string;
+  command: string[];
+  languages: string[];
+  approved: boolean;
+  /** Project folders it runs for now. */
+  running: string[];
+  /** Why it failed last, when it did. */
+  error?: string;
+  /** Set aside after repeated failures, until restarted. */
+  stopped: boolean;
+}
+
+/** The answer to `lsp.state`. */
+export interface LanguageServersState {
+  servers: LanguageServerStatus[];
+  /** Problems in settings.json's `lsp.servers`, if any. */
+  configError: string | null;
+}
+
+/** A problem a language server reported, placed in the document. */
+export interface DocumentProblem {
+  /** Byte offsets as decimal strings, like every 64-bit coordinate. */
+  startByte: string;
+  endByte: string;
+  /** One-based line of the start. */
+  line: number;
+  severity: "error" | "warning" | "information" | "hint";
+  message: string;
+  source?: string;
+}
+
+/** The answer to `lsp.diagnostics` for one document. */
+export interface DocumentProblems {
+  server?: string;
+  revision: string;
+  problems: DocumentProblem[];
 }
 
 export type CapabilityKind = "highlight" | "comment" | "indentation" | "completion" | "diagnostics"

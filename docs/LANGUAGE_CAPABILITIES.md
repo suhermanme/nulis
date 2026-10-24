@@ -1,6 +1,6 @@
 # Language capabilities: design
 
-**Status:** proposed in M41 (2026-10-23); nothing here is implemented yet. Plan and milestones: [IMPROVEMENT_PLAN_4.md](IMPROVEMENT_PLAN_4.md). Per-language state: [LANGUAGE_MATRIX.md](LANGUAGE_MATRIX.md). Type sketches are Rust-like and will change during implementation; the rules around them are the contract.
+**Status:** M41–M47 are implemented on `feat/language-capabilities` (2026-10-24): catalog, capabilities, indentation, completion, validators/tools, preview, and optional language servers. M48 (plugin API v2) is still proposed. Plan and milestones: [IMPROVEMENT_PLAN_4.md](IMPROVEMENT_PLAN_4.md). Per-language state: [LANGUAGE_MATRIX.md](LANGUAGE_MATRIX.md). Type sketches are Rust-like and will change during implementation; the rules around them are the contract.
 
 ## 1. Vocabulary
 
@@ -21,7 +21,7 @@ nulis-language (new)        contracts, CapabilityRegistry, resolution, isolation
         │
 nulis-syntax                LanguageCatalog (languages + associations), highlighting (lexers, Tree-sitter, Markdown)
 nulis-plugin-host           plugin API v2 manifests (declarative languages), worker sandbox for whole-document tools
-nulis-lsp (new, M47)        one LSP client, adapters into the same contracts
+nulis-lsp                   one LSP client (JSON-RPC over stdio), adapters into the same contracts
 ```
 
 `nulis-language` and `nulis-syntax` stay free of Tauri, file I/O and processes, so they are testable alone.
@@ -81,8 +81,13 @@ pub trait Formatter: Send + Sync {
 pub enum FormatAssessment { Ready, Lossy(String), Unavailable(String) }
 pub enum FormatOutcome { Unchanged, Replaced(String) }   // the core applies it as one revision-checked undo step
 
-// Planned (M47, shared with language servers): ranged diagnostics with severity,
-// several per document, instead of the first problem only.
+// As implemented in M47: ranged diagnostics with severity, several per document,
+// reported by a language server (the built-in validators still report the first
+// problem through `tools.validate`).
+pub struct Problem { pub start_byte: u64, pub end_byte: u64, pub line: u64,
+    pub severity: ProblemSeverity /* Error, Warning, Information, Hint */,
+    pub message: String, pub source: Option<String> }
+pub struct DocumentProblems { pub server: Option<String>, pub revision: u64, pub problems: Vec<Problem> }
 
 // As implemented in M44 (crates/nulis-language/src/indent.rs):
 pub trait IndentProvider: Send + Sync {
@@ -193,6 +198,30 @@ Line endings follow the caret line, as Enter does today. Read-only documents ref
 - **Snippets:** built-in data per language; body syntax `$1`, `${1:placeholder}`, `$0`, `\t` meaning one indent unit.
 - **Ranking:** exact prefix > word-start match > subsequence; then provider rank (language server > snippets > keywords > words); then recency in this document; ties by label. Deduplicate by inserted text, keeping the best-ranked item.
 - **Staleness:** every request carries `requestId` and `revision`. The UI shows only the latest request's response and only if the revision still matches; the core rejects an accept whose revision is stale.
+
+### 6.3 Language servers (M47)
+
+A language server is optional and off until the user both configures it and approves it. Nulis never downloads, bundles, or discovers one.
+
+```json
+{
+  "lsp": {
+    "servers": {
+      "rust": { "command": ["rust-analyzer"], "languages": ["rust"] },
+      "clangd": { "command": ["clangd", "--background-index"], "languages": ["c", "cpp"] }
+    }
+  }
+}
+```
+
+- **Configuration.** `lsp.servers` maps a server ID (lowercase letters, digits, `-`, `.`, `_`; at most 64 bytes) to `command` (program then arguments, 1–64 non-empty strings, never a shell line), `languages` (1–64 language IDs), and optional `initializationOptions`. Unknown fields are rejected; at most 32 servers are read. Invalid entries are left out and reported in `lsp.state.configError` and Settings.
+- **Approval.** A server runs only after the user approves that exact ID, command vector, and language list in Settings ▸ Languages ▸ Language servers. Editing either revokes the approval; a changed configuration also stops a running instance. Approvals are stored per user in `lsp-approvals.json` in the app's session folder, not in `settings.json`, so copying a settings file never approves a command.
+- **Lifecycle.** A server starts on the first document of one of its languages and runs one process per project folder. The project root is the nearest ancestor holding `.git`, `Cargo.toml`, `package.json`, `go.mod`, `pyproject.toml`, `compile_commands.json`, or `.clangd`; otherwise the file's own folder. It stops when the last document it serves closes. Documents are synced with full text (versioned `didOpen`/`didChange`/`didClose`).
+- **Startup cost.** Starting can take seconds (indexing), so `lsp.diagnostics` may block its first call up to the 20-second start deadline. The UI asks after 500 ms and again after 2.5 s, only for the active document, and ignores answers whose `revision` no longer matches.
+- **Failures.** A start or request that fails is reported on the server (`error`) and in the Problems panel. Three consecutive failures set the server aside (`stopped`) until the user restarts it; restart clears the back-off.
+- **Bounds.** At most 2,000 problems per document are kept; ranges are converted from the server's position encoding (UTF-8 when it accepts it, otherwise UTF-16) to byte offsets. The client speaks JSON-RPC over the server's standard input and output; it opens no network connection.
+- **Commands.** `lsp.state` lists servers and their status; `lsp.approve`, `lsp.revoke`, and `lsp.restart` change one server and return the new state; `lsp.diagnostics` returns the current problems for a document. Only `lsp.state` is safe in the command palette; the others need arguments.
+- **UI.** Approved servers mark `DocumentSummary.capabilities.languageServer`. The editor draws a severity dot in the gutter and a wavy underline on the range; the status bar counts problems and opens the Problems panel, where choosing one selects its bytes and reveals them.
 
 ## 7. Error isolation
 

@@ -1,6 +1,6 @@
 # Platform test matrix
 
-What has been verified on each operating system, and how. Update it when a check is run by hand; keep entries to what was actually observed. Last updated 2026-10-23, for Nulis 0.4.0.
+What has been verified on each operating system, and how. Update it when a check is run by hand; keep entries to what was actually observed. Last updated 2026-10-24, for the unreleased 0.5.0 on `feat/language-capabilities`.
 
 ## Automated (every push to `main` and every release tag)
 
@@ -25,6 +25,7 @@ Tests that guard platform differences: `contracts.test.ts` (the desktop and core
 | Document map on long files | – | yes, Windows 11 (build `191feef`, 2026-10-20) | not yet |
 | M20–M29 features (keys, Find window, line endings, view options, file commands, column and clipboard tools, Quick Open) | not recorded | not yet | not yet |
 | New icon in the Dock, Finder, taskbar, and Start menu; About background in dark and light themes | not recorded | not yet | not yet |
+| M47 language servers: configure and approve `rust-analyzer`, gutter dot and underline, Problems panel jump, revoke and restart | not yet | not yet | not yet |
 | 0.3.0: Find window fit, regular expressions, Search in column, groups in Replace | yes, debug build driven by hand-written automation (2026-10-20) | not yet | not yet |
 | 0.3.0: readable selection and icons in NvChad themes, the two Nulis themes first | yes, by the user on a release build (2026-10-20) | not yet | not yet |
 | 0.3.0: Count All on a 31.8 GB log (no limit, progress, Cancel) | yes, by the user on a release build (2026-10-20) | not yet | not yet |

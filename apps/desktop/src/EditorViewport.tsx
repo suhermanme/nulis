@@ -48,9 +48,11 @@ import type {
   ViewportCursor,
   ViewportSnapshot,
   CompletionList,
+  DocumentProblem,
   SuggestSettings,
 } from "./contracts";
 import { DEFAULT_SUGGEST_SETTINGS } from "./contracts";
+import { worstSeverity } from "./ProblemsPanel";
 import { Icon, IconButton } from "./icons";
 import { ContextMenu, type MenuItem } from "./Toolbar";
 import { LINE_ENDING_LABELS, type EditorActionName } from "./commands";
@@ -68,6 +70,10 @@ const MAX_PAGE_HISTORY = 256;
 const AUTO_SCROLL_EDGE = 36;
 const MAP_ROW_HEIGHT = 4;
 const MAX_HIGHLIGHTS_PER_LINE = 200;
+const MAX_DIAGNOSTICS_PER_LINE = 50;
+const SEVERITY_LABELS: Record<DocumentProblem["severity"], string> = {
+  error: "Error", warning: "Warning", information: "Information", hint: "Hint",
+};
 const LINE_CHANGE_LABELS: Record<LineChange, string> = {
   unsaved: "Unsaved change",
   saved: "Changed and saved in this session",
@@ -305,6 +311,7 @@ function renderLineText(
   bracketRanges: Array<{ start: number; end: number }>,
   dropIndex?: number,
   highlightRanges: Array<{ start: number; end: number }> = [],
+  diagnosticRanges: Array<{ start: number; end: number; severity: DocumentProblem["severity"] }> = [],
   showWhitespace = false,
 ): ReactNode[] {
   const boundaries = [...new Set([
@@ -312,6 +319,7 @@ function renderLineText(
     text.length,
     ...selectionRanges.flatMap((range) => [range.start, range.end]),
     ...highlightRanges.flatMap((range) => [range.start, range.end]),
+    ...diagnosticRanges.flatMap((range) => [range.start, range.end]),
     ...syntaxRanges.flatMap((range) => [range.start, range.end]),
     ...bracketRanges.flatMap((range) => [range.start, range.end]),
     ...caretIndices,
@@ -335,10 +343,13 @@ function renderLineText(
       .sort((left, right) => (left.end - left.start) - (right.end - right.start))[0];
     const bracket = bracketRanges.some((range) => start >= range.start && end <= range.end);
     const highlighted = highlightRanges.some((range) => start >= range.start && end <= range.end);
+    const diagnostic = worstSeverity(diagnosticRanges
+      .filter((range) => start >= range.start && end <= range.end));
     const className = [
       selected ? "selection" : syntax ? `syntax syntax-${syntax.token}` : "",
       bracket ? "bracket-match" : "",
       highlighted && !selected ? "find-highlight" : "",
+      diagnostic ? `diagnostic diagnostic-${diagnostic}` : "",
     ].filter(Boolean).join(" ");
     const content = showWhitespace ? markWhitespace(segment, start) : segment;
     output.push(className
@@ -433,6 +444,8 @@ interface EditorViewportProps {
   insertRequest?: { id: number; text: string };
   /** When suggestions open and how they are accepted. */
   suggest?: SuggestSettings;
+  /** Problems the document's language server reported, drawn in the gutter and underlined. */
+  problems?: DocumentProblem[];
 }
 
 export function EditorViewport({
@@ -470,6 +483,7 @@ export function EditorViewport({
   onClipboardText,
   insertRequest,
   suggest = DEFAULT_SUGGEST_SETTINGS,
+  problems = [],
 }: EditorViewportProps) {
   const rowHeight = Math.max(12, Math.min(100, lineHeight));
   // Several panes can show views at once, so element IDs are per view.
@@ -2608,6 +2622,34 @@ export function EditorViewport({
                 line.sourceByteWidths.reduce((total, width) => total + width, 0),
               );
               const lineEndByte = BigInt(line.endByte);
+              const lineProblems = problems.filter((problem) => {
+                const start = BigInt(problem.startByte);
+                const end = BigInt(problem.endByte);
+                return end > start
+                  ? start < textEndByte && end > lineStartByte
+                  : start >= lineStartByte && start <= textEndByte;
+              });
+              const lineSeverity = worstSeverity(lineProblems);
+              const diagnosticRanges = lineProblems.flatMap((problem) => {
+                const start = BigInt(problem.startByte);
+                const end = BigInt(problem.endByte);
+                const clippedStart = start > lineStartByte ? start : lineStartByte;
+                const clippedEnd = end < textEndByte ? end : textEndByte;
+                if (clippedStart >= clippedEnd) return [];
+                return [{
+                  start: utf16IndexForByte(
+                    line.text,
+                    line.sourceByteWidths,
+                    Number(clippedStart - lineStartByte),
+                  ),
+                  end: utf16IndexForByte(
+                    line.text,
+                    line.sourceByteWidths,
+                    Number(clippedEnd - lineStartByte),
+                  ),
+                  severity: problem.severity,
+                }];
+              }).slice(0, MAX_DIAGNOSTICS_PER_LINE);
               const caretIndices = snapshot.selections.flatMap((selection) => {
                 const active = BigInt(selection.activeByte);
                 if (active < lineStartByte || active > textEndByte) return [];
@@ -2863,6 +2905,9 @@ export function EditorViewport({
                           : [...current, fold.startByte]);
                       }}
                     >{foldCollapsed ? "▸" : "▾"}</button> : null}
+                    {lineSeverity ? <i className={`problem-dot ${lineSeverity}`} aria-hidden="true"
+                      title={lineProblems.slice(0, 10).map((problem) => `${SEVERITY_LABELS[problem.severity]}: ${problem.message}`).join("\n")
+                        + (lineProblems.length > 10 ? `\n… ${lineProblems.length - 10} more` : "")} /> : null}
                     <span className="line-number-text">{line.continuation ? "·" : line.line}</span>
                     {showLineChanges && lineChangesAvailable && line.change
                       ? <i className={`line-change ${line.change}`} data-line-change={line.change}
@@ -2886,6 +2931,7 @@ export function EditorViewport({
                           )
                         : undefined,
                       highlightMatches ? lineHighlights(line.text, line.sourceByteWidths, lineStartByte, textEndByte, rangeMatches) : [],
+                      diagnosticRanges,
                       showWhitespace,
                     )}
                     {foldCollapsed ? <span className="fold-placeholder"> … </span> : null}

@@ -487,6 +487,32 @@ A snippet selects its first placeholder; type to replace it and press **Tab** fo
 
 To change when the list opens, or to stop Enter from inserting, use **Settings ▸ Editor ▸ Suggestions**. To switch suggestions off for one language, untick **Suggestions** for it in **Settings ▸ Languages**.
 
+### Language servers (optional)
+
+Nulis can show the problems a language server reports, such as `rust-analyzer` for Rust or `clangd` for C and C++. Nulis does not include or download language servers; install one yourself and tell Nulis where it is.
+
+Add it to `lsp.servers` in `settings.json`, giving the program and its arguments as a list (never a shell line) and the languages it serves:
+
+```json
+{
+  "schemaVersion": 1,
+  "values": {
+    "lsp": {
+      "servers": {
+        "rust": { "command": ["rust-analyzer"], "languages": ["rust"] },
+        "clangd": { "command": ["clangd", "--background-index"], "languages": ["c", "cpp"] }
+      }
+    }
+  }
+}
+```
+
+Restart Nulis, then open **Settings ▸ Languages ▸ Language servers** and click **Approve**. Nothing runs before that, and changing the command or its language list withdraws the approval. **Revoke** stops the server; **Restart** clears one that Nulis set aside after repeated failures. Invalid entries are listed with the reason instead of being run.
+
+A server starts when you open a document in one of its languages, runs once per project folder (the nearest folder with `.git`, `Cargo.toml`, `package.json`, `go.mod`, `pyproject.toml`, `compile_commands.json`, or `.clangd`), and stops when the last document it serves closes. The first answer can take several seconds while it indexes.
+
+Problems appear as a coloured dot in the gutter and a wavy underline under the text. The status bar counts them; click the count to open the **Problems** panel, where choosing a problem selects it and scrolls it into view. The panel also says why the last request failed.
+
 ### Markdown preview
 
 A Markdown document has an **Edit / View** switch at the left of the editor toolbar. **View** shows the formatted document, including tables, task lists, and other GitHub-style syntax, and images stored beside the file. Raw HTML inside Markdown is not rendered.
@@ -587,7 +613,7 @@ Open Settings with **Ctrl/⌘ ,**, the **Settings** toolbar button, or the menu.
 | **General** | Whether the welcome screen is shown at startup; restore all defaults. |
 | **Editor** | Font, font size, line height, ligatures; whether line change indicators are shown by default. |
 | **Appearance & Themes** | The color theme. There are 99 built-in themes, with Nulis's own **Nulis · Ember Night** (dark) and **Nulis · Paper Current** (light) at the top, and you can install your own theme files (Nulis theme JSON, or NvChad Base46 Lua themes). Every theme keeps the text selection, secondary text, and toolbar icons easy to see: where a theme's own colors are too faint, Nulis strengthens them in that theme's hues. The Nulis mark in the title bar and the About window's background follow the theme. |
-| **Languages** | The languages Nulis recognizes. |
+| **Languages** | The languages Nulis recognizes, which language features are on for each, and the language servers you configured. |
 | **Keybindings** | The shortcut for any command. |
 | **Menus & Toolbar** | Which commands are in the File menu and on the main toolbar, and in what order. |
 | **Workspace** | Workspace and layout options. |

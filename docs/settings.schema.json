@@ -32,6 +32,41 @@
           },
           "additionalProperties": true
         },
+        "lsp": {
+          "type": "object",
+          "properties": {
+            "servers": {
+              "description": "Language servers by ID. A server runs only after its exact command and language list are approved in Settings ▸ Languages ▸ Language servers.",
+              "type": "object",
+              "maxProperties": 32,
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "command": {
+                    "description": "The program and its arguments; never a shell line.",
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 64,
+                    "items": { "type": "string", "minLength": 1, "maxLength": 4096 }
+                  },
+                  "languages": {
+                    "description": "Language IDs the server is used for.",
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 64,
+                    "items": { "type": "string" }
+                  },
+                  "initializationOptions": {
+                    "description": "Passed as initializationOptions in the LSP initialize request."
+                  }
+                },
+                "required": ["command", "languages"],
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": true
+        },
         "workbench": {
           "type": "object",
           "properties": {

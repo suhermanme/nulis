@@ -1,8 +1,8 @@
 # Language capability matrix
 
-**As of:** 2026-10-23, commit `1494931` (Nulis 0.4.0). Part of [IMPROVEMENT_PLAN_4.md](IMPROVEMENT_PLAN_4.md); contracts in [LANGUAGE_CAPABILITIES.md](LANGUAGE_CAPABILITIES.md).
+**As of:** 2026-10-24, `feat/language-capabilities` (unreleased 0.5.0). Part of [IMPROVEMENT_PLAN_4.md](IMPROVEMENT_PLAN_4.md); contracts in [LANGUAGE_CAPABILITIES.md](LANGUAGE_CAPABILITIES.md).
 
-Table 1 is **verified**: read from the code and confirmed by calling `LanguageRegistry` directly (comments, brackets, folds, detection) on 2026-10-23. Table 2 is **planned** and nothing in it exists yet. Update both as milestones land; move a cell from Table 2 to Table 1 only when its tests pass.
+Table 1 lists what ships today and is **verified**: read from the code and confirmed by tests (comments, brackets, folds, detection), and by calling `LanguageRegistry` directly on 2026-10-23. Table 2 records the per-language plan and marks the columns implemented so far. Update both as milestones land; move a cell from Table 2 to Table 1 only when its tests pass.
 
 ## Table 1 — current state (verified)
 
@@ -68,17 +68,17 @@ Also since M46: Dockerfile matches `Dockerfile.*` and `Containerfile.*`; JSON ma
 
 ## Table 2 — providers (Indent: implemented in M44; Completion: implemented in M45; the other columns are planned)
 
-Indent family as in LANGUAGE_CAPABILITIES.md §6.1; "carry" keeps the current line's indentation. Completion: **W** document words, **K** keywords/types from the lexer table, **S** built-in snippets. Since M45 every language has W; K where the language has a word list (every lexer language with keywords, plus HTML element names, Python, and JSON; not CSS, INI, CSV, TSV, XML, XSL, plist, Markdown, or Plain Text, which get W only); S for Rust, JavaScript/TypeScript, Python, Go, the C family (C, C++, C#, Java, Objective-C, Kotlin, PHP), HTML, the SQL dialects, Bash, Ruby, and Lua. The table below still lists the original plan; Swift, Zig and others marked S have no snippets yet. LSP candidates are from prior knowledge and are **unverified**: license, platform builds and maintenance are checked in M47 before any is chosen. Nulis will not bundle servers.
+Indent family as in LANGUAGE_CAPABILITIES.md §6.1; "carry" keeps the current line's indentation. Completion: **W** document words, **K** keywords/types from the lexer table, **S** built-in snippets. Since M45 every language has W; K where the language has a word list (every lexer language with keywords, plus HTML element names, Python, and JSON; not CSS, INI, CSV, TSV, XML, XSL, plist, Markdown, or Plain Text, which get W only); S for Rust, JavaScript/TypeScript, Python, Go, the C family (C, C++, C#, Java, Objective-C, Kotlin, PHP), HTML, the SQL dialects, Bash, Ruby, and Lua. The table below still lists the original plan; Swift, Zig and others marked S have no snippets yet. LSP is a mechanism, not a bundled server: **M47 verified `rust-analyzer` and `clangd`** for licensing, platform builds, and maintenance, and either runs only when the user configures and approves it (LANGUAGE_CAPABILITIES.md §6.3). Other candidates in the last column are from prior knowledge and remain **unverified**; Nulis never bundles or downloads a server.
 
-| Language | Indent (M44/M46) | Completion (M45/M46) | Validate | Format / compact | Preview | LSP candidates (unverified) |
+| Language | Indent (M44/M46) | Completion (M45/M46) | Validate | Format / compact | Preview | Language server (configure + approve) |
 | --- | --- | --- | --- | --- | --- | --- |
 | Plain Text | carry | W (manual only) | — | — | — | — |
 | AppleScript | keyword-block (`tell`/`on`/`if` … `end`) | W K | — | — | — | none known |
 | Bash | keyword-block + brace (`then`/`do`/`{` … `fi`/`done`/`}`) | W K S | — | — | — | bash-language-server (Node) |
 | Batch | brace (parentheses) | W K | — | — | — | none known |
-| C | brace | W K S | — | — | — | clangd |
+| C | brace | W K S | — | — | — | clangd (verified in M47) |
 | C# | brace | W K S | — | — | — | csharp-ls, OmniSharp |
-| C++ | brace | W K S | — | — | — | clangd |
+| C++ | brace | W K S | — | — | — | clangd (verified in M47) |
 | CSS | brace | W S (properties list later) | — | — | — | vscode-css-languageserver (Node) |
 | CSV | carry | W (manual only) | — | — | — | — |
 | Dockerfile | carry (`\` continuation: later) | W K | — | — | — | dockerfile-language-server (Node) |
@@ -101,7 +101,7 @@ Indent family as in LANGUAGE_CAPABILITIES.md §6.1; "carry" keeps the current li
 | PowerShell | brace | W K | — | — | — | PowerShell Editor Services |
 | Python | python | W K (list added) S | — | — | — | pyright (Node), python-lsp-server |
 | Ruby | keyword-block (`def`/`do`/`class` … `end`) | W K S | — | — | — | ruby-lsp |
-| Rust | brace | W K S | — | — | — | rust-analyzer (first choice for M47) |
+| Rust | brace | W K S | — | — | — | rust-analyzer (verified in M47) |
 | SQL | carry | W K | — | — | — | sqls |
 | Swift | brace | W K S | — | — | — | sourcekit-lsp |
 | TOML | carry | W K | — | — | — | taplo |

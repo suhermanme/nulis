@@ -13,6 +13,7 @@ import type {
   CharacterCount,
   CommandDescriptor,
   CustomizationDocument,
+  DocumentProblems,
   DocumentSummary,
   PdfExportReport,
   PrintPageFrame,
@@ -49,6 +50,7 @@ import { TerminalPanel } from "./TerminalPanel";
 import { MacroPanel } from "./MacroPanel";
 import { PluginPanel } from "./PluginPanel";
 import { SettingsWindow, type SettingsMainAction } from "./SettingsWindow";
+import { ProblemsPanel, worstSeverity } from "./ProblemsPanel";
 import { WorkTabs } from "./EditorLayout";
 import { FileExplorer, loadExplorerTab, saveExplorerTab, type ExplorerTab } from "./FileExplorer";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
@@ -389,6 +391,10 @@ export function App() {
   const [macroOpen, setMacroOpen] = useState(false);
   const [pluginOpen, setPluginOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [problemsOpen, setProblemsOpen] = useState(false);
+  // Language-server problems by document, and why the last request failed.
+  const [problemsByDocument, setProblemsByDocument] = useState<Record<string, DocumentProblems>>({});
+  const [problemsErrors, setProblemsErrors] = useState<Record<string, string>>({});
   const [explorerTab, setExplorerTab] = useState<ExplorerTab>(loadExplorerTab);
   const [preferences, setPreferences] = useState(loadEditorPreferences);
   const [themes, setThemes] = useState<ThemeRecord[]>(BUILT_IN_THEMES);
@@ -689,6 +695,100 @@ export function App() {
     setDocuments((current) => current.map((document) => (
       document.documentId === updated.documentId ? updated : document
     )));
+  };
+  /** Replaces open documents' summaries after a settings change (language servers, switches). */
+  const refreshDocumentSummaries = () => {
+    void executeCommand<DocumentSummary[]>({ id: "editor.summaries", context: { windowId: "main" }, arguments: {} })
+      .then((summaries) => {
+        if (!Array.isArray(summaries)) return;
+        setDocuments((current) => current.map((document) => (
+          summaries.find((summary) => summary.documentId === document.documentId) ?? document
+        )));
+      })
+      .catch(() => undefined);
+  };
+  const activeProblems = activeDocument ? problemsByDocument[activeDocument.documentId] : undefined;
+  const activeProblemsError = activeDocument ? problemsErrors[activeDocument.documentId] : undefined;
+  const activeProblemCount = activeProblems?.problems.length ?? 0;
+  const activeProblemSeverity = worstSeverity(activeProblems?.problems ?? []);
+
+  // Language-server problems arrive a little after the text; ask shortly after a
+  // change and once more after that, never while typing. The panel stays open
+  // with the last answer while the next one is on its way.
+  useEffect(() => {
+    const documentId = activeDocumentId;
+    const revision = activeDocument?.revision;
+    const server = activeDocument?.capabilities?.languageServer;
+    if (!documentId || !revision || viewModes[documentId] === "hex") return;
+    if (!server) {
+      setProblemsByDocument((current) => {
+        const existing = current[documentId];
+        if (!existing || existing.problems.length === 0) return current;
+        return { ...current, [documentId]: { revision, problems: [] } };
+      });
+      return;
+    }
+    let cancelled = false;
+    const ask = () => {
+      void executeCommand<DocumentProblems | null>({
+        id: "lsp.diagnostics",
+        context: { windowId: "main", documentId },
+        arguments: {},
+      }).then((result) => {
+        if (cancelled || !result || typeof result.revision !== "string" || !Array.isArray(result.problems)) return;
+        // Problems placed in another revision would underline the wrong bytes.
+        if (result.revision !== revision) return;
+        setProblemsByDocument((current) => ({ ...current, [documentId]: result }));
+        setProblemsErrors((current) => {
+          if (!(documentId in current)) return current;
+          const next = { ...current };
+          delete next[documentId];
+          return next;
+        });
+      }).catch((error: unknown) => {
+        if (cancelled) return;
+        setProblemsErrors((current) => ({
+          ...current, [documentId]: errorMessage(error, "Could not ask the language server for problems"),
+        }));
+      });
+    };
+    const first = window.setTimeout(ask, 500);
+    const second = window.setTimeout(ask, 2500);
+    return () => { cancelled = true; window.clearTimeout(first); window.clearTimeout(second); };
+  }, [activeDocumentId, activeDocument?.revision, activeDocument?.capabilities?.languageServer, viewModes]);
+
+  // Forget problems of documents that are no longer open.
+  useEffect(() => {
+    const open = new Set(documents.map((document) => document.documentId));
+    setProblemsByDocument((current) => {
+      const kept = Object.entries(current).filter(([documentId]) => open.has(documentId));
+      return kept.length === Object.keys(current).length ? current : Object.fromEntries(kept);
+    });
+    setProblemsErrors((current) => {
+      const kept = Object.entries(current).filter(([documentId]) => open.has(documentId));
+      return kept.length === Object.keys(current).length ? current : Object.fromEntries(kept);
+    });
+  }, [documents]);
+
+  /** Puts the caret on a problem, selecting its range, and brings it into view. */
+  const revealProblem = async (problem: DocumentProblems["problems"][number]) => {
+    if (!activeDocument) return;
+    try {
+      await executeCommand({
+        id: "editor.setSelections",
+        context: { windowId: "main", documentId: activeDocument.documentId },
+        arguments: {
+          selections: [{
+            anchorByte: problem.startByte,
+            activeByte: problem.endByte === problem.startByte ? problem.startByte : problem.endByte,
+          }],
+        },
+      });
+      setRevealTarget({ documentId: activeDocument.documentId, byteOffset: problem.startByte });
+      setMacroRefreshVersion((version) => version + 1);
+    } catch (error: unknown) {
+      setStatus(errorMessage(error, "Could not show the problem"));
+    }
   };
   const updateActiveTab = (change: (tab: WorkTab) => WorkTab) => {
     setTabs((current) => current.map((tab) => tab.id === activeTabIdRef.current ? change(tab) : tab));
@@ -2383,6 +2483,7 @@ export function App() {
           onClipboardText={rememberClipboard}
           insertRequest={active ? insertRequest : undefined}
           suggest={suggestSettings}
+          problems={problemsByDocument[document.documentId]?.problems}
           onReload={document.sourcePath ? () => requestReload(document) : undefined}
           onOpenFind={active ? openFindPanel : undefined}
           searchRequest={active ? searchRequest : undefined}
@@ -2517,6 +2618,13 @@ export function App() {
             label={viewModes[activeDocument.documentId] === "hex" ? "Show text editor" : "Show hexadecimal editor"}
             onClick={() => toggleViewMode(activeDocument.documentId)} /> : null}
         </WorkTabs>
+        {problemsOpen && activeDocument ? <ProblemsPanel document={activeDocument}
+          problems={activeProblems?.problems ?? []}
+          server={activeProblems?.server ?? activeDocument.capabilities?.languageServer}
+          error={activeProblemsError ?? null}
+          onSelect={(problem) => void revealProblem(problem)}
+          onClose={() => setProblemsOpen(false)}
+          onOpenSettings={() => { setProblemsOpen(false); openSettings(); }} /> : null}
         {terminalOpen ? <TerminalPanel theme={activeTheme.colors}
           onClose={() => setTerminalOpen(false)} onStatus={setStatus} /> : null}
       </section>
@@ -2529,6 +2637,14 @@ export function App() {
           <span>{exportJob.percent}%</span>
           <button type="button" className="status-action" onClick={cancelExport}>Cancel</button>
         </span> : null}
+        {activeDocument && (activeDocument.capabilities?.languageServer || activeProblemCount > 0)
+          ? <button type="button" className={`status-button status-problems${activeProblemSeverity ? ` ${activeProblemSeverity}` : ""}`}
+            aria-expanded={problemsOpen} aria-controls={problemsOpen ? "problems-panel" : undefined}
+            aria-label={`${activeProblemCount === 0 ? "No problems" : `${activeProblemCount} ${activeProblemCount === 1 ? "problem" : "problems"}`} in ${activeDocument.name}`}
+            title="Problems reported by the language server — click to show or hide them"
+            onClick={() => setProblemsOpen((open) => !open)}>
+            <Icon name="problems" size={12} />{activeProblemCount === 0 ? "No problems" : `${activeProblemCount} ${activeProblemCount === 1 ? "problem" : "problems"}`}
+          </button> : null}
         <span className="status-spacer" />
         {activeDocument ? <button type="button" className={`status-mode${activeDocument.readOnly ? " read-only" : ""}`}
           aria-pressed={activeDocument.readOnly === true}
@@ -2618,9 +2734,12 @@ export function App() {
             setLineChangeDefault(loadLineChangeDefault());
             setLineChangeOverrides({});
             applyWelcomeSetting();
+            // Language switches and approved servers change open documents' capabilities.
+            refreshDocumentSummaries();
             setStatus("Customization saved");
           }}
-          onMainAction={handleSettingsAction} onClose={() => setSettingsOpen(false)} />
+          onMainAction={handleSettingsAction} onLanguageServersChanged={refreshDocumentSummaries}
+          onClose={() => setSettingsOpen(false)} />
       </div> : null}
       {findTab ? <FindReplacePanel tab={findTab} onTab={setFindTab} onClose={() => setFindTab(null)} seed={findSeed}
         activeDocument={activeDocument && viewModes[activeDocument.documentId] !== "hex" ? activeDocument : null}

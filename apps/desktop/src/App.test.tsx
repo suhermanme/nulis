@@ -2331,3 +2331,99 @@ test("an invalid document is not reformatted, and the native Tools menu follows 
   await waitFor(() => expect(setToolsMenu).toHaveBeenLastCalledWith({ validate: undefined, beautify: undefined, minify: undefined }));
   expect(screen.queryByRole("button", { name: "Beautify XML" })).not.toBeInTheDocument();
 });
+
+test("shows language-server problems in the status bar and jumps to one", async () => {
+  responses["file.new"] = [{
+    documentId: "document-1", name: "main.rs", byteLen: "10", revision: "1", encoding: "utf8",
+    capabilities: { languageServer: "fake-lsp" },
+  }];
+  responses["lsp.diagnostics"] = [{
+    server: "fake-lsp", revision: "1", problems: [
+      { startByte: "4", endByte: "8", line: 2, severity: "error", message: "mismatched types", source: "fake-lsp" },
+    ],
+  }];
+
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  fireEvent.click(screen.getByRole("button", { name: "New text file" }));
+  await screen.findByText("main.rs editor");
+
+  // Problems arrive shortly after the text, so the status bar fills in later.
+  const status = await screen.findByRole("button", { name: "1 problem in main.rs" });
+  expect(status).toHaveClass("error");
+  fireEvent.click(status);
+  const panel = await screen.findByRole("region", { name: "Problems in main.rs" });
+  expect(within(panel).getByText("mismatched types")).toBeInTheDocument();
+  expect(within(panel).getByText("fake-lsp", { selector: ".problems-server" })).toBeInTheDocument();
+
+  fireEvent.click(within(panel).getByRole("button", { name: "Error on line 2: mismatched types" }));
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({
+    id: "editor.setSelections",
+    context: { windowId: "main", documentId: "document-1" },
+    arguments: { selections: [{ anchorByte: "4", activeByte: "8" }] },
+  })));
+  fireEvent.click(within(panel).getByRole("button", { name: "Close problems" }));
+  expect(screen.queryByRole("region", { name: "Problems in main.rs" })).not.toBeInTheDocument();
+});
+
+test("asks no language server for a document without one", async () => {
+  responses["file.new"] = [{
+    documentId: "document-1", name: "notes.txt", byteLen: "0", revision: "1", encoding: "utf8",
+  }];
+
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  fireEvent.click(screen.getByRole("button", { name: "New text file" }));
+  await screen.findByText("notes.txt editor");
+  await settle();
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 600)); });
+  expect(executeCommand).not.toHaveBeenCalledWith(expect.objectContaining({ id: "lsp.diagnostics" }));
+  expect(screen.queryByRole("button", { name: /problem.* in notes.txt/ })).not.toBeInTheDocument();
+});
+
+test("ignores problems placed in a different revision of the text", async () => {
+  responses["file.new"] = [{
+    documentId: "document-1", name: "main.rs", byteLen: "10", revision: "2", encoding: "utf8",
+    capabilities: { languageServer: "fake-lsp" },
+  }];
+  // The server answered for the text as it was before the latest edit.
+  responses["lsp.diagnostics"] = [{
+    server: "fake-lsp", revision: "1", problems: [
+      { startByte: "0", endByte: "1", line: 1, severity: "error", message: "stale", source: "fake-lsp" },
+    ],
+  }];
+
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  fireEvent.click(screen.getByRole("button", { name: "New text file" }));
+  await screen.findByText("main.rs editor");
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({ id: "lsp.diagnostics" })));
+  await settle();
+  // A server is set up, so the button exists, but the stale answer is not shown.
+  expect(screen.getByRole("button", { name: "No problems in main.rs" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "No problems in main.rs" }));
+  const panel = await screen.findByRole("region", { name: "Problems in main.rs" });
+  expect(within(panel).getByText("fake-lsp reports no problems in this document.")).toBeInTheDocument();
+  expect(within(panel).queryByText("stale")).not.toBeInTheDocument();
+});
+
+test("approves a language server in Settings", async () => {
+  const server = {
+    id: "rust", command: ["rust-analyzer"], languages: ["rust"],
+    approved: false, running: [], stopped: false,
+  };
+  responses["lsp.state"] = [{ servers: [server], configError: null }];
+  responses["lsp.approve"] = [{ servers: [{ ...server, approved: true }], configError: null }];
+
+  const dialog = await openSettings();
+  fireEvent.click(within(dialog).getByRole("tab", { name: "Languages" }));
+  expect(await within(dialog).findByText("rust-analyzer")).toBeInTheDocument();
+  expect(within(dialog).getByText("Not approved")).toBeInTheDocument();
+
+  fireEvent.click(within(dialog).getByRole("button", { name: "Approve" }));
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
+    id: "lsp.approve", context: { windowId: "main" }, arguments: { id: "rust" },
+  }));
+  expect(await within(dialog).findByText("Approved")).toBeInTheDocument();
+  expect(within(dialog).getByRole("button", { name: "Revoke" })).toBeInTheDocument();
+});

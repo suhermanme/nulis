@@ -104,6 +104,10 @@ const SETTINGS_COMMANDS: &[&str] = &[
     "settings.state",
     "settings.saveChecked",
     "language.capabilities",
+    "lsp.state",
+    "lsp.approve",
+    "lsp.revoke",
+    "lsp.restart",
     "customization.state",
     "customization.saveChecked",
     "customization.reset",
@@ -120,6 +124,10 @@ const CUSTOMIZATION_MUTATIONS: &[&str] = &[
     "customization.reset",
     "theme.install",
     "theme.uninstall",
+    // Approving, revoking, or restarting a server changes open documents' capabilities.
+    "lsp.approve",
+    "lsp.revoke",
+    "lsp.restart",
 ];
 /// Presentation actions Settings may hand to the editor window.
 const SETTINGS_MAIN_ACTIONS: &[&str] = &["workspace.rename", "workbench.openPlugins"];

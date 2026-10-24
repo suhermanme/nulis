@@ -9,6 +9,7 @@ import type {
   CapabilityKind,
   LanguageCapabilities,
   LanguageDescriptor,
+  LanguageServersState,
   SettingsState,
   PluginSummary,
   ThemeRecord,
@@ -59,6 +60,8 @@ interface SettingsWindowProps {
   closeSignal?: number;
   /** Increment when another window stored a newer customization. */
   externalChangeSignal?: number;
+  /** Called after a language server is approved, revoked, or restarted. */
+  onLanguageServersChanged?(): void;
 }
 
 function loadSection(): SettingsSectionId {
@@ -173,6 +176,7 @@ function move<T>(values: T[], index: number, offset: -1 | 1): T[] {
 /** Separate, sectioned settings surface with a draft that is applied or discarded as a whole. */
 export function SettingsWindow({
   mode, onPreview, onSaved, onMainAction, onClose, closeSignal = 0, externalChangeSignal = 0,
+  onLanguageServersChanged,
 }: SettingsWindowProps) {
   const [section, setSection] = useState<SettingsSectionId>(loadSection);
   const [saved, setSaved] = useState<CustomizationState | null>(null);
@@ -185,6 +189,8 @@ export function SettingsWindow({
   const [featureDraft, setFeatureDraft] = useState<FeatureSwitches>({});
   const [indentDraft, setIndentDraft] = useState<IndentationDraft>(() => indentationOf(null));
   const [plugins, setPlugins] = useState<PluginSummary[]>([]);
+  const [servers, setServers] = useState<LanguageServersState | null>(null);
+  const [serverBusy, setServerBusy] = useState<string | null>(null);
   const [info, setInfo] = useState<ApplicationInfo | null>(null);
   const [savedLineChanges, setSavedLineChanges] = useState(loadLineChangeDefault);
   const [welcome, setWelcome] = useState(loadWelcomeOnStartup);
@@ -209,6 +215,13 @@ export function SettingsWindow({
     setIndentDraft(indentationOf(state ?? null));
   }, []);
 
+  const loadLanguageServers = useCallback(async () => {
+    const state = await executeCommand<LanguageServersState | null>({
+      id: "lsp.state", context: CONTEXT, arguments: {},
+    });
+    setServers(state && Array.isArray(state.servers) ? state : null);
+  }, []);
+
   const loadState = useCallback(async () => {
     const [state, nextThemes] = await Promise.all([
       executeCommand<CustomizationState>({ id: "customization.state", context: CONTEXT, arguments: {} }),
@@ -226,6 +239,7 @@ export function SettingsWindow({
     let mounted = true;
     void loadState().catch((error: unknown) => { if (mounted) setNotice(message(error, "Settings are unavailable")); });
     void loadLanguageSettings().catch(() => undefined);
+    void loadLanguageServers().catch(() => undefined);
     void listCommands().then((next) => { if (mounted && Array.isArray(next)) setCommands(next); }).catch(() => undefined);
     void executeCommand<LanguageDescriptor[]>({ id: "language.list", context: CONTEXT, arguments: {} })
       .then((next) => { if (mounted && Array.isArray(next)) setLanguages(next); }).catch(() => undefined);
@@ -233,7 +247,7 @@ export function SettingsWindow({
       .then((next) => { if (mounted && Array.isArray(next)) setPlugins(next); }).catch(() => undefined);
     void getApplicationInfo().then((next) => { if (mounted) setInfo(next); }).catch(() => undefined);
     return () => { mounted = false; };
-  }, [loadLanguageSettings, loadState]);
+  }, [loadLanguageServers, loadLanguageSettings, loadState]);
 
   // The welcome screen's own tick box changes this preference from the main window.
   useEffect(() => {
@@ -334,8 +348,9 @@ export function SettingsWindow({
     else {
       void loadState().catch(() => undefined);
       void loadLanguageSettings().catch(() => undefined);
+      void loadLanguageServers().catch(() => undefined);
     }
-  }, [externalChangeSignal, loadLanguageSettings, loadState, pending]);
+  }, [externalChangeSignal, loadLanguageServers, loadLanguageSettings, loadState, pending]);
 
   const reload = () => {
     setBusy(true);
@@ -345,6 +360,25 @@ export function SettingsWindow({
       setNotice("Loaded the latest settings");
     }).catch((error: unknown) => setNotice(message(error, "Could not reload settings")))
       .finally(() => setBusy(false));
+  };
+
+  /** Approves, revokes, or restarts one configured language server. */
+  const changeServer = async (id: string, command: "lsp.approve" | "lsp.revoke" | "lsp.restart") => {
+    if (serverBusy) return;
+    setServerBusy(id);
+    try {
+      const state = await executeCommand<LanguageServersState>({
+        id: command, context: CONTEXT, arguments: { id },
+      });
+      if (state && Array.isArray(state.servers)) setServers(state);
+      setNotice(command === "lsp.approve" ? `Approved ${id}`
+        : command === "lsp.revoke" ? `Revoked ${id}` : `Restarted ${id}`);
+      onLanguageServersChanged?.();
+    } catch (error: unknown) {
+      setNotice(message(error, "Could not change the language server"));
+    } finally {
+      setServerBusy(null);
+    }
   };
 
   const restoreDefaults = async () => {
@@ -576,6 +610,37 @@ export function SettingsWindow({
             <li key={pattern}><strong>{pattern}</strong><code>{language}</code>
               {settingsState?.rejectedAssociations.includes(pattern) ? <span>ignored</span> : null}</li>))}
         </ul> : null}
+      </fieldset>
+      <fieldset className="settings-group"><legend>Language servers</legend>
+        <p className="settings-help">Nulis starts no language server unless it is listed in <code>lsp.servers</code> in settings.json and you approve its exact command here. A server starts when a document of one of its languages opens, and stops when the last one closes.</p>
+        {servers?.configError ? <p className="settings-help server-error" role="alert">{servers.configError}</p> : null}
+        {servers === null
+          ? <p className="settings-help">Language servers are unavailable in this window.</p>
+          : servers.servers.length === 0
+            ? <p className="settings-help">No language server is configured. Add one to <code>lsp.servers</code> in settings.json, for example <code>{'"rust": { "command": ["rust-analyzer"], "languages": ["rust"] }'}</code>, then reopen Settings.</p>
+            : <ul className="settings-list server-list" aria-label="Language servers">
+              {servers.servers.filter((server) => matches(`${server.id} ${server.languages.join(" ")}`)).map((server) => <li key={server.id}>
+                <div className="server-heading"><strong>{server.id}</strong>
+                  <span className={server.approved ? "approved" : "approval-required"}>{server.approved ? "Approved" : "Not approved"}</span>
+                  {server.stopped ? <span className="server-stopped">Stopped after failures</span> : null}
+                </div>
+                <code className="server-command">{server.command.join(" ")}</code>
+                <span>{server.languages.join(", ")}</span>
+                {server.running.length > 0
+                  ? <span title={server.running.join("\n")}>Running for {server.running.length} {server.running.length === 1 ? "folder" : "folders"}</span>
+                  : null}
+                {server.error ? <span className="server-error" role="alert">{server.error}</span> : null}
+                <div className="settings-inline">
+                  <button type="button" disabled={serverBusy !== null}
+                    onClick={() => void changeServer(server.id, server.approved ? "lsp.revoke" : "lsp.approve")}>
+                    {server.approved ? "Revoke" : "Approve"}
+                  </button>
+                  {server.approved ? <button type="button" disabled={serverBusy !== null}
+                    onClick={() => void changeServer(server.id, "lsp.restart")}>Restart</button> : null}
+                </div>
+              </li>)}
+            </ul>}
+        <p className="settings-help">The command is a program and its arguments, never a shell line. Editing the command or its language list revokes the approval. Reported problems appear in the status bar and in the Problems panel.</p>
       </fieldset>
     </>,
     keybindings: <>

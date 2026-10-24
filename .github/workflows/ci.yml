@@ -52,6 +52,11 @@ jobs:
       - name: Tests
         shell: bash
         run: cargo test --workspace --locked --no-fail-fast 2>&1 | tee ci-test.log
+      # The fake server is built from this repository, so these cover start,
+      # crash, timeout, cancellation, stale answers, and shutdown on every OS.
+      - name: Language server client (fake server)
+        shell: bash
+        run: cargo test -p nulis-lsp --locked 2>&1 | tee ci-lsp.log
       # Job logs need a GitHub sign-in; annotations do not. On a failure the
       # relevant lines of each captured log are published as an annotation.
       - name: Publish the failure reason

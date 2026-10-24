@@ -47,6 +47,7 @@ const PATHS = {
   more: <><circle cx="5.5" cy="12" r="1.1" /><circle cx="12" cy="12" r="1.1" /><circle cx="18.5" cy="12" r="1.1" /></>,
   plus: <path d="M12 5.5v13M5.5 12h13" />,
   command: <><path d="M5 8l4 4-4 4" /><path d="M11.5 16.5H19" /></>,
+  problems: <><circle cx="12" cy="12" r="8.2" /><path d="M12 7.6v5.6M12 16.4v.2" /></>,
   caseSensitive: <><path d="M3.5 17L7.5 7h1l4 10M5 13.5h6" /><path d="M20.5 17v-5.2a2.4 2.4 0 0 0-4.6-.9M20.5 14.2a2.6 2.6 0 1 1-2.6-2.4" /></>,
   regex: <><path d="M16 4.5v8M12.5 6.5l7 4M19.5 6.5l-7 4" /><rect x="4.5" y="15" width="4" height="4" rx=".8" /></>,
   rename: <><path d="M4 18.5h16" /><path d="M7 15l.7-3L15.5 4.2l2.3 2.3L10 14.3z" /></>,

@@ -4,8 +4,8 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 
 ## Current state
 
-- **Current milestone:** M46 complete (2026-10-23); next is M47 (optional LSP). M41 approved 2026-10-23 with every plan §7 recommendation accepted. Branch `feat/language-capabilities`. **To resume plan 4, read the "Plan 4" section below.** Plan 3 is complete and released in Nulis 0.4.0 (2026-10-23).
-- **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 5 of 5 milestones completed (M31–M35); plan 3: 5 of 5 completed (M36–M40, in Nulis 0.4.0); plan 4: 6 of 8 (M41–M46)
+- **Current milestone:** M47 complete (2026-10-24); next is M48 (external plugin readiness). M41 approved 2026-10-23 with every plan §7 recommendation accepted. Branch `feat/language-capabilities`. **To resume plan 4, read the "Plan 4" section below.** Plan 3 is complete and released in Nulis 0.4.0 (2026-10-23).
+- **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 5 of 5 milestones completed (M31–M35); plan 3: 5 of 5 completed (M36–M40, in Nulis 0.4.0); plan 4: 7 of 8 (M41–M47)
 - **Baseline before M19 (commit `66853e1`):** `cargo test -p nulis-core` 86 passed; desktop Vitest 11 files, 115 tests passed.
 
 | Milestone | Status | Handover |
@@ -38,7 +38,7 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 | M44 Core auto-indentation | Completed 2026-10-23 (checked in the app on macOS) | `handover/M44_HANDOVER.md` |
 | M45 Shared autocomplete | Completed 2026-10-23 (checked in the app on macOS) | `handover/M45_HANDOVER.md` |
 | M46 Expand bundled coverage | Completed 2026-10-23 (app check pending) | `handover/M46_HANDOVER.md` |
-| M47 Optional LSP | Not Started | — |
+| M47 Optional LSP | Completed 2026-10-24 (manual rust-analyzer check pending) | `handover/M47_HANDOVER.md` |
 | M48 External plugin readiness | Not Started | — |
 
 ## Plan 4 (M41–M48) — language capabilities
@@ -221,15 +221,15 @@ Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language 
 
 ### M47 — Optional LSP
 
-**Status:** Not Started. **Depends on:** M43 (diagnostics contract), M45 (done).
+**Status:** Completed 2026-10-24 (automated checks on macOS; manual rust-analyzer checks on the three platforms pending). Handover: `handover/M47_HANDOVER.md`. **Depends on:** M43 (diagnostics contract), M45 (done).
 
 | Task | Status |
 | --- | --- |
-| Verify candidate servers (license, platforms, maintenance); choose the second server | Not Started |
-| `nulis-lsp`: JSON-RPC client, lifecycle, timeouts, cancel, restart, position encoding | Not Started |
-| Settings, approval bound to the exact command | Not Started |
-| Adapters: completion, diagnostics, formatting; shared diagnostics UI | Not Started |
-| Fake-server CI tests on three platforms; manual check with rust-analyzer | Not Started |
+| Verify candidate servers (license, platforms, maintenance); choose the second server | Completed: `clangd` chosen. LLVM is Apache-2.0 WITH LLVM-exception (OSI-approved); release binaries for macOS (x86-64/arm64), Windows, and Linux; two releases a year (23.1.x current in 2026) and an active project. `rust-analyzer` is MIT/Apache-2.0 with release binaries on the same three platforms. |
+| `nulis-lsp`: JSON-RPC client, lifecycle, timeouts, cancel, restart, position encoding | Completed: `crates/nulis-lsp` (stdio JSON-RPC, UTF-8/UTF-16 conversion, start/request timeouts, shutdown) plus the fake server binary and 6 integration tests. |
+| Settings, approval bound to the exact command | Completed: `lsp.servers` in `settings.json`; `lsp-approvals.json` records ID + command + languages; `lsp.state/approve/revoke/restart`; Settings ▸ Languages ▸ Language servers. |
+| Adapters: completion, diagnostics, formatting; shared diagnostics UI | Completed: `completion.request` merges server items, `tools.beautify` falls back to the server, `lsp.diagnostics` returns ranged problems; gutter dots, wavy underlines, status-bar count, and Problems panel. IPC 46. |
+| Fake-server CI tests on three platforms; manual check with rust-analyzer | Fake-server tests run in the workspace CI job on all three platforms (explicit `nulis-lsp` step). Manual rust-analyzer checks pending. |
 
 ### M48 — External plugin readiness
 

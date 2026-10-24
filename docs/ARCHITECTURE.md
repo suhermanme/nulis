@@ -165,6 +165,12 @@ The JSON, XML/XSL, YAML, and plist tools and the Markdown preview are built-in p
 
 Associations gained a name-prefix rule (`dockerfile.*`), ranked after exact names and before extensions; built-in tables use it and so can `files.associations`. New modules: JSON with Comments (the JSON grammar with comment markers and no tools), TSX (the TypeScript table with JSX), and Ignore File. The lexer has an `ecmascript` mode (regular-expression literals where an expression may start, template strings whose `${…}` parts are scanned as code) and a `jsx` mode, both driven by a small frame stack (template expression, JSX tag head, JSX children, JSX expression) inside the single bounded pass; JSX is off for `.ts` because `<Type>value` is a cast there. Markdown folds per heading and YAML by indentation, offering no fold whose end lies past a cut-off window. Tree-sitter bracket pairs require bracket characters at both ends, which let Python list its bracketed node kinds. Compiled AppleScript joins binary property lists as read-only hex. Tests: `nulis-core/tests/every_language.rs` (every language through every editing command) and `nulis-syntax/tests/self_hosting.rs` (this repository opens with the right languages).
 
+## Language servers (M47)
+
+`nulis-lsp` is a small, dependency-light LSP client: it starts a program with an argument vector in a project folder, speaks JSON-RPC over the child's standard input and output on a reader thread, and maps positions between UTF-8 byte offsets and the server's negotiated encoding (UTF-8 when offered, otherwise UTF-16). It holds no editor state and never opens a socket.
+
+`nulis-core::language_servers` owns configuration, approval, processes, and diagnostics. `lsp.servers` in `settings.json` is read into validated `ServerConfig` values (ID, command vector, language IDs, optional initialization options); invalid entries are dropped and reported as `configError`. Approval is a separate record bound to the exact ID, command, and language list, stored in `lsp-approvals.json` under the session root, so changing either revokes it. One server process runs per project folder (nearest `.git`, `Cargo.toml`, `package.json`, `go.mod`, `pyproject.toml`, `compile_commands.json`, or `.clangd`), starts on the first document of its language, and stops when the last such document closes. Full text is sent with `didOpen`/`didChange`; diagnostics arrive as `publishDiagnostics`, are clipped to at most 2,000 problems, placed against the text revision they were computed for, and returned by `lsp.diagnostics` as byte ranges. Three consecutive failures set a server aside until `lsp.restart`. Commands: `lsp.state`, `lsp.approve`, `lsp.revoke`, `lsp.restart`, `lsp.diagnostics`. IPC protocol v46 adds `languageServer` to document capabilities and the language-server and problem DTOs. The desktop polls diagnostics for the active document 500 ms and 2.5 s after its last revision change, ignores answers for another revision, and shows them in gutter dots, wavy underlines, a status-bar count, and the Problems panel; Settings ▸ Languages ▸ Language servers approves, revokes, and restarts servers.
+
 ## Crate boundaries
 
 - `nulis-document`: 64-bit positions, document-facing contracts; M01 owns mutations and snapshots.
@@ -173,6 +179,7 @@ Associations gained a name-prefix rule (`dockerfile.*`), ranked after exact name
 - `nulis-settings`: schema-backed layered settings plus bounded, atomic customization persistence.
 - `nulis-search`, `nulis-syntax`, `nulis-hex`, `nulis-diff`: algorithms consuming public document/read interfaces.
 - `nulis-language`: language capability contracts and the provider registry; no I/O.
+- `nulis-lsp`: LSP client over a child process's standard streams; no editor state.
 - `nulis-filesystem`, `nulis-terminal`, `nulis-platform`: capability-oriented operating-system/service edges.
 - `nulis-automation`, `nulis-plugin-host`: versioned constrained extension execution.
 - `nulis-theme`: complete semantic tokens plus validated built-in/user theme catalogs.

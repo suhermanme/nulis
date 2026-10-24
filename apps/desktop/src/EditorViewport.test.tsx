@@ -70,6 +70,19 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
+/** Sets the two-line viewport, clearing any one-time answers a test left behind. */
+function useTwoLineViewport() {
+  vi.mocked(getViewport).mockReset().mockResolvedValue({
+    documentId: "document-1", revision: "0", documentByteLen: "7", encoding: "utf8",
+    lines: [
+      { line: "1", startByte: "0", endByte: "4", text: "one", sourceByteWidths: [1, 1, 1], continuation: false, truncated: false },
+      { line: "2", startByte: "4", endByte: "7", text: "two", sourceByteWidths: [1, 1, 1], continuation: false, truncated: false },
+    ],
+    selections: [{ anchorByte: "0", activeByte: "0" }],
+    bookmarks: [],
+  });
+}
+
 test("renders line numbers from a bounded native viewport and dispatches typing", async () => {
   render(
     <EditorViewport
@@ -2008,4 +2021,38 @@ test("an answer for an older revision of the text is not shown", async () => {
   await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({ id: "completion.request" })));
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
   expect(screen.queryByRole("listbox", { name: "Suggestions" })).not.toBeInTheDocument();
+});
+
+test("draws a problem dot and a wavy underline on the lines a language server reports", async () => {
+  useTwoLineViewport();
+  const document = { documentId: "document-1", name: "Untitled", byteLen: "7", revision: "0", encoding: "utf8" as const };
+  const { container } = render(<EditorViewport document={document} onDocumentChange={() => undefined}
+    onStatus={() => undefined}
+    problems={[
+      { startByte: "4", endByte: "7", line: 2, severity: "warning", message: "unused variable", source: "fake-lsp" },
+      { startByte: "5", endByte: "6", line: 2, severity: "error", message: "bad type" },
+    ]} />);
+  // The text is split into spans at each range edge, so read the whole line.
+  await waitFor(() => expect(container.querySelectorAll(".editor-line")).toHaveLength(2));
+  const second = container.querySelectorAll<HTMLElement>(".editor-line")[1];
+  expect(second.querySelector("code")?.textContent).toBe("two");
+  // One dot per line, coloured by the most serious problem on it.
+  const dots = container.querySelectorAll<HTMLElement>(".problem-dot");
+  expect(dots).toHaveLength(1);
+  expect(dots[0]).toHaveClass("error");
+  expect(dots[0]).toHaveAttribute("title", "Warning: unused variable\nError: bad type");
+  // The text keeps its characters; only the class changes.
+  const underlined = [...second.querySelectorAll<HTMLElement>(".diagnostic")];
+  expect(underlined.map((part) => part.textContent)).toEqual(["t", "w", "o"]);
+  expect(underlined[1]).toHaveClass("diagnostic-error");
+});
+
+test("shows no dots when there are no problems", async () => {
+  useTwoLineViewport();
+  const { container } = render(<EditorViewport
+    document={{ documentId: "document-1", name: "Untitled", byteLen: "7", revision: "0", encoding: "utf8" }}
+    onDocumentChange={() => undefined} onStatus={() => undefined} problems={[]} />);
+  await waitFor(() => expect(container.querySelectorAll(".editor-line")).toHaveLength(2));
+  expect(container.querySelector(".problem-dot")).not.toBeInTheDocument();
+  expect(container.querySelector(".diagnostic")).not.toBeInTheDocument();
 });
