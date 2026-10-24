@@ -34,9 +34,9 @@ fn files(root: &Path) -> Vec<PathBuf> {
 fn plain_by_nature(relative: &str) -> bool {
     let name = relative.rsplit('/').next().unwrap_or(relative);
     name.contains("LICENSE")
-        || Path::new(name)
-            .extension()
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("txt"))
+        || Path::new(name).extension().is_some_and(|extension| {
+            extension.eq_ignore_ascii_case("txt") || extension.eq_ignore_ascii_case("log")
+        })
         || relative.starts_with("fuzz/corpus/")
         || relative.starts_with("fuzz/artifacts/")
 }

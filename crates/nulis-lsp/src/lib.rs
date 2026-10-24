@@ -16,7 +16,7 @@ use std::{
     path::Path,
     process::{Child, ChildStdin, Command, Stdio},
     sync::{
-        atomic::{AtomicI64, Ordering},
+        atomic::{AtomicBool, AtomicI64, Ordering},
         mpsc::{self, Receiver, RecvTimeoutError, Sender},
         Arc, Mutex,
     },
@@ -191,6 +191,9 @@ pub struct LspClient {
     child: Mutex<Child>,
     writer: Arc<Mutex<ChildStdin>>,
     pending: Pending,
+    /// Set by the reader as soon as the server's output ends, which can be
+    /// observed a moment before the operating system reports the exit.
+    stopped: Arc<AtomicBool>,
     next_id: AtomicI64,
     notifications: Mutex<Receiver<Value>>,
     encoding: PositionEncoding,
@@ -225,12 +228,20 @@ impl LspClient {
         let stdout = child.stdout.take().ok_or(LspError::Stopped)?;
         let writer = Arc::new(Mutex::new(stdin));
         let pending: Pending = Arc::new(Mutex::new(HashMap::new()));
+        let stopped = Arc::new(AtomicBool::new(false));
         let (notify, notifications) = mpsc::channel();
-        spawn_reader(stdout, Arc::clone(&writer), Arc::clone(&pending), notify);
+        spawn_reader(
+            stdout,
+            Arc::clone(&writer),
+            Arc::clone(&pending),
+            Arc::clone(&stopped),
+            notify,
+        );
         let mut client = Self {
             child: Mutex::new(child),
             writer,
             pending,
+            stopped,
             next_id: AtomicI64::new(1),
             notifications: Mutex::new(notifications),
             encoding: PositionEncoding::Utf16,
@@ -280,6 +291,9 @@ impl LspClient {
 
     /// Whether the server process is still running.
     pub fn is_running(&self) -> bool {
+        if self.stopped.load(Ordering::Acquire) {
+            return false;
+        }
         self.child
             .lock()
             .is_ok_and(|mut child| matches!(child.try_wait(), Ok(None)))
@@ -389,6 +403,7 @@ fn spawn_reader(
     stdout: std::process::ChildStdout,
     writer: Arc<Mutex<ChildStdin>>,
     pending: Pending,
+    stopped: Arc<AtomicBool>,
     notifications: Sender<Value>,
 ) {
     thread::spawn(move || {
@@ -448,6 +463,7 @@ fn spawn_reader(
             }
         }
         // The server stopped: wake every waiting request.
+        stopped.store(true, Ordering::Release);
         if let Ok(mut pending) = pending.lock() {
             for (_, waiting) in pending.drain() {
                 let _ = waiting.send(Err(LspError::Stopped));
