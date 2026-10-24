@@ -123,8 +123,12 @@ Each release also has a `SHA256SUMS.txt` to check the downloads: `sha256sum -c S
 
 ### Languages
 
-- **Syntax highlighting, folding, and symbols** for 40 languages: AppleScript, Bash, Batch, C, C++, C#, CSS, CSV, Dockerfile, Go, HTML, INI, Java, JavaScript, JSON, Kotlin, Lua, Makefile, Markdown, MySQL / MariaDB, Objective-C / Objective-C++, Oracle PL/SQL, Perl, PHP, PowerShell, Property List, Python, Ruby, Rust, SQL, Swift, TOML, TSV, TypeScript, VBScript / ASP, Visual Basic, XML, XSL, YAML, and Zig. A sample of each is in [`Samples/`](Samples).
+- **Syntax highlighting, folding, and symbols** for 43 languages: AppleScript, Bash, Batch, C, C++, C#, CSS, CSV, Dockerfile, Go, HTML, Ignore File, INI, Java, JavaScript, JSON, JSON with Comments, Kotlin, Lua, Makefile, Markdown, MySQL / MariaDB, Objective-C / Objective-C++, Oracle PL/SQL, Perl, PHP, PowerShell, Property List, Python, Ruby, Rust, SQL, Swift, TOML, TSX, TSV, TypeScript, VBScript / ASP, Visual Basic, XML, XSL, YAML, and Zig. A sample of each is in [`Samples/`](Samples).
 - **Detection** from the file name and extension, and from the content (`#!` line, XML declaration, `<?php`, HTML doctype) when the name says nothing. A **View As** control overrides it.
+- **Automatic indentation.** Enter follows the language's blocks after `{`, `:`, an opening tag, a YAML key, or a keyword such as `def` or `then`; closing brackets, tags, and `end`/`fi` move into place. Tab and Backspace follow the file's own indentation, and Settings can switch the rules off per language.
+- **Suggestions while you type** from the document's words, the language's keywords and types, and snippets, with placeholders visited with Tab. Ctrl+Space (Option+Esc on macOS) asks anywhere.
+- **Optional language servers** such as `rust-analyzer` and `clangd` show their problems in the gutter, under the text, and in the **Problems** panel. Nothing runs until you configure and approve the exact command.
+- **Your own file associations** in `settings.json`, with **Settings ▸ Languages** listing any conflict between languages or plugins.
 
 ### Tools
 
@@ -149,11 +153,11 @@ Each release also has a `SHA256SUMS.txt` to check the downloads: `sha256sum -c S
 - **99 built-in color themes**, with Nulis's own Ember Night and Paper Current first, plus user-installed themes. In every theme the selection, secondary text, and toolbar icons are kept clearly visible.
 - **Configurable** shortcuts, File menu, and main toolbar.
 - **Macros** (record and replay) and **scripts** that run only after explicit approval of the commands they use.
-- **Plugins** written in JavaScript, each running in an isolated worker process and approved by content digest.
+- **Plugins** written in JavaScript, each running in an isolated worker process and approved by content digest, or **declarative language plugins** that add highlighting, indentation, completion, and snippets as data and run no code. Every approved plugin and every feature family it contributes can be switched off separately.
 
 ## Project status
 
-The current release is Nulis 0.4.0, and Nulis is under active development. The features above are implemented and covered by automated tests. On every push, CI builds the macOS, Windows, and Linux packages, installs each one as a user would, and starts it. Tagged releases are built, checked, and published the same way. [docs/PLATFORM_MATRIX.md](docs/PLATFORM_MATRIX.md) records what has been checked on each system.
+The current release is Nulis 0.5.0, and Nulis is under active development. The features above are implemented and covered by automated tests. On every push, CI builds the macOS, Windows, and Linux packages, installs each one as a user would, and starts it. Tagged releases are built, checked, and published the same way. [docs/PLATFORM_MATRIX.md](docs/PLATFORM_MATRIX.md) records what has been checked on each system.
 
 Known limits:
 

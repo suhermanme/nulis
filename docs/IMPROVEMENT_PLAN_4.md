@@ -1,6 +1,6 @@
 # Improvement plan 4: language capabilities (M41–M48)
 
-**Status:** approved 2026-10-23 with every §7 recommendation accepted (answers recorded in §7). M41 complete; M42 in progress. Progress lives in `IMPLEMENTATION_TRACKER.md`; handovers in `docs/handover/`.
+**Status:** complete; released in Nulis 0.5.0 (2026-10-24). Approved 2026-10-23 with every §7 recommendation accepted (answers recorded in §7). Progress lives in `IMPLEMENTATION_TRACKER.md`; handovers in `docs/handover/`.
 **Date:** 2026-10-23, against commit `1494931` (Nulis 0.4.0), branch `feat/language-capabilities`.
 **Milestone numbering:** continues `IMPROVEMENT_PLAN_3.md` (M36–M40). The request's M0–M7 are M41–M48 here.
 **Companion documents:** [LANGUAGE_CAPABILITIES.md](LANGUAGE_CAPABILITIES.md) (contracts, registry, lifecycle, resolution, plugin API v2) and [LANGUAGE_MATRIX.md](LANGUAGE_MATRIX.md) (every file type: verified state and planned providers).

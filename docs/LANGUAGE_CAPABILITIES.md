@@ -1,6 +1,6 @@
 # Language capabilities: design
 
-**Status:** M41–M47 are implemented on `feat/language-capabilities` (2026-10-24): catalog, capabilities, indentation, completion, validators/tools, preview, and optional language servers. M48 (plugin API v2) is still proposed. Plan and milestones: [IMPROVEMENT_PLAN_4.md](IMPROVEMENT_PLAN_4.md). Per-language state: [LANGUAGE_MATRIX.md](LANGUAGE_MATRIX.md). Type sketches are Rust-like and will change during implementation; the rules around them are the contract.
+**Status:** M41–M48 are implemented on `main` (2026-10-24), released in Nulis 0.5.0: catalog, capabilities, indentation, completion, validators/tools, preview, optional language servers, and plugin API v2. Plan and milestones: [IMPROVEMENT_PLAN_4.md](IMPROVEMENT_PLAN_4.md). Per-language state: [LANGUAGE_MATRIX.md](LANGUAGE_MATRIX.md). Type sketches are Rust-like and will change during implementation; the rules around them are the contract.
 
 ## 1. Vocabulary
 

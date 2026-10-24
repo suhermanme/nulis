@@ -1,6 +1,6 @@
 # Language capability matrix
 
-**As of:** 2026-10-24, `feat/language-capabilities` (unreleased 0.5.0). Part of [IMPROVEMENT_PLAN_4.md](IMPROVEMENT_PLAN_4.md); contracts in [LANGUAGE_CAPABILITIES.md](LANGUAGE_CAPABILITIES.md).
+**As of:** 2026-10-24, `main` (0.5.0). Part of [IMPROVEMENT_PLAN_4.md](IMPROVEMENT_PLAN_4.md); contracts in [LANGUAGE_CAPABILITIES.md](LANGUAGE_CAPABILITIES.md).
 
 Table 1 lists what ships today and is **verified**: read from the code and confirmed by tests (comments, brackets, folds, detection), and by calling `LanguageRegistry` directly on 2026-10-23. Table 2 records the per-language plan and marks the columns implemented so far. Update both as milestones land; move a cell from Table 2 to Table 1 only when its tests pass.
 
@@ -22,10 +22,12 @@ Highlighter: **TS** = Tree-sitter grammar; **Lex** = table-driven lexer (mode in
 | Dockerfile | `dockerfile` | dockerfile; dockerfile, containerfile | Lex (code) | brace | yes | `#` | — | — |
 | Go | `go` | go | Lex (code) | brace | yes | `//`, `/* */` | — | — |
 | HTML | `html` | html htm xhtml vue svelte; doctype or `<html` | Lex (markup) | element | — | `<!-- -->` | — | — |
+| Ignore File | `ignore` | .gitignore .gitattributes .npmignore .dockerignore .prettierignore .eslintignore | Lex (code) | brace | yes | `#` | — | — |
 | INI | `ini` | ini cfg conf properties editorconfig; .editorconfig .gitconfig | Lex (code) | brace | yes | `;` | — | — |
 | Java | `java` | java | Lex (code) | brace | yes | `//`, `/* */` | — | — |
 | JavaScript | `javascript` | js mjs cjs jsx; `#!` node/nodejs/deno/bun | Lex (code) | brace | yes | `//`, `/* */` | — | — |
 | JSON | `json` | json; .babelrc .eslintrc | TS | object, array | yes | — | V B M | — |
+| JSON with Comments | `jsonc` | jsonc | TS | object, array | yes | `//`, `/* */` | — | — |
 | Kotlin | `kotlin` | kt, kts | Lex (code) | brace | yes | `//`, `/* */` | — | — |
 | Lua | `lua` | lua; `#!lua` | Lex (code) | brace | yes | `--`, `--[[ ]]` | — | — |
 | Makefile | `makefile` | mk, mak; makefile, gnumakefile; `#!make` | Lex (code) | brace | yes | `#` | — | — |
@@ -44,6 +46,7 @@ Highlighter: **TS** = Tree-sitter grammar; **Lex** = table-driven lexer (mode in
 | Swift | `swift` | swift | Lex (code) | brace | yes | `//`, `/* */` | — | — |
 | TOML | `toml` | toml; cargo.lock pipfile | Lex (code) | brace | yes | `#` | — | — |
 | TSV | `tsv` | tsv, tab | Lex (delimited) | — | — | — | — | — |
+| TSX | `tsx` | tsx | TS | brace | yes | `//`, `/* */` | — | — |
 | TypeScript | `typescript` | ts tsx mts cts | Lex (code) | brace | yes | `//`, `/* */` | — | — |
 | Visual Basic | `vb` | vb bas cls frm vba | Lex (code) | brace | yes | `'` | — | — |
 | VBScript ASP | `vbscript` | vbs vbe asp wsf | Lex (code) | brace | yes | `'` | — | — |

@@ -444,6 +444,8 @@ To always open a kind of file as a certain language, add it to `files.associatio
 
 Nulis reads the file when it starts, so restart it after editing; files already open keep their language until reopened. A pattern that is not valid, or a language that does not exist, is ignored. Language names to use: `plaintext`, `applescript`, `bash`, `batch`, `c`, `cpp`, `csharp`, `css`, `csv`, `dockerfile`, `go`, `html`, `ignore`, `ini`, `java`, `javascript`, `json`, `jsonc`, `kotlin`, `lua`, `makefile`, `markdown`, `mysql`, `objective-c`, `perl`, `php`, `plist`, `plsql`, `powershell`, `python`, `ruby`, `rust`, `sql`, `swift`, `toml`, `tsv`, `tsx`, `typescript`, `vb`, `vbscript`, `xml`, `xsl`, `yaml`, `zig`.
 
+When Nulis's own languages and an installed plugin claim the same pattern, **Settings ▸ Languages** lists the claims under **File association conflicts**. Choosing one records your choice in `files.associations` when you press **Apply**; your association then wins. A plugin can also add associations to a built-in language instead of defining a new one.
+
 Supported languages: AppleScript, Bash and other shells, Batch, C, C++, C#, CSS, CSV, Dockerfile, Go, HTML, Ignore File (`.gitignore` and similar), INI, Java, JavaScript, JSON, JSON with Comments (`.jsonc`), Kotlin, Lua, Makefile, Markdown, MySQL / MariaDB, Objective-C / Objective-C++, Oracle PL/SQL, Perl, PHP, PowerShell, Property List (`.plist`), Python, Ruby, Rust, SQL, Swift, TOML, TSV, TSX (`.tsx`), TypeScript, VBScript / ASP, Visual Basic, XML, XSL, YAML, and Zig. Anything else is shown as plain text.
 
 - **JavaScript, TypeScript, and TSX** also highlight regular expressions (`/^a+$/g`), the code inside `${…}` in template strings, and, in JavaScript and TSX, JSX elements with their attributes. Plain TypeScript files do not get JSX, because there `<Type>value` is a type cast.
@@ -599,6 +601,8 @@ Click **Plugins** in the main toolbar.
 - **Install from folder…** installs a plugin package from a folder on disk.
 - A newly installed plugin does nothing until you press **Approve requested access**. The panel shows what the plugin asks for. Approval is tied to the exact content of the package: if the plugin's files change, it must be approved again.
 - **Revoke** withdraws approval; **Uninstall** removes the plugin.
+- **Disable** makes an approved plugin inert without revoking it. Each feature the plugin contributes — **Commands**, **Languages**, **Highlight**, **Indentation**, **Completion**, **Snippets** — has its own checkbox, so you can keep a language and turn off, say, only its colors.
+- A plugin that adds a language supplies it as data: file associations, comments, highlighting, indentation, completion, and snippets, with **no JavaScript and no process**. Turning **Languages** off removes the language, its associations, and its providers; an open document then shows as Plain Text until it is reopened.
 
 Plugins run in a separate, restricted process, not inside the editor. Commands that a plugin adds appear in the command palette.
 
@@ -613,7 +617,7 @@ Open Settings with **Ctrl/⌘ ,**, the **Settings** toolbar button, or the menu.
 | **General** | Whether the welcome screen is shown at startup; restore all defaults. |
 | **Editor** | Font, font size, line height, ligatures; whether line change indicators are shown by default. |
 | **Appearance & Themes** | The color theme. There are 99 built-in themes, with Nulis's own **Nulis · Ember Night** (dark) and **Nulis · Paper Current** (light) at the top, and you can install your own theme files (Nulis theme JSON, or NvChad Base46 Lua themes). Every theme keeps the text selection, secondary text, and toolbar icons easy to see: where a theme's own colors are too faint, Nulis strengthens them in that theme's hues. The Nulis mark in the title bar and the About window's background follow the theme. |
-| **Languages** | The languages Nulis recognizes, which language features are on for each, and the language servers you configured. |
+| **Languages** | The languages Nulis recognizes, which language features are on for each, file association conflicts, and the language servers you configured. |
 | **Keybindings** | The shortcut for any command. |
 | **Menus & Toolbar** | Which commands are in the File menu and on the main toolbar, and in what order. |
 | **Workspace** | Workspace and layout options. |

@@ -1,5 +1,9 @@
 # Work state
 
+## Nulis 0.5.0 (plan 4, M41–M48)
+
+Release 0.5.0 (2026-10-24). Automatic indentation, suggestions while typing, a language catalog with per-language capabilities, first-party providers behind a capability registry, broader language coverage, optional language servers with a Problems panel, and declarative language plugins. Scope, decisions, and verification: `IMPROVEMENT_PLAN_4.md`, `IMPLEMENTATION_TRACKER.md` (M41–M48), and `handover/M42_HANDOVER.md` to `M48_HANDOVER.md`; the user-facing summary is `release-notes/v0.5.0.md`. Plan 4 was checked by automated tests only: the in-app walkthrough on macOS, Windows, and Linux, the `rust-analyzer`/`clangd` checks, and CI for earlier milestones in the branch remain to be recorded in `PLATFORM_MATRIX.md`. IPC protocol 47.
+
 ## Nulis 0.4.0 (plan 3, M36–M40)
 
 Released 2026-10-23. Print (pages laid out by the core, shown in a Print Preview window, then the system dialog), Page Setup with a live first-page preview, and Export to PDF (whole document, selection, hex dump) with progress, Cancel, and fallback fonts; formatted Markdown printing. Remote (SFTP) was removed. Checked by hand on macOS 15, Windows 11, and Ubuntu 26.04 test VMs; fixes from that check: Linux landscape (passed to WebKitGTK as upright custom paper), Windows' own print header and footer (margins as repeated padding), and Print's error wording. IPC protocol 42. Scope, decisions, and verification: `IMPROVEMENT_PLAN_3.md`, `handover/M36_HANDOVER.md` to `M40_HANDOVER.md`, and `handover/PLAN3_RESUME.md`; the user-facing summary is `release-notes/v0.4.0.md`.
