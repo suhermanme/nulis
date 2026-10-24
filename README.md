@@ -194,7 +194,7 @@ Ctrl/⌘ means Control on Windows and Linux and Command on macOS.
 
 ## Architecture
 
-Nulis is a Rust core with a thin desktop shell. The core has no dependency on the user interface and can be driven headlessly; the interface is a React application inside a [Tauri 2](https://tauri.app) webview.
+Nulis is a Rust core with a thin desktop shell. The core has no dependency on the user interface and can be driven headlessly; the interface is a React application inside a [Tauri 2](https://tauri.app) webview. Language features — validation, formatting, Markdown preview, indentation, completion, and language-server problems — come from providers behind one registry (`nulis-language`), so built-in code, declarative plugins, and optional language servers resolve the same way.
 
 ```text
 ┌──────────────────────────────────────────────────────────────┐
@@ -214,8 +214,11 @@ Nulis is a Rust core with a thin desktop shell. The core has no dependency on th
    documents            services               extensions
  nulis-document      nulis-search            nulis-automation
  nulis-large-file    nulis-syntax            nulis-plugin-host
-                     nulis-hex               nulis-theme
-                     nulis-diff              nulis-settings
+                     nulis-language          nulis-theme
+                     nulis-lsp               nulis-settings
+                     nulis-hex
+                     nulis-diff
+                     nulis-print
                      nulis-filesystem
                      nulis-terminal
                      nulis-platform
@@ -243,12 +246,13 @@ A document is a **piece table**: an immutable, randomly accessible original file
 
 | Crate | Responsibility |
 | --- | --- |
-| `nulis-core` | Command registry, document sessions, editing operations, line change tracking, JSON, XML, YAML, and plist tools, and orchestration of every other crate. |
+| `nulis-core` | Command registry, document sessions, editing operations, line change tracking, JSON, XML, YAML, and plist tools, optional language-server management, and orchestration of every other crate. |
 | `nulis-document` | Piece table, 64-bit positions, snapshots, and undo history. |
 | `nulis-large-file` | Random-access byte sources and append stores. |
 | `nulis-search` | Streaming find and replace, linear-time regular expressions with capture-group replacement, column search, and find in files. |
-| `nulis-syntax` | The language catalog (detection and file associations), Tree-sitter parsers for JSON and Python, a table-driven lexer for the other languages, folding, and symbols. |
-| `nulis-language` | Language capability contracts (validate, format, preview, …), the provider registry, and isolation of failing providers. |
+| `nulis-syntax` | The language catalog (detection, file associations, and content sniffing), Tree-sitter parsers for JSON and Python, a table-driven lexer and JSX scanner for the other languages, folding, symbols, and vocabulary for completion. |
+| `nulis-language` | Language capability contracts (validate, format, preview, indentation, completion), the provider registry, resolution by kind and origin, and isolation of failing providers. |
+| `nulis-lsp` | Language server client: starts an approved command, speaks JSON-RPC over its standard streams on a reader thread, maps positions to the server's encoding, and stops it; no editor state. |
 | `nulis-hex` | Hexadecimal viewports and byte editing. |
 | `nulis-print` | Page layout for Print and PDF, the streaming PDF writer, and fonts. |
 | `nulis-diff` | Text, binary, and folder comparison. |
@@ -258,7 +262,7 @@ A document is a **piece table**: an immutable, randomly accessible original file
 | `nulis-settings` | Layered settings and customization storage. |
 | `nulis-theme` | Theme tokens, built-in themes, user theme validation, and contrast floors applied to every theme. |
 | `nulis-automation` | Macros and the restricted script evaluator. |
-| `nulis-plugin-host` | Plugin packages, approval, and isolated workers. |
+| `nulis-plugin-host` | Plugin packages, approval, declarative language data, and isolated JavaScript workers. |
 | `nulis-desktop` (`apps/desktop/src-tauri`) | The Tauri adapter: windows, native menus, and IPC. |
 | `nulis-benchmarks` | Performance probes. |
 
@@ -279,7 +283,7 @@ apps/desktop/            The desktop application
 crates/                  The Rust core and its services (see the table above)
 packages/
   nulis-plugin-sdk/      TypeScript SDK for plugin authors
-examples/plugins/        Two sample plugins
+examples/plugins/        Sample plugins: JavaScript, TypeScript, and a declarative language
 themes/                  Built-in themes and the converted theme catalog
 benchmarks/              Performance probes
 fuzz/                    Fuzz target for the document model
@@ -418,15 +422,16 @@ It holds the session (open files and layout), `settings.json` (for example `file
 ## Extending Nulis
 
 - **Themes** are declarative JSON files. [docs/THEME_SPEC.md](docs/THEME_SPEC.md) lists every token. Install one from **Settings ▸ Appearance & Themes**.
-- **Plugins** are JavaScript packages with a manifest. [docs/PLUGIN_GUIDE.md](docs/PLUGIN_GUIDE.md) is the step-by-step developer guide (also shown in Help as *Building Plugins*), [docs/PLUGIN_API.md](docs/PLUGIN_API.md) is the short contract, and `packages/nulis-plugin-sdk` provides the TypeScript types. Two working examples are tested against the real plugin worker: `examples/plugins/hello-nulis` (one command, plain JavaScript) and `examples/plugins/nulis-tips` (TypeScript, two commands, startup activation, arguments, results, and a build step).
+- **Plugins** are packages with a manifest. API v2 also accepts a **declarative language** package: highlighting, comments, indentation, completion, snippets, associations, and first-line detection as data, with no JavaScript and no process. [docs/PLUGIN_GUIDE.md](docs/PLUGIN_GUIDE.md) is the step-by-step developer guide (also shown in Help as *Building Plugins*), [docs/PLUGIN_API.md](docs/PLUGIN_API.md) is the short contract, and `packages/nulis-plugin-sdk` provides the TypeScript types. Three working examples are tested against the real plugin host: `examples/plugins/hello-nulis` (one command, plain JavaScript), `examples/plugins/nulis-tips` (TypeScript, two commands, startup activation, arguments, results, and a build step), and `examples/plugins/nulis-nim` (a declarative language).
 - **Macros and scripts** are created in the application under **Automation**.
-- **Languages** handled by the table-driven lexer are described by data in `crates/nulis-syntax/src/lexer.rs`: keywords, comment and string syntax, and file names. Adding a language is adding a table entry and a test.
+- **Languages** handled by the table-driven lexer are described by data in `crates/nulis-syntax/src/lexer.rs`: keywords, comment and string syntax, and file names. Adding a language to the application is adding a table entry and a test, or installing a declarative language plugin.
 
 ## Security model
 
 - The webview runs under a strict content security policy: no remote scripts, no inline scripts, no frames.
 - The interface can reach the system only through the adapter's commands, which validate every argument. The Settings window has its own, smaller allowlist.
-- Plugins and scripts are denied by default. Each must be approved, approval is bound to the exact content, and a plugin runs in a separate process with resource limits.
+- Plugins and scripts are denied by default. Each must be approved, approval is bound to the exact content, and a plugin runs in a separate process with resource limits. A declarative language plugin contains no code and starts no process.
+- Language servers run only after their exact command and language list are approved in Settings; changing either withdraws the approval, and three consecutive failures set the server aside.
 - Markdown preview does not render raw HTML.
 - Folder operations do not follow symbolic links out of the opened folder.
 
