@@ -2745,6 +2745,7 @@ name = "nulis-language"
 version = "0.4.0"
 dependencies = [
  "nulis-syntax",
+ "regex",
  "serde",
  "thiserror 2.0.21",
 ]
@@ -2771,6 +2772,7 @@ name = "nulis-plugin-host"
 version = "0.4.0"
 dependencies = [
  "boa_engine",
+ "regex",
  "rustix",
  "semver",
  "serde",
@@ -2821,6 +2823,7 @@ dependencies = [
 name = "nulis-syntax"
 version = "0.4.0"
 dependencies = [
+ "regex",
  "serde",
  "thiserror 2.0.21",
  "tree-sitter",

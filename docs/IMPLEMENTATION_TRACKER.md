@@ -4,8 +4,8 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 
 ## Current state
 
-- **Current milestone:** M47 complete (2026-10-24); next is M48 (external plugin readiness). M41 approved 2026-10-23 with every plan §7 recommendation accepted. Branch `feat/language-capabilities`. **To resume plan 4, read the "Plan 4" section below.** Plan 3 is complete and released in Nulis 0.4.0 (2026-10-23).
-- **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 5 of 5 milestones completed (M31–M35); plan 3: 5 of 5 completed (M36–M40, in Nulis 0.4.0); plan 4: 7 of 8 (M41–M47)
+- **Current milestone:** M48 complete (2026-10-24). Plan 4 is complete; branch `feat/language-capabilities`. **To resume plan 4, read the "Plan 4" section below.** Plan 3 is complete and released in Nulis 0.4.0 (2026-10-23).
+- **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 5 of 5 milestones completed (M31–M35); plan 3: 5 of 5 completed (M36–M40, in Nulis 0.4.0); plan 4: 8 of 8 (M41–M48)
 - **Baseline before M19 (commit `66853e1`):** `cargo test -p nulis-core` 86 passed; desktop Vitest 11 files, 115 tests passed.
 
 | Milestone | Status | Handover |
@@ -39,7 +39,7 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 | M45 Shared autocomplete | Completed 2026-10-23 (checked in the app on macOS) | `handover/M45_HANDOVER.md` |
 | M46 Expand bundled coverage | Completed 2026-10-23 (app check pending) | `handover/M46_HANDOVER.md` |
 | M47 Optional LSP | Completed 2026-10-24 (manual rust-analyzer check pending) | `handover/M47_HANDOVER.md` |
-| M48 External plugin readiness | Not Started | — |
+| M48 External plugin readiness | Completed 2026-10-24 (manual app check pending) | `handover/M48_HANDOVER.md` |
 
 ## Plan 4 (M41–M48) — language capabilities
 
@@ -233,16 +233,18 @@ Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language 
 
 ### M48 — External plugin readiness
 
-**Status:** Not Started. **Depends on:** M42–M46.
+**Status:** Completed 2026-10-24 (automated checks on macOS; manual app check pending). Handover: `handover/M48_HANDOVER.md`. **Depends on:** M42–M46 (done).
 
 | Task | Status |
 | --- | --- |
-| Plugin API v2 manifest (`apiVersion`, declarative languages); v1 still valid | Not Started |
-| Owned run-time `LexerSpec`; regex and size validation | Not Started |
-| Enable, disable, remove per plugin and per capability; conflict UI | Not Started |
-| Hostile-manifest and isolation tests | Not Started |
-| `PLUGIN_API.md` v2, `PLUGIN_GUIDE.md` chapter, declarative example plugin | Not Started |
-| Security review before any executable language provider | Not Started |
+| Plugin API v2 manifest (`apiVersion`, declarative languages); v1 still valid | Completed: `PLUGIN_API_VERSION = 2`, accepted range `1..=2`; `api_version` defaults to 1; `main` is optional in v2; v1 rules unchanged. `PluginManifest` validates languages, comments, brackets, highlight, indentation, completion, and snippets with per-list caps and namespaced/duplicate checks. |
+| Owned run-time `LexerSpec`; regex and size validation | Completed: built-in lexer tables are compile-time `LexerSeed`; `LexerSpec`/`StringRule` are owned behind `Arc`; declarative modules compile through `RegexBuilder` with a 1 MiB automaton limit and 4,096-byte pattern cap. `Vocabulary`, `CommentSyntax`, and the scanner are owned. |
+| Enable, disable, remove per plugin and per capability; conflict UI | Completed: `PluginActivation` (`enabled`, `disabled_capabilities`) in the digest-bound approval document; `plugin.setEnabled` and `plugin.setCapabilityEnabled`; `plugin.languageErrors`; `language.conflicts`; Settings ▸ Languages conflict radios write `files.associations` on Apply; Plugins panel checkboxes. All plugin languages, associations, and providers are rebuilt after every state change. |
+| Hostile-manifest and isolation tests | Completed: v2 acceptance, v1 compatibility, unknown fields, unsupported API, duplicate language IDs, invalid/oversized regexes, bad associations, empty delimiters, bad brackets, control characters, no-entry restrictions, invalid declarative data, duplicate built-in registration, bad-contribution isolation, and provider-ID bounds. The `nulis-nim` example is loaded by test. |
+| `PLUGIN_API.md` v2, `PLUGIN_GUIDE.md` chapter, declarative example plugin | Completed: version and declarative-language chapters, capability switches, limits, troubleshooting; `examples/plugins/nulis-nim` with a README. |
+| Security review before any executable language provider | Completed as a scope decision: no executable language provider is added in M48; declarative data carries no code path, and executable providers remain deferred pending a written security review. |
+
+**Verification (2026-10-24, macOS):** `cargo fmt --all -- --check` clean; `cargo clippy --workspace --all-targets -- -D warnings` clean; `cargo test --workspace` 455 passed, 0 failed; desktop `npm run lint` clean; `npm run typecheck` clean; `npx vitest run` 23 files, 210 passed. IPC protocol 47.
 
 ## M19 — Audit and foundation
 

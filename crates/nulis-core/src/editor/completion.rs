@@ -177,8 +177,8 @@ impl DocumentManager {
             &table.read_vec(caret, window_end - caret)?,
         )
         .0;
-        let word_bytes = self.languages().word_bytes(&session.language_id);
-        let prefix = word_prefix(&before, word_bytes).to_owned();
+        let word_bytes = self.languages().word_bytes(&session.language_id).to_vec();
+        let prefix = word_prefix(&before, &word_bytes).to_owned();
         if !explicit && prefix.chars().count() < min_prefix.max(1) {
             return Ok(empty(prefix));
         }
@@ -186,7 +186,7 @@ impl DocumentManager {
             prefix: &prefix,
             before: &before,
             after: &after,
-            word_bytes,
+            word_bytes: &word_bytes,
         };
         let registry = self.capability_registry();
         let sources = completion_providers(self, session)

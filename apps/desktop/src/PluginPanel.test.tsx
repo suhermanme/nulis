@@ -17,7 +17,8 @@ afterEach(() => {
 test("installs a package and requires an explicit revision-bound approval", async () => {
   const plugin: PluginSummary = {
     id: "nulis.hello-example", name: "Hello Nulis", version: "1.0.0", digest: "abcdef1234567890",
-    requestedPermissions: ["showMessage"], approved: false,
+    apiVersion: 1, requestedPermissions: ["showMessage"], approved: false, enabled: true,
+    disabledCapabilities: [], languages: [],
     commands: [{ command: "nulis.hello-example.hello", title: "Hello", category: "Examples" }],
   };
   let installed = false;
@@ -51,7 +52,8 @@ test("installs a package and requires an explicit revision-bound approval", asyn
 test("revokes and uninstalls a plugin", async () => {
   const plugin: PluginSummary = {
     id: "nulis.hello-example", name: "Hello Nulis", version: "1.0.0", digest: "abcdef1234567890",
-    requestedPermissions: ["showMessage"], approved: true, commands: [],
+    apiVersion: 1, requestedPermissions: ["showMessage"], approved: true, enabled: true,
+    disabledCapabilities: [], languages: [], commands: [],
   };
   let present = true;
   vi.mocked(listCommands).mockResolvedValue([]);
@@ -66,4 +68,33 @@ test("revokes and uninstalls a plugin", async () => {
   expect(await screen.findByText("Approval required")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Uninstall Hello Nulis" }));
   expect(await screen.findByText("No plugins installed.")).toBeInTheDocument();
+});
+
+test("disables a plugin and one declarative capability without revoking it", async () => {
+  const plugin: PluginSummary = {
+    id: "acme.lang-nim", name: "Nim", version: "2.0.0", digest: "abcdef1234567890",
+    apiVersion: 2, requestedPermissions: [], approved: true, enabled: true,
+    disabledCapabilities: [], commands: [],
+    languages: [{
+      id: "nim", displayName: "Nim", extensions: ["nim"], filenames: [],
+      capabilities: ["languages", "highlight", "indentation"],
+    }],
+  };
+  vi.mocked(executeCommand).mockImplementation(async (request: ExecuteCommandRequest) => {
+    if (request.id === "plugin.list") return [plugin] as never;
+    return true as never;
+  });
+  render(<PluginPanel onClose={vi.fn()} onCommandsChange={vi.fn()} onStatus={vi.fn()} />);
+
+  fireEvent.click(await screen.findByRole("checkbox", { name: "Nim highlight" }));
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
+    id: "plugin.setCapabilityEnabled", context: { windowId: "main" },
+    arguments: { id: "acme.lang-nim", capability: "highlight", enabled: false },
+  }));
+
+  fireEvent.click(screen.getByRole("button", { name: "Disable" }));
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
+    id: "plugin.setEnabled", context: { windowId: "main" },
+    arguments: { id: "acme.lang-nim", enabled: false },
+  }));
 });

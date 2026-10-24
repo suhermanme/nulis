@@ -3,8 +3,9 @@
 
 mod lexer;
 
+use regex::{Regex, RegexBuilder};
 use serde::Serialize;
-use std::{collections::BTreeMap, path::Path, time::Duration};
+use std::{collections::BTreeMap, path::Path, sync::Arc, time::Duration};
 use thiserror::Error;
 use tree_sitter::{Language, Node, Parser};
 
@@ -15,6 +16,11 @@ pub const MAX_FOLD_RANGES: usize = 2_000;
 pub const MAX_SYMBOLS: usize = 2_000;
 pub const MAX_BRACKET_PAIRS: usize = 20_000;
 pub const MAX_PARSE_TIME: Duration = Duration::from_millis(25);
+/// Longest `firstLine` pattern a declarative language may supply.
+pub const MAX_DECLARATIVE_REGEX_BYTES: usize = 4_096;
+/// Compiled size cap for declarative regexes, so a hostile pattern cannot
+/// allocate an unbounded automaton.
+const MAX_DECLARATIVE_REGEX_SIZE: usize = 1_048_576;
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(transparent)]
@@ -135,14 +141,14 @@ pub struct TokenRule {
 }
 
 /// How a module produces its analysis.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 enum Scanner {
     /// No analysis: Plain Text.
     None,
     /// A Tree-sitter grammar walked with the module's node rules.
     Grammar,
-    /// A table-driven lexer.
-    Lexer(&'static lexer::LexerSpec),
+    /// A table-driven lexer, owned by the module so plugins can supply one.
+    Lexer(Arc<lexer::LexerSpec>),
     /// The bounded Markdown line scanner.
     MarkdownLines,
 }
@@ -158,6 +164,8 @@ pub struct LanguageModule {
     bracket_node_kinds: Vec<&'static str>,
     comments: Option<CommentSyntax>,
     vocabulary: Option<Vocabulary>,
+    /// A plugin language's `firstLine` pattern, tried when the file name says nothing.
+    first_line: Option<Regex>,
 }
 
 impl std::fmt::Debug for LanguageModule {
@@ -195,6 +203,7 @@ impl LanguageModule {
             bracket_node_kinds,
             comments: None,
             vocabulary: None,
+            first_line: None,
         }
     }
 
@@ -209,45 +218,87 @@ impl LanguageModule {
             bracket_node_kinds: Vec::new(),
             comments: None,
             vocabulary: None,
+            first_line: None,
         }
     }
 
-    fn lexical(spec: &'static lexer::LexerSpec) -> Self {
-        let owned = |items: &[&str]| items.iter().map(|item| (*item).to_owned()).collect();
+    fn lexical(spec: &'static lexer::LexerSeed) -> Self {
         let comments = CommentSyntax {
             line: spec
                 .line_comments
                 .first()
-                .copied()
+                .map(|marker| (*marker).to_owned())
                 .filter(|_| spec.toggles_line_comments),
             // Markup comments are recognized by the markup scanner itself.
-            block: spec.block_comments.first().copied().or(matches!(
-                spec.mode,
-                lexer::Mode::Markup
-            )
-            .then_some(("<!--", "-->"))),
+            block: spec
+                .block_comments
+                .first()
+                .map(|(open, close)| ((*open).to_owned(), (*close).to_owned()))
+                .or(matches!(spec.mode, lexer::Mode::Markup)
+                    .then_some(("<!--".to_owned(), "-->".to_owned()))),
+        };
+        let runtime = lexer::LexerSpec::from_seed(spec);
+        let vocabulary = Vocabulary {
+            keywords: runtime
+                .keywords
+                .iter()
+                .chain(&runtime.completion_words)
+                .cloned()
+                .collect(),
+            types: runtime.types.clone(),
+            case_insensitive: runtime.case_insensitive,
+            word_bytes: runtime.ident_chars.clone(),
         };
         Self::with_scanner(
             LanguageDescriptor {
-                id: LanguageId(spec.id.into()),
-                display_name: spec.name.into(),
-                extensions: owned(spec.extensions),
-                filenames: owned(spec.filenames),
+                id: LanguageId(runtime.id.clone()),
+                display_name: runtime.name.clone(),
+                extensions: runtime.extensions.clone(),
+                filenames: runtime.filenames.clone(),
             },
-            Scanner::Lexer(spec),
+            Scanner::Lexer(Arc::new(runtime)),
         )
         .with_comments(comments)
-        .with_vocabulary(Vocabulary {
-            keywords: spec
-                .keywords
-                .iter()
-                .chain(spec.completion_words)
-                .copied()
-                .collect(),
-            types: spec.types.to_vec(),
-            case_insensitive: spec.case_insensitive,
-            word_bytes: spec.ident_chars,
-        })
+        .with_vocabulary(vocabulary)
+    }
+
+    /// Builds a language module from validated declarative data (a plugin's
+    /// `contributes.languages`). `first_line` is compiled with a bounded regex
+    /// builder and is only consulted when the file name says nothing.
+    ///
+    /// # Errors
+    /// Returns an error for an invalid identifier, an invalid regex, or an
+    /// empty string delimiter.
+    pub fn declarative(
+        descriptor: LanguageDescriptor,
+        lexer: Option<DeclarativeLexer>,
+        comments: CommentSyntax,
+        vocabulary: Vocabulary,
+        first_line: Option<&str>,
+    ) -> Result<Self, SyntaxError> {
+        let first_line = first_line
+            .map(|pattern| {
+                if pattern.len() > MAX_DECLARATIVE_REGEX_BYTES {
+                    return Err(SyntaxError::InvalidDeclarative(
+                        "firstLine pattern is too long".into(),
+                    ));
+                }
+                RegexBuilder::new(pattern)
+                    .size_limit(MAX_DECLARATIVE_REGEX_SIZE)
+                    .dfa_size_limit(MAX_DECLARATIVE_REGEX_SIZE)
+                    .build()
+                    .map_err(|error| SyntaxError::InvalidDeclarative(error.to_string()))
+            })
+            .transpose()?;
+        let scanner = match lexer {
+            Some(lexer) => Scanner::Lexer(Arc::new(lexer.into_spec(comments.clone())?)),
+            None => Scanner::None,
+        };
+        let mut module = Self::with_scanner(descriptor, scanner)
+            .with_comments(comments)
+            .with_vocabulary(vocabulary);
+        module.first_line = first_line;
+        Ok(module)
     }
 
     /// Sets the words completion offers; an empty vocabulary means none.
@@ -274,21 +325,101 @@ impl LanguageModule {
 /// Words a language's completion offers, and what counts as a word.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Vocabulary {
-    pub keywords: Vec<&'static str>,
-    pub types: Vec<&'static str>,
+    pub keywords: Vec<String>,
+    pub types: Vec<String>,
     /// Keywords match in any letter case; they are stored in lowercase.
     pub case_insensitive: bool,
     /// Bytes other than letters, digits, and `_` that belong to a word (`$`, `-`).
-    pub word_bytes: &'static [u8],
+    pub word_bytes: Vec<u8>,
 }
 
 /// How a language writes comments, for the Toggle Comment command.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct CommentSyntax {
     /// A marker that comments out the rest of a line (`//`, `#`, `--`).
-    pub line: Option<&'static str>,
+    pub line: Option<String>,
     /// Markers around a comment, used when there is no line marker (`<!--`, `-->`).
-    pub block: Option<(&'static str, &'static str)>,
+    pub block: Option<(String, String)>,
+}
+
+/// The scanner a declarative language asks for.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DeclarativeMode {
+    Code,
+    Markup,
+    Css,
+    Delimited,
+}
+
+/// One string delimiter in a declarative language.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DeclarativeString {
+    pub open: String,
+    pub close: String,
+    /// A backslash hides the next byte from the closing delimiter.
+    pub escape: bool,
+    pub multiline: bool,
+}
+
+/// A plugin language's highlighting table, before it becomes a runtime lexer.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct DeclarativeLexer {
+    pub mode: Option<DeclarativeMode>,
+    pub keywords: Vec<String>,
+    pub types: Vec<String>,
+    pub strings: Vec<DeclarativeString>,
+    pub case_insensitive: bool,
+    /// Extra bytes allowed inside an identifier (`$`, `-`).
+    pub ident_chars: Vec<u8>,
+}
+
+impl DeclarativeLexer {
+    fn into_spec(self, comments: CommentSyntax) -> Result<lexer::LexerSpec, SyntaxError> {
+        if self.strings.iter().any(|rule| rule.open.is_empty()) {
+            return Err(SyntaxError::InvalidDeclarative(
+                "a string delimiter is empty".into(),
+            ));
+        }
+        Ok(lexer::LexerSpec {
+            id: String::new(),
+            name: String::new(),
+            extensions: Vec::new(),
+            filenames: Vec::new(),
+            mode: match self.mode.unwrap_or(DeclarativeMode::Code) {
+                DeclarativeMode::Code => lexer::Mode::Code,
+                DeclarativeMode::Markup => lexer::Mode::Markup,
+                DeclarativeMode::Css => lexer::Mode::Css,
+                DeclarativeMode::Delimited => lexer::Mode::Delimited,
+            },
+            keywords: self.keywords,
+            types: self.types,
+            line_comments: comments.line.into_iter().collect(),
+            comment_words: Vec::new(),
+            block_comments: comments.block.into_iter().collect(),
+            strings: self
+                .strings
+                .into_iter()
+                .map(|rule| lexer::StringRule {
+                    open: rule.open,
+                    close: rule.close,
+                    escape: rule.escape,
+                    multiline: rule.multiline,
+                })
+                .collect(),
+            case_insensitive: self.case_insensitive,
+            sigils: Vec::new(),
+            ident_chars: self.ident_chars,
+            preprocessor: false,
+            capital_types: false,
+            key_suffix: None,
+            raw_text_elements: false,
+            delimiter: None,
+            yaml: false,
+            completion_words: Vec::new(),
+            ecmascript: false,
+            jsx: false,
+        })
+    }
 }
 
 /// Where a language or an association came from. When two associations of
@@ -353,6 +484,16 @@ impl FileMatcher {
         }
     }
 
+    /// The `files.associations` spelling of this matcher (`*.rs`, `Dockerfile.*`).
+    #[must_use]
+    pub fn pattern(&self) -> String {
+        match self {
+            Self::FileName(name) => name.clone(),
+            Self::Prefix(prefix) => format!("{prefix}*"),
+            Self::Extension(extension) => format!("*.{extension}"),
+        }
+    }
+
     /// Ranks matches: exact file names, then name prefixes, then
     /// extensions; longer ones first within each.
     fn specificity(&self) -> (u8, usize) {
@@ -390,6 +531,8 @@ struct RegisteredModule {
 pub struct LanguageRegistry {
     modules: BTreeMap<LanguageId, RegisteredModule>,
     user_associations: Vec<Association>,
+    /// Associations a plugin added to a language it does not own.
+    plugin_associations: Vec<Association>,
 }
 
 impl Default for LanguageRegistry {
@@ -404,6 +547,7 @@ impl LanguageRegistry {
         let mut registry = Self {
             modules: BTreeMap::new(),
             user_associations: Vec::new(),
+            plugin_associations: Vec::new(),
         };
         let builtins = [
             plain_text_module(),
@@ -460,8 +604,60 @@ impl LanguageRegistry {
                 self.modules.insert(id.clone(), registered);
                 Err(SyntaxError::BuiltinLanguage(id.clone()))
             }
-            Some(registered) => Ok(registered.module),
+            Some(registered) => {
+                self.plugin_associations
+                    .retain(|association| association.language != *id);
+                Ok(registered.module)
+            }
         }
+    }
+
+    /// Adds a plugin's file associations to a language it does not own. The
+    /// language must already be registered; duplicates are ignored.
+    ///
+    /// # Errors
+    /// Returns an error for an unknown language or a bad pattern.
+    pub fn add_plugin_associations(
+        &mut self,
+        plugin_id: &str,
+        language: &LanguageId,
+        extensions: &[String],
+        filenames: &[String],
+    ) -> Result<(), SyntaxError> {
+        if !self.modules.contains_key(language) {
+            return Err(SyntaxError::UnknownLanguage(language.clone()));
+        }
+        let source = AssociationSource::Plugin(plugin_id.to_owned());
+        for extension in extensions {
+            let matcher = FileMatcher::parse(&format!("*.{extension}"))?;
+            let association = Association {
+                matcher,
+                language: language.clone(),
+                source: source.clone(),
+            };
+            if !self.plugin_associations.contains(&association) {
+                self.plugin_associations.push(association);
+            }
+        }
+        for filename in filenames {
+            let matcher = FileMatcher::parse(filename)?;
+            let association = Association {
+                matcher,
+                language: language.clone(),
+                source: source.clone(),
+            };
+            if !self.plugin_associations.contains(&association) {
+                self.plugin_associations.push(association);
+            }
+        }
+        Ok(())
+    }
+
+    /// Removes every language and association contributed by plugins.
+    pub fn clear_plugin_languages(&mut self) {
+        self.modules
+            .retain(|_, registered| !matches!(registered.source, AssociationSource::Plugin(_)));
+        self.plugin_associations.clear();
     }
 
     #[must_use]
@@ -501,6 +697,7 @@ impl LanguageRegistry {
     #[must_use]
     pub fn associations(&self) -> Vec<Association> {
         let mut all = self.user_associations.clone();
+        all.extend(self.plugin_associations.iter().cloned());
         for (id, registered) in &self.modules {
             let descriptor = &registered.module.descriptor;
             let matchers = descriptor
@@ -560,18 +757,18 @@ impl LanguageRegistry {
     /// Bytes besides letters, digits, and `_` that are part of a word in a
     /// language (`$` in JavaScript, `-` in CSS), for every language.
     #[must_use]
-    pub fn word_bytes(&self, id: &LanguageId) -> &'static [u8] {
+    pub fn word_bytes(&self, id: &LanguageId) -> &[u8] {
         self.modules
             .get(id)
             .and_then(|registered| registered.module.vocabulary.as_ref())
-            .map_or(&[], |vocabulary| vocabulary.word_bytes)
+            .map_or(&[], |vocabulary| vocabulary.word_bytes.as_slice())
     }
 
     /// The comment markers of a language, or `None` when it has none
     /// (plain text, JSON).
     #[must_use]
     pub fn comment_syntax(&self, id: &LanguageId) -> Option<CommentSyntax> {
-        self.modules.get(id)?.module.comments
+        self.modules.get(id)?.module.comments.clone()
     }
 
     #[must_use]
@@ -595,8 +792,34 @@ impl LanguageRegistry {
     /// nothing: a `#!` interpreter line, an XML or PHP prolog, or an HTML doctype.
     #[must_use]
     pub fn detect_content(&self, head: &[u8]) -> Option<LanguageId> {
-        let id = LanguageId(lexer::detect_content(head)?.into());
-        self.modules.contains_key(&id).then_some(id)
+        if let Some(id) = lexer::detect_content(head) {
+            let id = LanguageId(id.into());
+            if self.modules.contains_key(&id) {
+                return Some(id);
+            }
+        }
+        let first_line = head
+            .split(|byte| *byte == b'\n')
+            .next()
+            .map(|line| {
+                String::from_utf8_lossy(line)
+                    .trim_end_matches('\r')
+                    .to_owned()
+            })
+            .unwrap_or_default();
+        self.modules
+            .iter()
+            .filter_map(|(id, registered)| {
+                registered
+                    .module
+                    .first_line
+                    .as_ref()
+                    .filter(|pattern| pattern.is_match(&first_line))
+                    .map(|_| (registered.source.clone(), id.clone()))
+            })
+            // Built-in patterns first, then plugins by ID.
+            .min()
+            .map(|(_, id)| id)
     }
 
     /// The language a file name selects. In order: the user's associations,
@@ -661,7 +884,7 @@ impl LanguageRegistry {
             .ok_or_else(|| SyntaxError::UnknownLanguage(language_id.clone()))?
             .module;
         let window = &source[..parsed_len];
-        match module.scanner {
+        match &module.scanner {
             Scanner::None => Ok(SyntaxAnalysis::plain_text(parsed_len, truncated)),
             Scanner::MarkdownLines => analyze_markdown(window, base_byte, base_line, truncated),
             Scanner::Lexer(spec) => Ok(lexer::analyze(
@@ -737,7 +960,7 @@ fn json_module() -> LanguageModule {
         vec!["object", "array"],
     )
     .with_vocabulary(Vocabulary {
-        keywords: vec!["true", "false", "null"],
+        keywords: vec!["true".into(), "false".into(), "null".into()],
         ..Vocabulary::default()
     })
 }
@@ -760,11 +983,11 @@ fn json_with_comments_module() -> LanguageModule {
         json.bracket_node_kinds.clone(),
     )
     .with_comments(CommentSyntax {
-        line: Some("//"),
-        block: Some(("/*", "*/")),
+        line: Some("//".into()),
+        block: Some(("/*".into(), "*/".into())),
     })
     .with_vocabulary(Vocabulary {
-        keywords: vec!["true", "false", "null"],
+        keywords: vec!["true".into(), "false".into(), "null".into()],
         ..Vocabulary::default()
     })
 }
@@ -833,11 +1056,14 @@ fn python_module() -> LanguageModule {
         ],
     )
     .with_comments(CommentSyntax {
-        line: Some("#"),
+        line: Some("#".into()),
         block: None,
     })
     .with_vocabulary(Vocabulary {
-        keywords: lexer::PYTHON_WORDS.to_vec(),
+        keywords: lexer::PYTHON_WORDS
+            .iter()
+            .map(|word| (*word).to_owned())
+            .collect(),
         ..Vocabulary::default()
     })
 }
@@ -854,7 +1080,7 @@ fn markdown_module() -> LanguageModule {
     )
     .with_comments(CommentSyntax {
         line: None,
-        block: Some(("<!--", "-->")),
+        block: Some(("<!--".into(), "-->".into())),
     })
 }
 
@@ -1285,6 +1511,8 @@ pub enum SyntaxError {
     BuiltinLanguage(LanguageId),
     #[error("unsupported file association {0:?}: use *.ext or a file name")]
     InvalidAssociation(String),
+    #[error("invalid declarative language: {0}")]
+    InvalidDeclarative(String),
     #[error("language module has no parser grammar")]
     MissingGrammar,
     #[error("Tree-sitter parser setup failed: {0}")]
@@ -1306,13 +1534,15 @@ mod tests {
                 .comment_syntax(&LanguageId::new(id).expect("id"))
                 .and_then(|syntax| syntax.line)
         };
-        assert_eq!(line("rust"), Some("//"));
-        assert_eq!(line("python"), Some("#"));
-        assert_eq!(line("sql"), Some("--"));
+        assert_eq!(line("rust").as_deref(), Some("//"));
+        assert_eq!(line("python").as_deref(), Some("#"));
+        assert_eq!(line("sql").as_deref(), Some("--"));
         assert_eq!(
             registry
                 .comment_syntax(&LanguageId::new("html").expect("id"))
-                .and_then(|syntax| syntax.block),
+                .and_then(|syntax| syntax.block)
+                .as_ref()
+                .map(|(open, close)| (open.as_str(), close.as_str())),
             Some(("<!--", "-->"))
         );
         assert_eq!(
@@ -1854,8 +2084,9 @@ mod tests {
 #[cfg(test)]
 mod catalog_tests {
     use super::{
-        AssociationSource, FileMatcher, LanguageDescriptor, LanguageId, LanguageModule,
-        LanguageRegistry, Scanner, SyntaxError, SyntaxToken,
+        AssociationSource, CommentSyntax, DeclarativeLexer, DeclarativeMode, DeclarativeString,
+        FileMatcher, LanguageDescriptor, LanguageId, LanguageModule, LanguageRegistry, Scanner,
+        SyntaxError, SyntaxToken, Vocabulary, MAX_DECLARATIVE_REGEX_BYTES,
     };
     use std::path::Path;
 
@@ -2007,7 +2238,12 @@ mod catalog_tests {
         assert_eq!(pairs, [(1, 18), (5, 17), (9, 16), (13, 15)]);
         let css = registry.comment_syntax(&id("css")).expect("css");
         assert_eq!(css.line, None);
-        assert_eq!(css.block, Some(("/*", "*/")));
+        assert_eq!(
+            css.block
+                .as_ref()
+                .map(|(open, close)| (open.as_str(), close.as_str())),
+            Some(("/*", "*/"))
+        );
         // SCSS `//` comments are still highlighted as comments.
         let analysis = registry
             .analyze(&id("css"), b"// note\na { }\n", 0, 1)
@@ -2146,24 +2382,30 @@ mod catalog_tests {
     fn languages_offer_their_words_to_completion() {
         let registry = LanguageRegistry::with_builtins();
         let rust = registry.vocabulary(&id("rust")).expect("rust");
-        assert!(rust.keywords.contains(&"fn") && rust.types.contains(&"usize"));
+        assert!(
+            rust.keywords.iter().any(|word| word == "fn")
+                && rust.types.iter().any(|word| word == "usize")
+        );
         let sql = registry.vocabulary(&id("sql")).expect("sql");
-        assert!(sql.case_insensitive && sql.keywords.contains(&"select"));
+        assert!(sql.case_insensitive && sql.keywords.iter().any(|word| word == "select"));
         assert!(registry
             .vocabulary(&id("html"))
             .expect("html")
             .keywords
-            .contains(&"div"));
+            .iter()
+            .any(|word| word == "div"));
         assert!(registry
             .vocabulary(&id("python"))
             .expect("python")
             .keywords
-            .contains(&"def"));
+            .iter()
+            .any(|word| word == "def"));
         assert!(registry
             .vocabulary(&id("json"))
             .expect("json")
             .keywords
-            .contains(&"null"));
+            .iter()
+            .any(|word| word == "null"));
         assert_eq!(registry.word_bytes(&id("javascript")), b"$");
         for none in ["plaintext", "markdown", "csv"] {
             assert_eq!(registry.vocabulary(&id(none)), None, "{none}");
@@ -2250,6 +2492,165 @@ mod catalog_tests {
         ));
         assert!(matches!(
             registry.unregister(&id("nim")),
+            Err(SyntaxError::UnknownLanguage(_))
+        ));
+    }
+
+    fn declarative_module(first_line: Option<&str>) -> Result<LanguageModule, SyntaxError> {
+        LanguageModule::declarative(
+            LanguageDescriptor {
+                id: id("nim"),
+                display_name: "Nim".into(),
+                extensions: vec!["nim".into()],
+                filenames: vec!["nim.cfg".into()],
+            },
+            Some(DeclarativeLexer {
+                mode: Some(DeclarativeMode::Code),
+                keywords: vec!["proc".into(), "let".into()],
+                types: vec!["int".into()],
+                strings: vec![DeclarativeString {
+                    open: "\"".into(),
+                    close: "\"".into(),
+                    escape: true,
+                    multiline: false,
+                }],
+                case_insensitive: false,
+                ident_chars: vec![b'_'],
+            }),
+            CommentSyntax {
+                line: Some("#".into()),
+                block: None,
+            },
+            Vocabulary {
+                keywords: vec!["proc".into(), "let".into()],
+                types: vec!["int".into()],
+                case_insensitive: false,
+                word_bytes: vec![b'_'],
+            },
+            first_line,
+        )
+    }
+
+    #[test]
+    fn declarative_language_data_builds_highlighting_completion_and_detection() {
+        let mut registry = LanguageRegistry::with_builtins();
+        let module = declarative_module(Some(r"^#!.*\bnim\b")).expect("declarative module");
+        registry
+            .register(module, plugin("acme.nim"))
+            .expect("register");
+
+        assert_eq!(registry.detect_path(Path::new("prog.nim")).as_str(), "nim");
+        assert_eq!(registry.detect_path(Path::new("nim.cfg")).as_str(), "nim");
+        assert_eq!(
+            registry.detect_content(b"#!/usr/bin/env nim\n"),
+            Some(id("nim"))
+        );
+        assert_eq!(registry.detect_content(b"echo 1\n"), None);
+        let vocabulary = registry.vocabulary(&id("nim")).expect("vocabulary");
+        assert!(vocabulary.keywords.contains(&"proc".to_owned()));
+        assert_eq!(vocabulary.word_bytes, [b'_']);
+        assert_eq!(
+            registry
+                .comment_syntax(&id("nim"))
+                .and_then(|syntax| syntax.line),
+            Some("#".into())
+        );
+
+        let analysis = registry
+            .analyze(
+                &id("nim"),
+                b"proc go() =\n  let answer: int = 42 # note\n  echo \"hi\"\n",
+                0,
+                1,
+            )
+            .expect("analysis");
+        let highlighted: Vec<(&str, SyntaxToken)> =
+            analysis
+                .highlights
+                .iter()
+                .map(|span| {
+                    (
+                        &"proc go() =\n  let answer: int = 42 # note\n  echo \"hi\"\n"
+                            [usize::try_from(span.start_byte).expect("small")
+                                ..usize::try_from(span.end_byte).expect("small")],
+                        span.token,
+                    )
+                })
+                .collect();
+        assert!(highlighted.contains(&("proc", SyntaxToken::Keyword)));
+        assert!(highlighted.contains(&("let", SyntaxToken::Keyword)));
+        assert!(highlighted.contains(&("int", SyntaxToken::Type)));
+        assert!(highlighted.contains(&("42", SyntaxToken::Number)));
+        assert!(highlighted.contains(&("\"hi\"", SyntaxToken::String)));
+        assert!(highlighted.contains(&("# note", SyntaxToken::Comment)));
+    }
+
+    #[test]
+    fn hostile_declarative_data_is_rejected_with_a_typed_error() {
+        assert!(matches!(
+            declarative_module(Some("(")),
+            Err(SyntaxError::InvalidDeclarative(_))
+        ));
+        let long = "a".repeat(MAX_DECLARATIVE_REGEX_BYTES + 1);
+        assert!(matches!(
+            declarative_module(Some(&long)),
+            Err(SyntaxError::InvalidDeclarative(_))
+        ));
+
+        let lexer = DeclarativeLexer {
+            strings: vec![DeclarativeString {
+                open: String::new(),
+                close: "\"".into(),
+                escape: false,
+                multiline: false,
+            }],
+            ..DeclarativeLexer::default()
+        };
+        assert!(matches!(
+            LanguageModule::declarative(
+                LanguageDescriptor {
+                    id: id("nim"),
+                    display_name: "Nim".into(),
+                    extensions: Vec::new(),
+                    filenames: Vec::new(),
+                },
+                Some(lexer),
+                CommentSyntax::default(),
+                Vocabulary::default(),
+                None,
+            ),
+            Err(SyntaxError::InvalidDeclarative(_))
+        ));
+    }
+
+    #[test]
+    fn clearing_plugin_languages_keeps_builtins_and_removes_plugin_associations() {
+        let mut registry = LanguageRegistry::with_builtins();
+        registry
+            .register(plugin_language("nim", &["nim"], &[]), plugin("acme.nim"))
+            .expect("register");
+        registry
+            .add_plugin_associations("acme.json", &id("json"), &["acmejson".into()], &[])
+            .expect("association");
+        assert_eq!(
+            registry.detect_path(Path::new("x.acmejson")).as_str(),
+            "json"
+        );
+        assert_eq!(registry.detect_path(Path::new("x.nim")).as_str(), "nim");
+
+        registry.clear_plugin_languages();
+        assert!(!registry.contains(&id("nim")));
+        assert!(registry.contains(&id("json")));
+        assert_eq!(
+            registry.detect_path(Path::new("x.nim")).as_str(),
+            "plaintext"
+        );
+        assert_eq!(
+            registry.detect_path(Path::new("x.acmejson")).as_str(),
+            "plaintext"
+        );
+        assert!(matches!(
+            registry.add_plugin_associations("acme.json", &id("gone"), &["x".into()], &[]),
             Err(SyntaxError::UnknownLanguage(_))
         ));
     }

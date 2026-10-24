@@ -8,6 +8,7 @@ mod format_tools;
 mod language_servers;
 mod line_changes;
 mod plist_tools;
+mod plugin_languages;
 mod print_jobs;
 mod yaml_tools;
 
@@ -17,22 +18,22 @@ pub use command::{
     CommandContext, CommandDescriptor, CommandError, CommandRegistry, CommandResult,
 };
 pub use editor::{
-    AutoIndent, BookmarkDirection, CapabilitySwitch, ChangeDirection, ClipboardPayload,
-    CompletionList, DocumentCapabilities, DocumentId, DocumentManager, DocumentMapChange,
-    DocumentMapSample, DocumentMapSnapshot, DocumentSummary, EditorError, ExportObserver,
-    ExportPhase, ExportProgress, ExportScope, ExternalChange, ExternalChangeKind, FileSearchScope,
-    FileStamp, FindAllResult, FindDirection, FindResult, FoundLine, FoundMatch, HexCaret,
-    HexClipboardPayload, HexCursor, HexEditResult, HexViewportRequest, HexViewportRow,
+    AssociationClaim, AutoIndent, BookmarkDirection, CapabilitySwitch, ChangeDirection,
+    ClipboardPayload, CompletionList, DocumentCapabilities, DocumentId, DocumentManager,
+    DocumentMapChange, DocumentMapSample, DocumentMapSnapshot, DocumentSummary, EditorError,
+    ExportObserver, ExportPhase, ExportProgress, ExportScope, ExternalChange, ExternalChangeKind,
+    FileSearchScope, FileStamp, FindAllResult, FindDirection, FindResult, FoundLine, FoundMatch,
+    HexCaret, HexClipboardPayload, HexCursor, HexEditResult, HexViewportRequest, HexViewportRow,
     HexViewportSnapshot, HorizontalDirection, IndentSettings, IndentSettingsTable,
-    IndentationSummary, Justify, LanguageCapabilities, LanguageDescriptor, LineEditResult,
-    LineEnding, LineEndingConversion, LineEndingStyle, LineFormatOptions, LineOperation,
-    MarkdownPreviewSource, NumberPadding, NumberSequence, NumberSum, PdfExportRequest,
-    PdfExportResult, RecoveryCandidate, RectangularSelection, ReplaceAllResult, ReplaceFileOutcome,
-    ReplacePreview, ReplacePreviewFile, ReplaceTarget, SearchMode, SearchOptions, Selection,
-    SyntaxBracketPair, SyntaxFold, SyntaxHighlight, SyntaxSnapshot, SyntaxSymbol, TextEncoding,
-    TextTransform, Unobserved, VerticalDirection, ViewportAtRequest, ViewportCursor, ViewportLine,
-    ViewportLineRequest, ViewportRequest, ViewportSnapshot, WorkspaceSearchMatch,
-    WorkspaceSearchResult, COMPLETION_WINDOW_BYTES, HIGHLIGHT_LOOKBACK_BYTES,
+    IndentationSummary, Justify, LanguageCapabilities, LanguageConflict, LanguageDescriptor,
+    LineEditResult, LineEnding, LineEndingConversion, LineEndingStyle, LineFormatOptions,
+    LineOperation, MarkdownPreviewSource, NumberPadding, NumberSequence, NumberSum,
+    PdfExportRequest, PdfExportResult, RecoveryCandidate, RectangularSelection, ReplaceAllResult,
+    ReplaceFileOutcome, ReplacePreview, ReplacePreviewFile, ReplaceTarget, SearchMode,
+    SearchOptions, Selection, SyntaxBracketPair, SyntaxFold, SyntaxHighlight, SyntaxSnapshot,
+    SyntaxSymbol, TextEncoding, TextTransform, Unobserved, VerticalDirection, ViewportAtRequest,
+    ViewportCursor, ViewportLine, ViewportLineRequest, ViewportRequest, ViewportSnapshot,
+    WorkspaceSearchMatch, WorkspaceSearchResult, COMPLETION_WINDOW_BYTES, HIGHLIGHT_LOOKBACK_BYTES,
     HIGHLIGHT_WINDOW_BYTES, LARGE_EXPORT_PAGES, LINE_ENDING_SAMPLE_BYTES, MAX_BOOKMARKS,
     MAX_CLIPBOARD_BYTES, MAX_EDIT_BYTES, MAX_FILE_NAME_BYTES, MAX_FIND_ALL_LINES,
     MAX_FIND_ALL_MATCHES, MAX_HEX_CLIPBOARD_BYTES, MAX_HEX_EDIT_BYTES, MAX_HEX_VIEWPORT_BYTES,
@@ -55,10 +56,12 @@ pub use nulis_filesystem::{
     MAX_FOLDER_COMPARE_ENTRIES, MAX_FOLDER_COMPARE_RESULTS, MAX_WORKSPACE_DIRECTORY_ENTRIES,
     SESSION_SCHEMA_VERSION,
 };
-use nulis_plugin_host::{PluginCatalog, PluginHostOperation, PluginPackage, ProcessPluginRunner};
+use nulis_plugin_host::{
+    PluginCapability, PluginCatalog, PluginHostOperation, PluginPackage, ProcessPluginRunner,
+};
 pub use nulis_plugin_host::{
-    PluginCommandContribution, PluginError, PluginGrant, PluginPermission, PluginSummary,
-    PLUGIN_API_VERSION,
+    PluginCommandContribution, PluginError, PluginGrant, PluginLanguageSummary, PluginPermission,
+    PluginSummary, PLUGIN_API_VERSION,
 };
 pub use nulis_settings::SettingsDocument;
 pub use nulis_settings::{
@@ -84,7 +87,7 @@ use nulis_automation::{
     CURRENT_REVISION_ARGUMENT,
 };
 
-pub const IPC_PROTOCOL_VERSION: u32 = 46;
+pub const IPC_PROTOCOL_VERSION: u32 = 47;
 pub const PRODUCT_NAME: &str = "Nulis";
 pub const APPLICATION_ID: &str = "com.nulis.editor";
 const MAX_SCRIPT_MESSAGES: usize = 100;
@@ -229,6 +232,9 @@ pub struct NulisCore {
     terminals: Arc<TerminalManager>,
     automation: Mutex<AutomationState>,
     plugins: Mutex<PluginState>,
+    /// Why a plugin's declarative language could not be applied, as of the
+    /// last rebuild.
+    plugin_language_errors: Mutex<Vec<String>>,
     customization: Mutex<CustomizationState>,
 }
 
@@ -244,6 +250,7 @@ impl std::fmt::Debug for NulisCore {
             .field("terminals", &self.terminals)
             .field("automation", &self.automation)
             .field("plugins", &self.plugins)
+            .field("plugin_language_errors", &self.plugin_language_errors)
             .field("customization", &self.customization)
             .finish()
     }
@@ -395,7 +402,7 @@ impl NulisCore {
         };
         settings.apply(&documents);
 
-        Self {
+        let core = Self {
             commands,
             settings: Mutex::new(settings),
             documents,
@@ -404,8 +411,11 @@ impl NulisCore {
             terminals,
             automation,
             plugins,
+            plugin_language_errors: Mutex::new(Vec::new()),
             customization,
-        }
+        };
+        core.refresh_plugin_languages();
+        core
     }
 
     #[must_use]
@@ -423,7 +433,13 @@ impl NulisCore {
         let mut descriptors = self.commands.descriptors();
         if let Ok(plugins) = self.plugins.lock() {
             if let Ok(summaries) = plugins.catalog.list() {
-                for plugin in summaries.into_iter().filter(|plugin| plugin.approved) {
+                for plugin in summaries.into_iter().filter(|plugin| {
+                    plugin.approved
+                        && plugin.enabled
+                        && !plugin
+                            .disabled_capabilities
+                            .contains(&PluginCapability::Commands)
+                }) {
                     descriptors.extend(plugin.commands.into_iter().map(|command| {
                         CommandDescriptor {
                             id: command.command,
@@ -918,46 +934,94 @@ impl NulisCore {
             }
             "plugin.install" => {
                 let arguments: PluginInstallArguments = parse_arguments(arguments)?;
-                let plugins = self.plugin_state()?;
-                let summary = plugins
-                    .catalog
-                    .install(std::path::Path::new(&arguments.path))
-                    .map_err(plugin_command_error)?;
+                let summary = {
+                    let plugins = self.plugin_state()?;
+                    plugins
+                        .catalog
+                        .install(std::path::Path::new(&arguments.path))
+                        .map_err(plugin_command_error)?
+                };
+                self.refresh_plugin_languages();
                 serde_json::to_value(summary).map_err(|error| serialization_command_error(&error))
             }
             "plugin.uninstall" => {
                 let arguments: PluginIdArguments = parse_arguments(arguments)?;
-                let plugins = self.plugin_state()?;
-                plugins
-                    .catalog
-                    .uninstall(&arguments.id)
-                    .map(Value::Bool)
-                    .map_err(plugin_command_error)
+                let removed = {
+                    let plugins = self.plugin_state()?;
+                    plugins
+                        .catalog
+                        .uninstall(&arguments.id)
+                        .map_err(plugin_command_error)?
+                };
+                self.refresh_plugin_languages();
+                Ok(Value::Bool(removed))
             }
             "plugin.approve" => {
                 let arguments: ApprovePluginArguments = parse_arguments(arguments)?;
-                let plugins = self.plugin_state()?;
-                let package = plugins
-                    .catalog
-                    .get(&arguments.id)
-                    .map_err(plugin_command_error)?
-                    .ok_or_else(|| {
-                        CommandError::Failed(format!("unknown plugin: {}", arguments.id))
-                    })?;
-                plugins
-                    .catalog
-                    .approve(&package, arguments.grant)
-                    .map_err(plugin_command_error)?;
+                {
+                    let plugins = self.plugin_state()?;
+                    let package = plugins
+                        .catalog
+                        .get(&arguments.id)
+                        .map_err(plugin_command_error)?
+                        .ok_or_else(|| {
+                            CommandError::Failed(format!("unknown plugin: {}", arguments.id))
+                        })?;
+                    plugins
+                        .catalog
+                        .approve(&package, arguments.grant)
+                        .map_err(plugin_command_error)?;
+                }
+                self.refresh_plugin_languages();
                 Ok(Value::Null)
             }
             "plugin.revoke" => {
                 let arguments: PluginIdArguments = parse_arguments(arguments)?;
-                let plugins = self.plugin_state()?;
-                plugins
-                    .catalog
-                    .revoke(&arguments.id)
-                    .map(Value::Bool)
-                    .map_err(plugin_command_error)
+                let revoked = {
+                    let plugins = self.plugin_state()?;
+                    plugins
+                        .catalog
+                        .revoke(&arguments.id)
+                        .map_err(plugin_command_error)?
+                };
+                self.refresh_plugin_languages();
+                Ok(Value::Bool(revoked))
+            }
+            "plugin.setEnabled" => {
+                let arguments: PluginEnabledArguments = parse_arguments(arguments)?;
+                let changed = {
+                    let plugins = self.plugin_state()?;
+                    plugins
+                        .catalog
+                        .set_enabled(&arguments.id, arguments.enabled)
+                        .map_err(plugin_command_error)?
+                };
+                self.refresh_plugin_languages();
+                Ok(Value::Bool(changed))
+            }
+            "plugin.setCapabilityEnabled" => {
+                let arguments: PluginCapabilityArguments = parse_arguments(arguments)?;
+                let changed = {
+                    let plugins = self.plugin_state()?;
+                    plugins
+                        .catalog
+                        .set_capability_enabled(
+                            &arguments.id,
+                            arguments.capability,
+                            arguments.enabled,
+                        )
+                        .map_err(plugin_command_error)?
+                };
+                self.refresh_plugin_languages();
+                Ok(Value::Bool(changed))
+            }
+            "plugin.languageErrors" => {
+                let errors = self
+                    .plugin_language_errors
+                    .lock()
+                    .map_err(|_| CommandError::Unavailable("plugin language errors".into()))?
+                    .clone();
+                serde_json::to_value(errors).map_err(|error| serialization_command_error(&error))
             }
             "plugin.activateStartup" => {
                 let packages = {
@@ -973,14 +1037,16 @@ impl NulisCore {
                 let outcomes = packages
                     .into_iter()
                     .filter_map(|package| {
-                        let approved = self
+                        let active = self
                             .plugins
                             .lock()
                             .ok()
-                            .and_then(|plugins| plugins.catalog.grant_for(&package).ok())
+                            .and_then(|plugins| plugins.catalog.activation_for(&package).ok())
                             .flatten()
-                            .is_some();
-                        approved.then(|| self.run_plugin(package, None, Vec::new()))
+                            .is_some_and(|activation| {
+                                activation.capability_enabled(PluginCapability::Commands)
+                            });
+                        active.then(|| self.run_plugin(package, None, Vec::new()))
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 serde_json::to_value(outcomes).map_err(|error| serialization_command_error(&error))
@@ -1008,9 +1074,11 @@ impl NulisCore {
             if contributes
                 && plugins
                     .catalog
-                    .grant_for(&package)
+                    .activation_for(&package)
                     .map_err(plugin_command_error)?
-                    .is_some()
+                    .is_some_and(|activation| {
+                        activation.capability_enabled(PluginCapability::Commands)
+                    })
             {
                 return Ok(Some(package));
             }
@@ -1047,16 +1115,22 @@ impl NulisCore {
                     "a plugin is already running".into(),
                 ));
             }
-            let grant = plugins
+            let activation = plugins
                 .catalog
-                .grant_for(&package)
+                .activation_for(&package)
                 .map_err(plugin_command_error)?
                 .ok_or_else(|| CommandError::Failed("plugin requires explicit approval".into()))?;
+            if !activation.capability_enabled(PluginCapability::Commands) {
+                return Err(CommandError::Failed("plugin commands are disabled".into()));
+            }
+            let grant = activation.grant;
             let cancellation = ScriptCancellationToken::new();
             plugins.active = Some(cancellation.clone());
             (grant, plugins.runner.clone(), cancellation)
         };
-        let request = package.worker_request(command.clone(), arguments);
+        let request = package
+            .worker_request(command.clone(), arguments)
+            .map_err(plugin_command_error)?;
         let response = runner.run(&request, || cancellation.is_cancelled());
         if let Ok(mut plugins) = self.plugins.lock() {
             plugins.active = None;
@@ -1103,6 +1177,27 @@ impl NulisCore {
             result: response.result,
             messages,
         })
+    }
+
+    /// Rebuilds declarative plugin languages, associations, and providers
+    /// from the current installation and approval state. Called after every
+    /// action that changes which plugins or capabilities are active.
+    fn refresh_plugin_languages(&self) {
+        let sync = {
+            let Ok(plugins) = self.plugins.lock() else {
+                return;
+            };
+            let Ok(packages) = plugins.catalog.packages() else {
+                return;
+            };
+            crate::plugin_languages::build(&packages, |package| {
+                plugins.catalog.activation_for(package).ok().flatten()
+            })
+        };
+        let errors = self.documents.apply_plugin_languages(sync);
+        if let Ok(mut stored) = self.plugin_language_errors.lock() {
+            *stored = errors;
+        }
     }
 
     fn plugin_state(&self) -> Result<std::sync::MutexGuard<'_, PluginState>, CommandError> {
@@ -1516,6 +1611,21 @@ struct ApproveScriptArguments {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct PluginIdArguments {
     id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PluginEnabledArguments {
+    id: String,
+    enabled: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PluginCapabilityArguments {
+    id: String,
+    capability: PluginCapability,
+    enabled: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2130,6 +2240,12 @@ fn register_plugin_commands(commands: &mut CommandRegistry) {
         ("plugin.revoke", "Revoke Plugin Approval"),
         ("plugin.activateStartup", "Activate Startup Plugins"),
         ("plugin.cancel", "Cancel Plugin"),
+        ("plugin.setEnabled", "Enable or Disable Plugin"),
+        (
+            "plugin.setCapabilityEnabled",
+            "Enable or Disable Plugin Capability",
+        ),
+        ("plugin.languageErrors", "Plugin Language Errors"),
     ] {
         commands
             .register(
@@ -3045,6 +3161,18 @@ fn register_language_commands(commands: &mut CommandRegistry, documents: &Arc<Do
             .expect("built-in command ID is valid"),
             move |_context, _arguments| {
                 serde_json::to_value(manager.language_capabilities())
+                    .map_err(|error| serialization_command_error(&error))
+            },
+        )
+        .expect("built-in command is unique");
+
+    let manager = Arc::clone(documents);
+    commands
+        .register(
+            CommandDescriptor::new("language.conflicts", "List Language Conflicts", "Language")
+                .expect("built-in command ID is valid"),
+            move |_context, _arguments| {
+                serde_json::to_value(manager.language_conflicts())
                     .map_err(|error| serialization_command_error(&error))
             },
         )
@@ -5270,6 +5398,166 @@ mod tests {
             )
             .expect("uninstall plugin"),
             Value::Bool(true)
+        );
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)] // One end-to-end lifecycle check.
+    fn declarative_and_executable_plugins_can_be_switched_independently() {
+        let application_data = tempfile::tempdir().expect("application data");
+        let language_source = tempfile::tempdir().expect("language source");
+        std::fs::write(
+            language_source.path().join("plugin.json"),
+            r#"{
+              "apiVersion":2,
+              "id":"acme.language",
+              "name":"Better JSON",
+              "version":"2.0.0",
+              "engines":{"nulis":">=0.1.0"},
+              "contributes":{"languages":[{
+                "id":"better-json",
+                "displayName":"Better JSON",
+                "extensions":["json"],
+                "highlight":{"keywords":["true","false","null"]},
+                "completion":{"keywords":true,"words":false}
+              }]}
+            }"#,
+        )
+        .expect("language manifest");
+        let command_source = tempfile::tempdir().expect("command source");
+        std::fs::write(
+            command_source.path().join("plugin.json"),
+            r#"{
+              "id":"nulis.example",
+              "name":"Example",
+              "version":"1.0.0",
+              "engines":{"nulis":">=0.1.0"},
+              "permissions":["showMessage"],
+              "activationEvents":["onCommand:nulis.example.hello"],
+              "main":"index.js",
+              "contributes":{"commands":[{"command":"nulis.example.hello","title":"Hello","category":"Examples"}]}
+            }"#,
+        )
+        .expect("command manifest");
+        std::fs::write(
+            command_source.path().join("index.js"),
+            "function activate() {}",
+        )
+        .expect("command source");
+
+        let core = NulisCore::with_session_root(application_data.path().into());
+        let language_id = |core: &NulisCore| {
+            core.execute_command("language.list", CommandContext::default(), Value::Null)
+                .expect("list languages")
+                .as_array()
+                .expect("language array")
+                .iter()
+                .any(|language| language["id"] == "better-json")
+        };
+        core.execute_command(
+            "plugin.install",
+            CommandContext::default(),
+            serde_json::json!({ "path": language_source.path() }),
+        )
+        .expect("install language");
+        assert!(!language_id(&core));
+        core.execute_command(
+            "plugin.approve",
+            CommandContext::default(),
+            serde_json::json!({ "id": "acme.language", "grant": { "permissions": [] } }),
+        )
+        .expect("approve language");
+        assert!(language_id(&core));
+        assert_eq!(
+            core.execute_command(
+                "plugin.languageErrors",
+                CommandContext::default(),
+                Value::Null
+            )
+            .expect("language errors"),
+            serde_json::json!([])
+        );
+        let conflicts = core
+            .execute_command("language.conflicts", CommandContext::default(), Value::Null)
+            .expect("conflicts");
+        let json = conflicts
+            .as_array()
+            .expect("conflict array")
+            .iter()
+            .find(|conflict| conflict["pattern"] == "*.json")
+            .expect("json conflict");
+        assert_eq!(json["claims"][0]["source"], "builtin");
+        assert_eq!(json["claims"][1]["language"], "better-json");
+        assert_eq!(json["claims"][1]["source"], "acme.language");
+
+        core.execute_command(
+            "plugin.setCapabilityEnabled",
+            CommandContext::default(),
+            serde_json::json!({
+              "id": "acme.language", "capability": "languages", "enabled": false
+            }),
+        )
+        .expect("switch languages off");
+        assert!(!language_id(&core));
+        core.execute_command(
+            "plugin.setEnabled",
+            CommandContext::default(),
+            serde_json::json!({ "id": "acme.language", "enabled": true }),
+        )
+        .expect("enable plugin");
+        core.execute_command(
+            "plugin.setCapabilityEnabled",
+            CommandContext::default(),
+            serde_json::json!({
+              "id": "acme.language", "capability": "languages", "enabled": true
+            }),
+        )
+        .expect("switch languages on");
+        assert!(language_id(&core));
+
+        core.execute_command(
+            "plugin.install",
+            CommandContext::default(),
+            serde_json::json!({ "path": command_source.path() }),
+        )
+        .expect("install command plugin");
+        core.execute_command(
+            "plugin.approve",
+            CommandContext::default(),
+            serde_json::json!({
+              "id": "nulis.example", "grant": { "permissions": ["showMessage"] }
+            }),
+        )
+        .expect("approve command plugin");
+        let command_visible = |core: &NulisCore| {
+            core.command_descriptors()
+                .iter()
+                .any(|command| command.id == "nulis.example.hello")
+        };
+        assert!(command_visible(&core));
+        core.execute_command(
+            "plugin.setCapabilityEnabled",
+            CommandContext::default(),
+            serde_json::json!({
+              "id": "nulis.example", "capability": "commands", "enabled": false
+            }),
+        )
+        .expect("switch commands off");
+        assert!(!command_visible(&core));
+        // Switching one plugin's commands off leaves the other plugin alone.
+        assert!(language_id(&core));
+
+        core.execute_command(
+            "plugin.uninstall",
+            CommandContext::default(),
+            serde_json::json!({ "id": "acme.language" }),
+        )
+        .expect("uninstall language");
+        assert!(!language_id(&core));
+        assert_eq!(
+            core.execute_command("language.conflicts", CommandContext::default(), Value::Null)
+                .expect("conflicts after removal"),
+            serde_json::json!([])
         );
     }
 

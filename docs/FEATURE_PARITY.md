@@ -67,7 +67,7 @@ Legend: `[ ]` not started, `[~]` partial, `[x]` complete. “Complete” require
 ## Documentation and licensing
 
 - [~] User guide and Help window (`docs/USER_GUIDE.md` and `docs/PLUGIN_GUIDE.md`, bundled and shown under Help ▸ Nulis Help and F1 in a separate sectioned window with search; native-window behavior not yet exercised by hand)
-- [x] Plugin developer guide and examples (`docs/PLUGIN_GUIDE.md`; `hello-nulis` and the TypeScript `nulis-tips` example both run in the real worker under test)
+- [x] Plugin developer guide and examples (`docs/PLUGIN_GUIDE.md`; `hello-nulis`, the TypeScript `nulis-tips`, and the declarative `nulis-nim` example are loaded and checked under test)
 - [x] About page (icon, version, origin of the name, copyright, GPL version 3 notice, and the full license text, over a dark or light batik background that follows the theme)
 - [x] Licensing (GPL-3.0-or-later declared in every manifest with the license text in `LICENSE`; every license in the locked dependency graph is compatible, as recorded in `THIRD_PARTY_LICENSES.md`)
 

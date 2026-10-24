@@ -218,6 +218,44 @@ pub struct SnippetCompletion {
     pub snippets: &'static [Snippet],
 }
 
+/// One snippet contributed by a plugin, owned because the manifest is read
+/// at run time.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OwnedSnippet {
+    pub prefix: String,
+    pub body: String,
+    pub description: String,
+}
+
+/// A plugin language's snippets.
+#[derive(Clone, Debug, Default)]
+pub struct OwnedSnippetCompletion {
+    pub snippets: Vec<OwnedSnippet>,
+}
+
+impl CompletionProvider for OwnedSnippetCompletion {
+    fn priority(&self) -> u8 {
+        2
+    }
+
+    fn opens_automatically(&self) -> bool {
+        true
+    }
+
+    fn complete(&self, _request: &CompletionRequest<'_>) -> Vec<CompletionItem> {
+        self.snippets
+            .iter()
+            .map(|snippet| CompletionItem {
+                label: snippet.prefix.clone(),
+                kind: CompletionKind::Snippet,
+                insert: snippet.body.clone(),
+                snippet: true,
+                detail: (!snippet.description.is_empty()).then(|| snippet.description.clone()),
+            })
+            .collect()
+    }
+}
+
 impl CompletionProvider for SnippetCompletion {
     fn priority(&self) -> u8 {
         2

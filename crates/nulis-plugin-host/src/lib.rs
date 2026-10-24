@@ -15,7 +15,8 @@ use std::{
 };
 use thiserror::Error;
 
-pub const PLUGIN_API_VERSION: u32 = 1;
+pub const PLUGIN_API_VERSION: u32 = 2;
+pub const PLUGIN_API_VERSION_MIN: u32 = 1;
 pub const PLUGIN_STORE_SCHEMA_VERSION: u32 = 1;
 pub const MAX_INSTALLED_PLUGINS: usize = 128;
 pub const MAX_PLUGIN_MANIFEST_BYTES: u64 = 262_144;
@@ -25,11 +26,25 @@ pub const MAX_PLUGIN_RESPONSE_BYTES: usize = 1_048_576;
 pub const MAX_PLUGIN_COMMANDS: usize = 256;
 pub const MAX_PLUGIN_OPERATIONS: usize = 256;
 pub const MAX_PLUGIN_MESSAGE_BYTES: usize = 65_536;
+pub const MAX_PLUGIN_LANGUAGES: usize = 32;
+pub const MAX_PLUGIN_ASSOCIATIONS: usize = 64;
+pub const MAX_PLUGIN_LANGUAGE_WORDS: usize = 1_024;
+pub const MAX_PLUGIN_LANGUAGE_STRINGS: usize = 32;
+pub const MAX_PLUGIN_LANGUAGE_BRACKETS: usize = 16;
+pub const MAX_PLUGIN_SNIPPETS: usize = 256;
+pub const MAX_PLUGIN_SNIPPET_BYTES: usize = 4_096;
+pub const MAX_PLUGIN_REGEX_BYTES: usize = 4_096;
+/// Compiled size cap for declarative regexes, so a hostile pattern cannot
+/// allocate an unbounded automaton at install time.
+const MAX_PLUGIN_REGEX_SIZE: usize = 1_048_576;
 const MAX_ID_BYTES: usize = 128;
 const MAX_NAME_BYTES: usize = 128;
 const MAX_VERSION_BYTES: usize = 64;
 const MAX_ENTRY_PATH_BYTES: usize = 4_096;
 const MAX_GRANT_STORE_BYTES: u64 = 1_048_576;
+const MAX_LANGUAGE_ID_BYTES: usize = 64;
+const MAX_ASSOCIATION_BYTES: usize = 255;
+const MAX_WORD_BYTES: usize = 128;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -43,11 +58,28 @@ pub enum PluginPermission {
     ShowMessage,
 }
 
+/// A switchable contribution family. A user can disable one family for one
+/// plugin without revoking the whole approval.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PluginCapability {
+    Commands,
+    Languages,
+    Highlight,
+    Indentation,
+    Completion,
+    Snippets,
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PluginContributions {
     #[serde(default)]
     pub commands: Vec<PluginCommandContribution>,
+    /// API v2 declarative languages. Ignored by a v1 host, which rejects the
+    /// whole manifest as malformed.
+    #[serde(default)]
+    pub languages: Vec<PluginLanguageContribution>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -63,9 +95,157 @@ fn default_plugin_category() -> String {
     "Plugin".into()
 }
 
+fn default_api_version() -> u32 {
+    PLUGIN_API_VERSION_MIN
+}
+
+/// One language a plugin contributes, as data only. The host validates it
+/// completely at install time and builds a runtime language from it after
+/// approval; no plugin code runs to define a language.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginLanguageContribution {
+    pub id: String,
+    pub display_name: String,
+    #[serde(default)]
+    pub extensions: Vec<String>,
+    #[serde(default)]
+    pub filenames: Vec<String>,
+    /// A regular expression tried against the first line when the file name
+    /// says nothing.
+    #[serde(default)]
+    pub first_line: Option<String>,
+    #[serde(default)]
+    pub comments: PluginComments,
+    /// Bracket pairs, reserved for auto-pairing; validated but not yet applied.
+    #[serde(default)]
+    pub brackets: Vec<[String; 2]>,
+    #[serde(default)]
+    pub highlight: Option<PluginHighlight>,
+    #[serde(default)]
+    pub indentation: Option<PluginIndentation>,
+    #[serde(default)]
+    pub completion: Option<PluginCompletion>,
+    #[serde(default)]
+    pub snippets: Vec<PluginSnippet>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginComments {
+    #[serde(default)]
+    pub line: Option<String>,
+    #[serde(default)]
+    pub block: Option<(String, String)>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PluginHighlightMode {
+    Code,
+    Markup,
+    Css,
+    Delimited,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginHighlight {
+    #[serde(default)]
+    pub mode: Option<PluginHighlightMode>,
+    #[serde(default)]
+    pub keywords: Vec<String>,
+    #[serde(default)]
+    pub types: Vec<String>,
+    #[serde(default)]
+    pub strings: Vec<PluginString>,
+    #[serde(default)]
+    pub case_insensitive: bool,
+    /// Extra bytes allowed inside an identifier (`$`, `-`).
+    #[serde(default)]
+    pub ident_chars: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginString {
+    pub open: String,
+    pub close: String,
+    #[serde(default)]
+    pub escape: bool,
+    #[serde(default)]
+    pub multiline: bool,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginIndentation {
+    /// A line matching this regex opens a block after Enter.
+    #[serde(default)]
+    pub increase_after: Option<String>,
+    /// A line matching this regex moves left when its first character is typed.
+    #[serde(default)]
+    pub outdent_on_type: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginCompletion {
+    #[serde(default = "default_true")]
+    pub keywords: bool,
+    #[serde(default = "default_true")]
+    pub words: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+impl Default for PluginCompletion {
+    fn default() -> Self {
+        Self {
+            keywords: true,
+            words: true,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginSnippet {
+    pub prefix: String,
+    pub body: String,
+    #[serde(default)]
+    pub description: String,
+}
+
+impl PluginLanguageContribution {
+    /// Capability families this language actually declares.
+    #[must_use]
+    pub fn capabilities(&self) -> Vec<PluginCapability> {
+        let mut capabilities = vec![PluginCapability::Languages];
+        if self.highlight.is_some() {
+            capabilities.push(PluginCapability::Highlight);
+        }
+        if self.indentation.is_some() {
+            capabilities.push(PluginCapability::Indentation);
+        }
+        if self.completion.is_some() {
+            capabilities.push(PluginCapability::Completion);
+        }
+        if !self.snippets.is_empty() {
+            capabilities.push(PluginCapability::Snippets);
+        }
+        capabilities
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PluginManifest {
+    /// `1` when absent, so every v1 manifest stays valid.
+    #[serde(default = "default_api_version")]
+    pub api_version: u32,
     pub id: String,
     pub name: String,
     pub version: String,
@@ -74,7 +254,9 @@ pub struct PluginManifest {
     pub permissions: BTreeSet<PluginPermission>,
     #[serde(default)]
     pub activation_events: BTreeSet<String>,
-    pub main: String,
+    /// Required by API v1; optional in v2 so a language can be pure data.
+    #[serde(default)]
+    pub main: Option<String>,
     #[serde(default)]
     pub contributes: PluginContributions,
 }
@@ -86,6 +268,9 @@ impl PluginManifest {
     /// Returns a typed validation error for unsafe paths, identities, events,
     /// or command contributions.
     pub fn validate(&self) -> Result<(), PluginError> {
+        if !(PLUGIN_API_VERSION_MIN..=PLUGIN_API_VERSION).contains(&self.api_version) {
+            return Err(PluginError::UnsupportedApi(self.api_version));
+        }
         validate_id(&self.id, "plugin")?;
         if self.id.starts_with("plugin.") || self.id.starts_with("automation.") {
             return Err(PluginError::ReservedNamespace(self.id.clone()));
@@ -105,12 +290,27 @@ impl PluginManifest {
                 current: current.to_string(),
             });
         }
-        validate_entry_path(&self.main)?;
-        if !Path::new(&self.main)
-            .extension()
-            .is_some_and(|extension| extension.eq_ignore_ascii_case("js"))
-        {
-            return Err(PluginError::UnsupportedEntry(self.main.clone()));
+        match &self.main {
+            Some(main) => {
+                validate_entry_path(main)?;
+                if !Path::new(main)
+                    .extension()
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("js"))
+                {
+                    return Err(PluginError::UnsupportedEntry(main.clone()));
+                }
+            }
+            None if self.api_version == 1 => return Err(PluginError::MissingEntry),
+            None if !self.contributes.commands.is_empty() => {
+                return Err(PluginError::MissingEntry);
+            }
+            None if !self.activation_events.is_empty() => {
+                return Err(PluginError::MissingEntry);
+            }
+            None => {}
+        }
+        if self.contributes.commands.is_empty() && self.contributes.languages.is_empty() {
+            return Err(PluginError::NoContributions);
         }
         if self.contributes.commands.len() > MAX_PLUGIN_COMMANDS {
             return Err(limit("pluginCommands", MAX_PLUGIN_COMMANDS as u64));
@@ -148,6 +348,98 @@ impl PluginManifest {
                 return Err(PluginError::MissingCommandActivation(command));
             }
         }
+        self.validate_languages()
+    }
+
+    /// Every capability family this plugin declares anywhere.
+    #[must_use]
+    pub fn capabilities(&self) -> BTreeSet<PluginCapability> {
+        let mut capabilities = BTreeSet::new();
+        if !self.contributes.commands.is_empty() {
+            capabilities.insert(PluginCapability::Commands);
+        }
+        for language in &self.contributes.languages {
+            capabilities.extend(language.capabilities());
+        }
+        capabilities
+    }
+
+    fn validate_languages(&self) -> Result<(), PluginError> {
+        if self.contributes.languages.len() > MAX_PLUGIN_LANGUAGES {
+            return Err(limit("pluginLanguages", MAX_PLUGIN_LANGUAGES as u64));
+        }
+        let mut ids = BTreeSet::new();
+        for language in &self.contributes.languages {
+            validate_language_id(&language.id)?;
+            if !ids.insert(language.id.as_str()) {
+                return Err(PluginError::DuplicateLanguage(language.id.clone()));
+            }
+            validate_text(&language.display_name, MAX_NAME_BYTES, "languageName")?;
+            if language.extensions.len() + language.filenames.len() > MAX_PLUGIN_ASSOCIATIONS {
+                return Err(limit("pluginAssociations", MAX_PLUGIN_ASSOCIATIONS as u64));
+            }
+            for extension in &language.extensions {
+                validate_association(&format!("*.{extension}"))?;
+            }
+            for filename in &language.filenames {
+                validate_association(filename)?;
+            }
+            if let Some(pattern) = &language.first_line {
+                validate_regex(pattern)?;
+            }
+            validate_comments(&language.comments)?;
+            if language.brackets.len() > MAX_PLUGIN_LANGUAGE_BRACKETS {
+                return Err(limit(
+                    "pluginLanguageBrackets",
+                    MAX_PLUGIN_LANGUAGE_BRACKETS as u64,
+                ));
+            }
+            let mut brackets = BTreeSet::new();
+            for [open, close] in &language.brackets {
+                if open.chars().count() != 1
+                    || close.chars().count() != 1
+                    || open == close
+                    || !brackets.insert((open, close))
+                {
+                    return Err(PluginError::InvalidLanguageData(
+                        "a bracket pair needs two distinct single characters".into(),
+                    ));
+                }
+            }
+            if let Some(highlight) = &language.highlight {
+                validate_highlight(highlight)?;
+            }
+            if let Some(indentation) = &language.indentation {
+                if let Some(pattern) = &indentation.increase_after {
+                    validate_regex(pattern)?;
+                }
+                if let Some(pattern) = &indentation.outdent_on_type {
+                    validate_regex(pattern)?;
+                }
+            }
+            if language.snippets.len() > MAX_PLUGIN_SNIPPETS {
+                return Err(limit("pluginSnippets", MAX_PLUGIN_SNIPPETS as u64));
+            }
+            let mut prefixes = BTreeSet::new();
+            for snippet in &language.snippets {
+                validate_text(&snippet.prefix, MAX_WORD_BYTES, "snippetPrefix")?;
+                if snippet.body.is_empty()
+                    || snippet.body.len() > MAX_PLUGIN_SNIPPET_BYTES
+                    || snippet.body.chars().any(|character| {
+                        character.is_control() && !matches!(character, '\n' | '\t')
+                    })
+                {
+                    return Err(limit("pluginSnippetBytes", MAX_PLUGIN_SNIPPET_BYTES as u64));
+                }
+                validate_text(&snippet.description, MAX_NAME_BYTES, "snippetDescription")?;
+                if !prefixes.insert(snippet.prefix.as_str()) {
+                    return Err(PluginError::InvalidLanguageData(format!(
+                        "duplicate snippet prefix {}",
+                        snippet.prefix
+                    )));
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -155,14 +447,15 @@ impl PluginManifest {
 #[derive(Clone, Debug)]
 pub struct PluginPackage {
     root: PathBuf,
-    source: String,
+    source: Option<String>,
     pub manifest: PluginManifest,
     pub digest: String,
 }
 
 impl PluginPackage {
-    /// Loads exactly one manifest and JavaScript entry point from a package
-    /// directory without following symlinks.
+    /// Loads exactly one manifest and, when the manifest declares one, its
+    /// JavaScript entry point from a package directory without following
+    /// symlinks. A declarative-only v2 package has no entry point.
     ///
     /// # Errors
     /// Returns a validation, limit, or I/O error.
@@ -182,14 +475,25 @@ impl PluginPackage {
         let manifest: PluginManifest = serde_json::from_slice(&manifest_bytes)
             .map_err(|error| PluginError::Malformed(error.to_string()))?;
         manifest.validate()?;
-        let entry = resolve_package_file(&root, &manifest.main)?;
-        let entry_metadata = fs::metadata(&entry).map_err(PluginError::io)?;
-        if entry_metadata.len() > MAX_PLUGIN_SOURCE_BYTES as u64 {
-            return Err(limit("pluginSourceBytes", MAX_PLUGIN_SOURCE_BYTES as u64));
-        }
-        let source_bytes = fs::read(entry).map_err(PluginError::io)?;
-        let source = String::from_utf8(source_bytes.clone())
-            .map_err(|_| PluginError::InvalidSourceEncoding)?;
+        let source_bytes = match &manifest.main {
+            Some(main) => {
+                let entry = resolve_package_file(&root, main)?;
+                let entry_metadata = fs::metadata(&entry).map_err(PluginError::io)?;
+                if entry_metadata.len() > MAX_PLUGIN_SOURCE_BYTES as u64 {
+                    return Err(limit("pluginSourceBytes", MAX_PLUGIN_SOURCE_BYTES as u64));
+                }
+                fs::read(entry).map_err(PluginError::io)?
+            }
+            None => Vec::new(),
+        };
+        let source = if manifest.main.is_some() {
+            Some(
+                String::from_utf8(source_bytes.clone())
+                    .map_err(|_| PluginError::InvalidSourceEncoding)?,
+            )
+        } else {
+            None
+        };
         let mut hasher = Sha256::new();
         hasher.update(&manifest_bytes);
         hasher.update([0]);
@@ -209,22 +513,26 @@ impl PluginPackage {
     }
 
     #[must_use]
-    pub fn source(&self) -> &str {
-        &self.source
+    pub fn source(&self) -> Option<&str> {
+        self.source.as_deref()
     }
 
-    #[must_use]
+    /// Builds the worker request for an executable package.
+    ///
+    /// # Errors
+    /// Returns `MissingEntry` for a declarative-only package.
     pub fn worker_request(
         &self,
         command: Option<String>,
         arguments: Vec<Value>,
-    ) -> PluginWorkerRequest {
-        PluginWorkerRequest {
-            api_version: PLUGIN_API_VERSION,
-            source: self.source.clone(),
+    ) -> Result<PluginWorkerRequest, PluginError> {
+        let source = self.source.clone().ok_or(PluginError::MissingEntry)?;
+        Ok(PluginWorkerRequest {
+            api_version: self.manifest.api_version,
+            source,
             command,
             arguments,
-        }
+        })
     }
 }
 
@@ -300,7 +608,7 @@ pub struct PluginWorkerRequest {
 
 impl PluginWorkerRequest {
     fn validate(&self) -> Result<(), PluginError> {
-        if self.api_version != PLUGIN_API_VERSION {
+        if !(PLUGIN_API_VERSION_MIN..=PLUGIN_API_VERSION).contains(&self.api_version) {
             return Err(PluginError::UnsupportedApi(self.api_version));
         }
         if self.source.len() > MAX_PLUGIN_SOURCE_BYTES {
@@ -369,9 +677,43 @@ pub struct PluginSummary {
     pub name: String,
     pub version: String,
     pub digest: String,
+    pub api_version: u32,
     pub requested_permissions: BTreeSet<PluginPermission>,
     pub approved: bool,
+    /// False keeps an approved plugin installed but inert.
+    pub enabled: bool,
+    /// Families the user switched off for this plugin.
+    pub disabled_capabilities: BTreeSet<PluginCapability>,
     pub commands: Vec<PluginCommandContribution>,
+    pub languages: Vec<PluginLanguageSummary>,
+}
+
+/// The language half of a plugin summary: enough for Settings, without the
+/// full keyword and snippet tables.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PluginLanguageSummary {
+    pub id: String,
+    pub display_name: String,
+    pub extensions: Vec<String>,
+    pub filenames: Vec<String>,
+    pub capabilities: Vec<PluginCapability>,
+}
+
+/// Approval plus the user's run-time switches for one exact package digest.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PluginActivation {
+    pub grant: PluginGrant,
+    pub enabled: bool,
+    pub disabled_capabilities: BTreeSet<PluginCapability>,
+}
+
+impl PluginActivation {
+    /// Whether one family is currently active for this plugin.
+    #[must_use]
+    pub fn capability_enabled(&self, capability: PluginCapability) -> bool {
+        self.enabled && !self.disabled_capabilities.contains(&capability)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -380,6 +722,11 @@ struct PluginApproval {
     plugin_id: String,
     package_digest: String,
     grant: PluginGrant,
+    /// Absent in a document written before v2, where an approval meant active.
+    #[serde(default = "default_true")]
+    enabled: bool,
+    #[serde(default)]
+    disabled_capabilities: BTreeSet<PluginCapability>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -409,11 +756,14 @@ impl PluginStore {
         Self { path }
     }
 
-    /// Returns a grant only when it matches the exact package digest.
+    /// Returns the grant and switches only when they match the exact package digest.
     ///
     /// # Errors
     /// Returns a validation or storage error.
-    pub fn grant_for(&self, package: &PluginPackage) -> Result<Option<PluginGrant>, PluginError> {
+    pub fn activation_for(
+        &self,
+        package: &PluginPackage,
+    ) -> Result<Option<PluginActivation>, PluginError> {
         Ok(self
             .load()?
             .approvals
@@ -422,16 +772,39 @@ impl PluginStore {
                 approval.plugin_id == package.manifest.id
                     && approval.package_digest == package.digest
             })
-            .map(|approval| approval.grant))
+            .map(|approval| PluginActivation {
+                grant: approval.grant,
+                enabled: approval.enabled,
+                disabled_capabilities: approval.disabled_capabilities,
+            }))
+    }
+
+    /// Returns a grant only when it matches the exact package digest.
+    ///
+    /// # Errors
+    /// Returns a validation or storage error.
+    pub fn grant_for(&self, package: &PluginPackage) -> Result<Option<PluginGrant>, PluginError> {
+        Ok(self
+            .activation_for(package)?
+            .map(|activation| activation.grant))
     }
 
     /// Atomically records an explicit grant for one exact package revision.
+    /// Re-approving the same digest keeps the user's enable switches.
     ///
     /// # Errors
     /// Returns a validation or storage error.
     pub fn approve(&self, package: &PluginPackage, grant: PluginGrant) -> Result<(), PluginError> {
         grant.validate_for(&package.manifest)?;
         let mut document = self.load()?;
+        let existing = document
+            .approvals
+            .iter()
+            .find(|approval| {
+                approval.plugin_id == package.manifest.id
+                    && approval.package_digest == package.digest
+            })
+            .cloned();
         document
             .approvals
             .retain(|approval| approval.plugin_id != package.manifest.id);
@@ -439,11 +812,62 @@ impl PluginStore {
             plugin_id: package.manifest.id.clone(),
             package_digest: package.digest.clone(),
             grant,
+            enabled: existing.as_ref().is_none_or(|approval| approval.enabled),
+            disabled_capabilities: existing
+                .map(|approval| approval.disabled_capabilities)
+                .unwrap_or_default(),
         });
         document
             .approvals
             .sort_by(|left, right| left.plugin_id.cmp(&right.plugin_id));
         self.save(&document)
+    }
+
+    /// Enables or disables an approved plugin without revoking it.
+    ///
+    /// # Errors
+    /// Returns a validation or storage error.
+    pub fn set_enabled(&self, plugin_id: &str, enabled: bool) -> Result<bool, PluginError> {
+        validate_id(plugin_id, "plugin")?;
+        let mut document = self.load()?;
+        let Some(approval) = document
+            .approvals
+            .iter_mut()
+            .find(|approval| approval.plugin_id == plugin_id)
+        else {
+            return Ok(false);
+        };
+        approval.enabled = enabled;
+        self.save(&document)?;
+        Ok(true)
+    }
+
+    /// Switches one capability family on or off for an approved plugin.
+    ///
+    /// # Errors
+    /// Returns a validation or storage error.
+    pub fn set_capability_enabled(
+        &self,
+        plugin_id: &str,
+        capability: PluginCapability,
+        enabled: bool,
+    ) -> Result<bool, PluginError> {
+        validate_id(plugin_id, "plugin")?;
+        let mut document = self.load()?;
+        let Some(approval) = document
+            .approvals
+            .iter_mut()
+            .find(|approval| approval.plugin_id == plugin_id)
+        else {
+            return Ok(false);
+        };
+        if enabled {
+            approval.disabled_capabilities.remove(&capability);
+        } else {
+            approval.disabled_capabilities.insert(capability);
+        }
+        self.save(&document)?;
+        Ok(true)
     }
 
     /// Removes any grant for a plugin identifier.
@@ -581,16 +1005,8 @@ impl PluginCatalog {
         self.packages()?
             .into_iter()
             .map(|package| {
-                let approved = self.grants.grant_for(&package)?.is_some();
-                Ok(PluginSummary {
-                    id: package.manifest.id,
-                    name: package.manifest.name,
-                    version: package.manifest.version,
-                    digest: package.digest,
-                    requested_permissions: package.manifest.permissions,
-                    approved,
-                    commands: package.manifest.contributes.commands,
-                })
+                let activation = self.grants.activation_for(&package)?;
+                Ok(summary(&package, activation.as_ref()))
             })
             .collect()
     }
@@ -613,6 +1029,39 @@ impl PluginCatalog {
     /// Returns a grant-store validation or storage error.
     pub fn grant_for(&self, package: &PluginPackage) -> Result<Option<PluginGrant>, PluginError> {
         self.grants.grant_for(package)
+    }
+
+    /// Returns the approval and run-time switches for this exact package digest.
+    ///
+    /// # Errors
+    /// Returns a grant-store validation or storage error.
+    pub fn activation_for(
+        &self,
+        package: &PluginPackage,
+    ) -> Result<Option<PluginActivation>, PluginError> {
+        self.grants.activation_for(package)
+    }
+
+    /// Enables or disables an approved plugin.
+    ///
+    /// # Errors
+    /// Returns an identifier validation or storage error.
+    pub fn set_enabled(&self, plugin_id: &str, enabled: bool) -> Result<bool, PluginError> {
+        self.grants.set_enabled(plugin_id, enabled)
+    }
+
+    /// Switches one capability family for an approved plugin.
+    ///
+    /// # Errors
+    /// Returns an identifier validation or storage error.
+    pub fn set_capability_enabled(
+        &self,
+        plugin_id: &str,
+        capability: PluginCapability,
+        enabled: bool,
+    ) -> Result<bool, PluginError> {
+        self.grants
+            .set_capability_enabled(plugin_id, capability, enabled)
     }
 
     /// Persists an exact-digest grant after checking it against the request.
@@ -664,24 +1113,18 @@ impl PluginCatalog {
         let installed_manifest = temporary.path().join("plugin.json");
         fs::write(&installed_manifest, manifest_bytes).map_err(PluginError::io)?;
         sync_file(&installed_manifest)?;
-        let entry = temporary.path().join(&package.manifest.main);
-        let entry_parent = entry.parent().ok_or(PluginError::MissingParent)?;
-        fs::create_dir_all(entry_parent).map_err(PluginError::io)?;
-        fs::write(&entry, package.source.as_bytes()).map_err(PluginError::io)?;
-        sync_file(&entry)?;
-        sync_parent(entry_parent)?;
+        if let (Some(main), Some(source)) = (&package.manifest.main, &package.source) {
+            let entry = temporary.path().join(main);
+            let entry_parent = entry.parent().ok_or(PluginError::MissingParent)?;
+            fs::create_dir_all(entry_parent).map_err(PluginError::io)?;
+            fs::write(&entry, source.as_bytes()).map_err(PluginError::io)?;
+            sync_file(&entry)?;
+            sync_parent(entry_parent)?;
+        }
         fs::rename(temporary.path(), &destination).map_err(PluginError::io)?;
         sync_parent(&self.root)?;
         let installed = PluginPackage::load(&destination)?;
-        Ok(PluginSummary {
-            id: installed.manifest.id,
-            name: installed.manifest.name,
-            version: installed.manifest.version,
-            digest: installed.digest,
-            requested_permissions: installed.manifest.permissions,
-            approved: false,
-            commands: installed.manifest.contributes.commands,
-        })
+        Ok(summary(&installed, None))
     }
 
     /// Deletes one installed package after resolving its exact validated root.
@@ -698,6 +1141,159 @@ impl PluginCatalog {
         sync_parent(&self.root)?;
         Ok(true)
     }
+}
+
+fn summary(package: &PluginPackage, activation: Option<&PluginActivation>) -> PluginSummary {
+    PluginSummary {
+        id: package.manifest.id.clone(),
+        name: package.manifest.name.clone(),
+        version: package.manifest.version.clone(),
+        digest: package.digest.clone(),
+        api_version: package.manifest.api_version,
+        requested_permissions: package.manifest.permissions.clone(),
+        approved: activation.is_some(),
+        enabled: activation.is_none_or(|activation| activation.enabled),
+        disabled_capabilities: activation
+            .map(|activation| activation.disabled_capabilities.clone())
+            .unwrap_or_default(),
+        commands: package.manifest.contributes.commands.clone(),
+        languages: package
+            .manifest
+            .contributes
+            .languages
+            .iter()
+            .map(|language| PluginLanguageSummary {
+                id: language.id.clone(),
+                display_name: language.display_name.clone(),
+                extensions: language.extensions.clone(),
+                filenames: language.filenames.clone(),
+                capabilities: language.capabilities(),
+            })
+            .collect(),
+    }
+}
+
+fn validate_language_id(value: &str) -> Result<(), PluginError> {
+    let valid = !value.is_empty()
+        && value.len() <= MAX_LANGUAGE_ID_BYTES
+        && value.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'-' | b'.')
+        });
+    if valid {
+        Ok(())
+    } else {
+        Err(PluginError::InvalidLanguageId(value.into()))
+    }
+}
+
+/// Accepts exactly the `files.associations` forms: `*.ext`, `name.*`, or a
+/// whole file name. The syntax crate re-validates when it registers them.
+fn validate_association(pattern: &str) -> Result<(), PluginError> {
+    let lower = pattern.trim().to_ascii_lowercase();
+    let (kind, value) = match (lower.strip_prefix("*."), lower.strip_suffix('*')) {
+        (Some(extension), _) => ("extension", extension.to_owned()),
+        (None, Some(prefix)) => ("prefix", prefix.to_owned()),
+        (None, None) => ("file name", lower.clone()),
+    };
+    if value.is_empty()
+        || value.len() > MAX_ASSOCIATION_BYTES
+        || value.contains(['*', '?', '/', '\\'])
+        || kind == "extension" && value.starts_with('.')
+        || value.chars().any(char::is_control)
+    {
+        return Err(PluginError::InvalidAssociation(pattern.into()));
+    }
+    Ok(())
+}
+
+fn validate_regex(pattern: &str) -> Result<(), PluginError> {
+    if pattern.is_empty() || pattern.len() > MAX_PLUGIN_REGEX_BYTES {
+        return Err(limit("pluginRegexBytes", MAX_PLUGIN_REGEX_BYTES as u64));
+    }
+    regex::RegexBuilder::new(pattern)
+        .size_limit(MAX_PLUGIN_REGEX_SIZE)
+        .dfa_size_limit(MAX_PLUGIN_REGEX_SIZE)
+        .build()
+        .map(|_| ())
+        .map_err(|error| PluginError::InvalidRegex(error.to_string()))
+}
+
+fn validate_comments(comments: &PluginComments) -> Result<(), PluginError> {
+    if let Some(line) = &comments.line {
+        validate_marker(line)?;
+    }
+    if let Some((open, close)) = &comments.block {
+        validate_marker(open)?;
+        validate_marker(close)?;
+    }
+    Ok(())
+}
+
+fn validate_marker(marker: &str) -> Result<(), PluginError> {
+    if marker.is_empty()
+        || marker.len() > 16
+        || marker
+            .chars()
+            .any(|character| character.is_control() || character.is_whitespace())
+    {
+        return Err(PluginError::InvalidLanguageData(
+            "a comment marker must be 1-16 visible bytes".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_highlight(highlight: &PluginHighlight) -> Result<(), PluginError> {
+    if highlight.keywords.len() > MAX_PLUGIN_LANGUAGE_WORDS
+        || highlight.types.len() > MAX_PLUGIN_LANGUAGE_WORDS
+    {
+        return Err(limit(
+            "pluginLanguageWords",
+            MAX_PLUGIN_LANGUAGE_WORDS as u64,
+        ));
+    }
+    for word in highlight.keywords.iter().chain(&highlight.types) {
+        validate_text(word, MAX_WORD_BYTES, "pluginLanguageWord")?;
+        if word.chars().any(char::is_whitespace) {
+            return Err(PluginError::InvalidLanguageData(format!(
+                "keyword {word:?} contains whitespace"
+            )));
+        }
+    }
+    if highlight.strings.len() > MAX_PLUGIN_LANGUAGE_STRINGS {
+        return Err(limit(
+            "pluginLanguageStrings",
+            MAX_PLUGIN_LANGUAGE_STRINGS as u64,
+        ));
+    }
+    for string in &highlight.strings {
+        if string.open.is_empty()
+            || string.close.is_empty()
+            || string.open.len() > 8
+            || string.close.len() > 8
+            || string
+                .open
+                .chars()
+                .chain(string.close.chars())
+                .any(char::is_control)
+        {
+            return Err(PluginError::InvalidLanguageData(
+                "a string delimiter must be 1-8 visible bytes".into(),
+            ));
+        }
+    }
+    for character in &highlight.ident_chars {
+        if character.chars().count() != 1
+            || !character
+                .bytes()
+                .all(|byte| byte.is_ascii() && !byte.is_ascii_alphanumeric())
+        {
+            return Err(PluginError::InvalidLanguageData(
+                "an identifier character must be one non-alphanumeric ASCII byte".into(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn validate_approval_document(document: &ApprovalDocument) -> Result<(), PluginError> {
@@ -846,6 +1442,20 @@ pub enum PluginError {
     InvalidId { kind: String, value: String },
     #[error("plugin entry path escapes its package: {0}")]
     UnsafeEntryPath(String),
+    #[error("plugin declares no commands or languages")]
+    NoContributions,
+    #[error("plugin command contributions require a JavaScript entry point")]
+    MissingEntry,
+    #[error("invalid plugin language ID: {0}")]
+    InvalidLanguageId(String),
+    #[error("duplicate plugin language ID: {0}")]
+    DuplicateLanguage(String),
+    #[error("invalid language association: {0}")]
+    InvalidAssociation(String),
+    #[error("invalid declarative regex: {0}")]
+    InvalidRegex(String),
+    #[error("invalid declarative language data: {0}")]
+    InvalidLanguageData(String),
     #[error("unsafe plugin package: {0}")]
     UnsafePackage(String),
     #[error("unsupported plugin entry type: {0}")]
@@ -1107,5 +1717,316 @@ mod tests {
             Err(PluginError::DuplicateCommand(command))
                 if command == "nulis.example.hello.hello"
         ));
+    }
+
+    fn declarative_manifest() -> serde_json::Value {
+        serde_json::json!({
+          "apiVersion": 2,
+          "id": "acme.nim",
+          "name": "Nim language",
+          "version": "2.0.0",
+          "engines": { "nulis": ">=0.1.0" },
+          "contributes": { "languages": [{
+            "id": "nim",
+            "displayName": "Nim",
+            "extensions": ["nim", "nims"],
+            "filenames": ["config.nim.cfg"],
+            "firstLine": "^#!.*\\bnim\\b",
+            "comments": { "line": "#", "block": ["#[", "]#"] },
+            "brackets": [["(", ")"]],
+            "highlight": {
+              "mode": "code",
+              "keywords": ["proc", "let", "var"],
+              "types": ["int", "string"],
+              "strings": [{ "open": "\"", "close": "\"", "escape": true }],
+              "identChars": ["_"]
+            },
+            "indentation": {
+              "increaseAfter": ":$",
+              "outdentOnType": "^\\s*(elif|else|except|finally)\\b"
+            },
+            "completion": { "keywords": true, "words": true },
+            "snippets": [{
+              "prefix": "proc",
+              "body": "proc ${1:name}() =\n  $0",
+              "description": "Procedure"
+            }]
+          }] }
+        })
+    }
+
+    fn write_declarative_package(root: &std::path::Path) {
+        fs::create_dir_all(root).expect("package root");
+        fs::write(
+            root.join("plugin.json"),
+            serde_json::to_vec_pretty(&declarative_manifest()).expect("manifest"),
+        )
+        .expect("write manifest");
+    }
+
+    #[test]
+    fn a_v2_declarative_manifest_needs_no_entry_point() {
+        let root = tempfile::tempdir().expect("root");
+        write_declarative_package(root.path());
+        let package = super::PluginPackage::load(root.path()).expect("valid package");
+        assert_eq!(package.manifest.api_version, 2);
+        assert!(package.manifest.main.is_none());
+        assert!(package.source().is_none());
+        assert!(matches!(
+            package.worker_request(None, Vec::new()),
+            Err(PluginError::MissingEntry)
+        ));
+        let language = &package.manifest.contributes.languages[0];
+        assert_eq!(
+            language.capabilities(),
+            vec![
+                super::PluginCapability::Languages,
+                super::PluginCapability::Highlight,
+                super::PluginCapability::Indentation,
+                super::PluginCapability::Completion,
+                super::PluginCapability::Snippets,
+            ]
+        );
+        assert_eq!(
+            package.manifest.capabilities(),
+            BTreeSet::from([
+                super::PluginCapability::Languages,
+                super::PluginCapability::Highlight,
+                super::PluginCapability::Indentation,
+                super::PluginCapability::Completion,
+                super::PluginCapability::Snippets,
+            ])
+        );
+    }
+
+    #[test]
+    fn every_v1_manifest_keeps_its_meaning() {
+        let root = tempfile::tempdir().expect("root");
+        write_package(root.path(), "function activate() {}");
+        let package = super::PluginPackage::load(root.path()).expect("v1 package");
+        assert_eq!(package.manifest.api_version, 1);
+        assert_eq!(package.manifest.main.as_deref(), Some("index.js"));
+        assert!(package.worker_request(None, Vec::new()).is_ok());
+    }
+
+    fn manifest_from(value: serde_json::Value) -> Result<super::PluginManifest, PluginError> {
+        let manifest: super::PluginManifest = serde_json::from_value(value)
+            .map_err(|error| PluginError::Malformed(error.to_string()))?;
+        manifest.validate()?;
+        Ok(manifest)
+    }
+
+    #[test]
+    fn a_v2_manifest_without_an_entry_point_cannot_run_code() {
+        let mut commands = declarative_manifest();
+        commands["contributes"]
+            .as_object_mut()
+            .expect("contributions")
+            .insert(
+                "commands".into(),
+                serde_json::json!([{ "command": "acme.nim.run", "title": "Run" }]),
+            );
+        assert!(matches!(
+            manifest_from(commands),
+            Err(PluginError::MissingEntry)
+        ));
+
+        let mut startup = declarative_manifest();
+        startup["activationEvents"] = serde_json::json!(["onStartup"]);
+        assert!(matches!(
+            manifest_from(startup),
+            Err(PluginError::MissingEntry)
+        ));
+    }
+
+    #[test]
+    fn hostile_declarative_languages_are_rejected_before_installation() {
+        let cases = [
+            (serde_json::json!({ "firstLine": "(" }), "invalid regex"),
+            (
+                serde_json::json!({ "firstLine": "a".repeat(super::MAX_PLUGIN_REGEX_BYTES + 1) }),
+                "oversized regex",
+            ),
+            (
+                serde_json::json!({ "extensions": ["../nim"] }),
+                "escaping extension",
+            ),
+            (
+                serde_json::json!({ "highlight": { "strings": [{ "open": "", "close": "\"" }] } }),
+                "empty delimiter",
+            ),
+            (
+                serde_json::json!({ "brackets": [["(", "("]] }),
+                "mismatched bracket",
+            ),
+            (
+                serde_json::json!({ "snippets": [{ "prefix": "x", "body": "a\u{0}b" }] }),
+                "control character in a snippet",
+            ),
+        ];
+        for (overrides, expected) in cases {
+            let mut value = declarative_manifest();
+            let language = value["contributes"]["languages"][0]
+                .as_object_mut()
+                .expect("language");
+            for (key, replacement) in overrides.as_object().expect("overrides") {
+                language.insert(key.clone(), replacement.clone());
+            }
+            assert!(
+                matches!(
+                    manifest_from(value),
+                    Err(PluginError::InvalidRegex(_)
+                        | PluginError::InvalidLanguageData(_)
+                        | PluginError::InvalidAssociation(_)
+                        | PluginError::LimitExceeded { .. })
+                ),
+                "{expected} must be rejected"
+            );
+        }
+
+        let mut unknown = declarative_manifest();
+        unknown["contributes"]["languages"][0]["script"] = serde_json::json!("main.lua");
+        assert!(matches!(
+            manifest_from(unknown),
+            Err(PluginError::Malformed(_))
+        ));
+
+        let mut duplicate = declarative_manifest();
+        let language = duplicate["contributes"]["languages"][0].clone();
+        duplicate["contributes"]["languages"]
+            .as_array_mut()
+            .expect("languages")
+            .push(language);
+        assert!(matches!(
+            manifest_from(duplicate),
+            Err(PluginError::DuplicateLanguage(id)) if id == "nim"
+        ));
+
+        let mut unsupported = declarative_manifest();
+        unsupported["apiVersion"] = serde_json::json!(3);
+        assert!(matches!(
+            manifest_from(unsupported),
+            Err(PluginError::UnsupportedApi(3))
+        ));
+    }
+
+    #[test]
+    fn disabling_a_plugin_or_one_family_keeps_the_approval() {
+        let root = tempfile::tempdir().expect("root");
+        write_package(root.path(), "function activate() {}");
+        let package = super::PluginPackage::load(root.path()).expect("package");
+        let store = PluginStore::new(root.path().join("grants.json"));
+        let grant = PluginGrant {
+            permissions: BTreeSet::from([PluginPermission::ShowMessage]),
+        };
+        store.approve(&package, grant.clone()).expect("approve");
+        let activation = store
+            .activation_for(&package)
+            .expect("activation")
+            .expect("approved");
+        assert!(activation.enabled);
+        assert_eq!(activation.disabled_capabilities.len(), 0);
+
+        assert!(store
+            .set_capability_enabled("nulis.example", super::PluginCapability::Commands, false)
+            .expect("disable commands"));
+        assert!(store.set_enabled("nulis.example", false).expect("disable"));
+        let disabled = store
+            .activation_for(&package)
+            .expect("activation")
+            .expect("still approved");
+        assert_eq!(disabled.grant, grant);
+        assert!(!disabled.enabled);
+        assert!(!disabled.capability_enabled(super::PluginCapability::Commands));
+        assert!(disabled
+            .disabled_capabilities
+            .contains(&super::PluginCapability::Commands));
+        assert!(!disabled
+            .disabled_capabilities
+            .contains(&super::PluginCapability::Languages));
+
+        assert!(store.set_enabled("nulis.example", true).expect("enable"));
+        let enabled = store
+            .activation_for(&package)
+            .expect("activation")
+            .expect("approved");
+        assert!(enabled.enabled);
+        assert!(!enabled.capability_enabled(super::PluginCapability::Commands));
+        assert!(store
+            .set_capability_enabled("nulis.example", super::PluginCapability::Commands, true)
+            .expect("enable commands"));
+        assert!(store
+            .activation_for(&package)
+            .expect("activation")
+            .expect("approved")
+            .capability_enabled(super::PluginCapability::Commands));
+
+        // A document written before v2 has no switches and still means active.
+        let path = root.path().join("grants.json");
+        let mut document: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).expect("grants")).expect("document");
+        document["approvals"][0]
+            .as_object_mut()
+            .expect("approval")
+            .remove("enabled");
+        document["approvals"][0]
+            .as_object_mut()
+            .expect("approval")
+            .remove("disabledCapabilities");
+        fs::write(&path, serde_json::to_vec(&document).expect("serialize")).expect("write");
+        let legacy = store
+            .activation_for(&package)
+            .expect("activation")
+            .expect("approved");
+        assert!(legacy.enabled);
+        assert_eq!(legacy.disabled_capabilities.len(), 0);
+    }
+
+    #[test]
+    fn a_declarative_plugin_summarizes_its_languages() {
+        let root = tempfile::tempdir().expect("root");
+        let package = root.path().join("nim");
+        write_declarative_package(&package);
+        let catalog =
+            PluginCatalog::new(root.path().join("plugins"), root.path().join("grants.json"));
+        let installed = catalog.install(&package).expect("install");
+        assert_eq!(installed.api_version, 2);
+        assert_eq!(installed.languages.len(), 1);
+        assert_eq!(installed.languages[0].id, "nim");
+        assert_eq!(installed.languages[0].display_name, "Nim");
+        assert_eq!(installed.languages[0].extensions, ["nim", "nims"]);
+        assert!(installed.languages[0]
+            .capabilities
+            .contains(&super::PluginCapability::Snippets));
+        assert_eq!(installed.commands.len(), 0);
+        assert!(!installed.approved);
+
+        let stored = catalog.get("acme.nim").expect("get").expect("package");
+        catalog
+            .approve(&stored, PluginGrant::default())
+            .expect("approve");
+        assert!(catalog
+            .set_capability_enabled("acme.nim", super::PluginCapability::Languages, false)
+            .expect("switch language off"));
+        let summary = catalog.list().expect("list").remove(0);
+        assert!(summary
+            .disabled_capabilities
+            .contains(&super::PluginCapability::Languages));
+    }
+
+    #[test]
+    fn the_declarative_example_package_is_installable_as_is() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../examples/plugins/nulis-nim");
+        let package = super::PluginPackage::load(&root).expect("example package");
+        assert_eq!(package.manifest.api_version, 2);
+        assert!(package.manifest.main.is_none());
+        let language = &package.manifest.contributes.languages[0];
+        assert_eq!(language.id, "nim");
+        assert_eq!(language.display_name, "Nim");
+        assert_eq!(language.extensions, ["nim", "nims"]);
+        assert!(language
+            .capabilities()
+            .contains(&super::PluginCapability::Snippets));
     }
 }

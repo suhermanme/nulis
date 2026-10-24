@@ -8,6 +8,7 @@ import type {
   EditorPreferences,
   CapabilityKind,
   LanguageCapabilities,
+  LanguageConflict,
   LanguageDescriptor,
   LanguageServersState,
   SettingsState,
@@ -161,6 +162,18 @@ function same(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+/** Writes the user's conflict choices into `files.associations`, keeping others. */
+function withAssociations(
+  values: Record<string, unknown>, choices: Record<string, string>,
+): Record<string, unknown> {
+  if (Object.keys(choices).length === 0) return values;
+  const files = typeof values.files === "object" && values.files !== null
+    ? values.files as Record<string, unknown> : {};
+  const associations = typeof files.associations === "object" && files.associations !== null
+    ? files.associations as Record<string, unknown> : {};
+  return { ...values, files: { ...files, associations: { ...associations, ...choices } } };
+}
+
 function message(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : typeof error === "string" ? error : fallback;
 }
@@ -189,6 +202,8 @@ export function SettingsWindow({
   const [featureDraft, setFeatureDraft] = useState<FeatureSwitches>({});
   const [indentDraft, setIndentDraft] = useState<IndentationDraft>(() => indentationOf(null));
   const [plugins, setPlugins] = useState<PluginSummary[]>([]);
+  const [conflicts, setConflicts] = useState<LanguageConflict[]>([]);
+  const [associationDraft, setAssociationDraft] = useState<Record<string, string>>({});
   const [servers, setServers] = useState<LanguageServersState | null>(null);
   const [serverBusy, setServerBusy] = useState<string | null>(null);
   const [info, setInfo] = useState<ApplicationInfo | null>(null);
@@ -204,15 +219,17 @@ export function SettingsWindow({
   const signals = useRef({ close: closeSignal, external: externalChangeSignal });
 
   const loadLanguageSettings = useCallback(async () => {
-    const [state, rows] = await Promise.all([
+    const [state, rows, conflictRows] = await Promise.all([
       executeCommand<SettingsState>({ id: "settings.state", context: CONTEXT, arguments: {} }),
       executeCommand<LanguageCapabilities[]>({ id: "language.capabilities", context: CONTEXT, arguments: {} }),
+      executeCommand<LanguageConflict[]>({ id: "language.conflicts", context: CONTEXT, arguments: {} }).catch(() => []),
     ]);
     const nextRows = Array.isArray(rows) ? rows : [];
     setSettingsState(state ?? null);
     setFeatureRows(nextRows);
     setFeatureDraft(switchesOf(nextRows));
     setIndentDraft(indentationOf(state ?? null));
+    setConflicts(Array.isArray(conflictRows) ? conflictRows : []);
   }, []);
 
   const loadLanguageServers = useCallback(async () => {
@@ -275,9 +292,9 @@ export function SettingsWindow({
       || !same(indentDraft, indentationOf(settingsState))) pending.add("editor");
     if (!same(before.keybindings, draft.keybindings)) pending.add("keybindings");
     if (!same(before.menu, draft.menu) || !same(before.toolbar, draft.toolbar)) pending.add("menus");
-    if (!same(featureDraft, switchesOf(featureRows))) pending.add("languages");
+    if (!same(featureDraft, switchesOf(featureRows)) || Object.keys(associationDraft).length > 0) pending.add("languages");
     return pending;
-  }, [draft, featureDraft, featureRows, indentDraft, lineChanges, saved, savedLineChanges, savedWelcome, settingsState, welcome]);
+  }, [associationDraft, draft, featureDraft, featureRows, indentDraft, lineChanges, saved, savedLineChanges, savedWelcome, settingsState, welcome]);
   const pending = pendingSections.size > 0;
 
   const discard = useCallback(() => {
@@ -286,6 +303,7 @@ export function SettingsWindow({
     setIndentDraft(indentationOf(settingsState));
     setLineChanges(savedLineChanges);
     setWelcome(savedWelcome);
+    setAssociationDraft({});
     onPreview(null);
   }, [featureRows, onPreview, saved, savedLineChanges, savedWelcome, settingsState]);
 
@@ -299,15 +317,18 @@ export function SettingsWindow({
       });
       const featuresChanged = !same(featureDraft, switchesOf(featureRows));
       const indentationChanged = !same(indentDraft, indentationOf(settingsState));
-      if (settingsState && (featuresChanged || indentationChanged)) {
+      const associationsChanged = Object.keys(associationDraft).length > 0;
+      if (settingsState && (featuresChanged || indentationChanged || associationsChanged)) {
         let values = settingsState.document.values;
         if (featuresChanged) values = withSwitches(values, featureDraft, featureRows);
         if (indentationChanged) values = withIndentation(values, indentDraft);
+        if (associationsChanged) values = withAssociations(values, associationDraft);
         await executeCommand<SettingsState>({
           id: "settings.saveChecked", context: CONTEXT,
           arguments: { expectedRevision: settingsState.revision, document: { ...settingsState.document, values } },
         });
         await loadLanguageSettings();
+        setAssociationDraft({});
       }
       saveLineChangeDefault(lineChanges);
       setSavedLineChanges(lineChanges);
@@ -326,7 +347,7 @@ export function SettingsWindow({
     } finally {
       setBusy(false);
     }
-  }, [busy, draft, featureDraft, featureRows, indentDraft, lineChanges, loadLanguageSettings, onSaved, saved, settingsState, themes, welcome]);
+  }, [associationDraft, busy, draft, featureDraft, featureRows, indentDraft, lineChanges, loadLanguageSettings, onSaved, saved, settingsState, themes, welcome]);
 
   const requestClose = useCallback(() => {
     if (pending) setConfirm("close");
@@ -610,6 +631,26 @@ export function SettingsWindow({
             <li key={pattern}><strong>{pattern}</strong><code>{language}</code>
               {settingsState?.rejectedAssociations.includes(pattern) ? <span>ignored</span> : null}</li>))}
         </ul> : null}
+      </fieldset>
+      <fieldset className="settings-group"><legend>File association conflicts</legend>
+        <p className="settings-help">More than one language claims these patterns, so the first claim is used. Choosing one here writes <code>files.associations</code> in settings.json and applies to files opened afterwards.</p>
+        {conflicts.length === 0
+          ? <p className="settings-help">No conflicts.</p>
+          : <ul className="settings-list" aria-label="File association conflicts">
+            {conflicts.filter((conflict) => matches(conflict.pattern)).map((conflict) => {
+              const saved = fileAssociations(settingsState).find(([pattern]) => pattern === conflict.pattern)?.[1];
+              const chosen = associationDraft[conflict.pattern] ?? saved;
+              return <li key={conflict.pattern}><strong>{conflict.pattern}</strong>
+                {conflict.claims.map((claim) => <label className="settings-check" key={claim.language}>
+                  <input type="radio" name={`conflict-${conflict.pattern}`}
+                    aria-label={`Use ${claim.displayName} for ${conflict.pattern}`}
+                    checked={chosen === claim.language}
+                    onChange={() => setAssociationDraft((current) => ({ ...current, [conflict.pattern]: claim.language }))} />
+                  {claim.displayName} <code>{claim.source}</code>
+                </label>)}
+              </li>;
+            })}
+          </ul>}
       </fieldset>
       <fieldset className="settings-group"><legend>Language servers</legend>
         <p className="settings-help">Nulis starts no language server unless it is listed in <code>lsp.servers</code> in settings.json and you approve its exact command here. A server starts when a document of one of its languages opens, and stops when the last one closes.</p>

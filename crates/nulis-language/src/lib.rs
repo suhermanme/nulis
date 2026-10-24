@@ -315,6 +315,15 @@ impl CapabilityRegistry {
         before - self.entries.len()
     }
 
+    /// Removes every provider a plugin contributed; used when plugin
+    /// contributions are rebuilt after an install, approval, or switch.
+    pub fn remove_all_plugin_providers(&mut self) -> usize {
+        let before = self.entries.len();
+        self.entries
+            .retain(|entry| !matches!(entry.info.origin, ProviderOrigin::Plugin(_)));
+        before - self.entries.len()
+    }
+
     /// Switches one provider on or off.
     ///
     /// # Errors

@@ -1,0 +1,69 @@
+{
+  "apiVersion": 2,
+  "id": "nulis.nim-language",
+  "name": "Nim Language",
+  "version": "1.0.0",
+  "engines": { "nulis": ">=0.1.0" },
+  "contributes": {
+    "languages": [
+      {
+        "id": "nim",
+        "displayName": "Nim",
+        "extensions": ["nim", "nims"],
+        "filenames": ["config.nims"],
+        "firstLine": "^#!.*\\bnim\\b",
+        "comments": { "line": "#", "block": ["#[", "]#"] },
+        "brackets": [["(", ")"], ["[", "]"], ["{", "}"]],
+        "highlight": {
+          "mode": "code",
+          "keywords": [
+            "addr", "and", "as", "asm", "bind", "block", "break", "case",
+            "cast", "concept", "const", "continue", "converter", "defer",
+            "discard", "distinct", "div", "do", "elif", "else", "end",
+            "enum", "except", "export", "finally", "for", "from", "func",
+            "generic", "if", "import", "in", "include", "interface", "is",
+            "isnot", "iterator", "let", "macro", "method", "mixin", "mod",
+            "nil", "not", "notin", "object", "of", "or", "out", "proc",
+            "ptr", "raise", "ref", "return", "shl", "shr", "static",
+            "template", "try", "tuple", "type", "using", "var", "when",
+            "while", "with", "without", "xor", "yield"
+          ],
+          "types": [
+            "bool", "byte", "char", "cstring", "float", "float32", "float64",
+            "int", "int8", "int16", "int32", "int64", "openArray", "pointer",
+            "range", "seq", "set", "string", "uint", "uint8", "uint16",
+            "uint32", "uint64", "void"
+          ],
+          "strings": [
+            { "open": "\"", "close": "\"", "escape": true },
+            { "open": "'", "close": "'", "escape": true }
+          ],
+          "caseInsensitive": false,
+          "identChars": ["_"]
+        },
+        "indentation": {
+          "increaseAfter": ":\\s*(?:#.*)?$",
+          "outdentOnType": "^\\s*(?:elif|else|except|finally|of)\\b"
+        },
+        "completion": { "keywords": true, "words": true },
+        "snippets": [
+          {
+            "prefix": "proc",
+            "body": "proc ${1:name}(${2:args}): ${3:void} =\n  $0",
+            "description": "Procedure declaration"
+          },
+          {
+            "prefix": "if",
+            "body": "if ${1:condition}:\n  $0",
+            "description": "If block"
+          },
+          {
+            "prefix": "for",
+            "body": "for ${1:item} in ${2:items}:\n  $0",
+            "description": "For loop"
+          }
+        ]
+      }
+    ]
+  }
+}

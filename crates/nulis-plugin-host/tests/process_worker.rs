@@ -59,10 +59,12 @@ fn installable_hello_example_executes_in_the_worker() {
     let runner = ProcessPluginRunner::new(env!("CARGO_BIN_EXE_nulis-plugin-worker").into());
     let response = runner
         .run(
-            &package.worker_request(
-                Some("nulis.hello-example.hello".into()),
-                vec![serde_json::Value::Null],
-            ),
+            &package
+                .worker_request(
+                    Some("nulis.hello-example.hello".into()),
+                    vec![serde_json::Value::Null],
+                )
+                .expect("entry"),
             || false,
         )
         .expect("execute example package");
@@ -94,7 +96,10 @@ fn installable_tips_example_handles_startup_arguments_and_results() {
 
     // Startup activation registers both commands and shows the tip of the day.
     let startup = runner
-        .run(&package.worker_request(None, Vec::new()), || false)
+        .run(
+            &package.worker_request(None, Vec::new()).expect("entry"),
+            || false,
+        )
         .expect("startup activation");
     assert_eq!(
         startup.registered_commands,
@@ -105,7 +110,9 @@ fn installable_tips_example_handles_startup_arguments_and_results() {
     // An argument chooses the tip; the handler's result is returned as JSON.
     let shown = runner
         .run(
-            &package.worker_request(Some("nulis.tips.show".into()), vec![json!({ "index": 1 })]),
+            &package
+                .worker_request(Some("nulis.tips.show".into()), vec![json!({ "index": 1 })])
+                .expect("entry"),
             || false,
         )
         .expect("show a chosen tip");
@@ -121,7 +128,9 @@ fn installable_tips_example_handles_startup_arguments_and_results() {
     // The command palette passes an empty object: the tip of the day is used.
     let palette = runner
         .run(
-            &package.worker_request(Some("nulis.tips.show".into()), vec![json!({})]),
+            &package
+                .worker_request(Some("nulis.tips.show".into()), vec![json!({})])
+                .expect("entry"),
             || false,
         )
         .expect("show the tip of the day");
@@ -131,7 +140,9 @@ fn installable_tips_example_handles_startup_arguments_and_results() {
 
     let count = runner
         .run(
-            &package.worker_request(Some("nulis.tips.count".into()), vec![json!({})]),
+            &package
+                .worker_request(Some("nulis.tips.count".into()), vec![json!({})])
+                .expect("entry"),
             || false,
         )
         .expect("count tips");

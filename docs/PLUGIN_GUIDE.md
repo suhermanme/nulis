@@ -2,21 +2,24 @@
 
 This chapter explains how to write a Nulis plugin, from an empty folder to an installed, approved command. It covers the plugin package, the manifest, the runtime API, the TypeScript SDK, building, testing, and every rule and limit the plugin host enforces.
 
-Two working examples are in the repository:
+Three working examples are in the repository:
 
 - `examples/plugins/hello-nulis` — the smallest possible plugin: one command, one message.
 - `examples/plugins/nulis-tips` — a complete TypeScript project with two commands, a startup action, arguments, results, and a build step.
+- `examples/plugins/nulis-nim` — a declarative language with no JavaScript at all.
 
 ## What a plugin can do today
 
-Plugin API version 1 is deliberately small. A plugin can:
+Plugin API version 1 is deliberately small. An executable plugin can:
 
 - **add commands** to the command palette, each with a title and a category;
 - **show a message** in the status bar;
 - **run code at startup**;
 - **receive an argument** and **return a result** from a command.
 
-A plugin cannot read or change documents, open files, use the network, start processes, read the clipboard, or draw its own interface. There is no API for these in version 1, and the runtime has no other way to reach them. Later versions will add capabilities one permission at a time.
+Plugin API version 2 adds **declarative languages**: highlighting, comments, indentation, completion, snippets, file associations, and first-line detection supplied as manifest data. A declarative package has no entry script and runs no code.
+
+A plugin cannot read or change documents, open files, use the network, start processes, read the clipboard, or draw its own interface. There is no API for these in either version, and the runtime has no other way to reach them. Executable language providers stay out of scope until a written security review exists.
 
 ## How plugins run
 
@@ -78,10 +81,10 @@ A package is a folder with two files that matter:
 
 | File | Required | Purpose |
 | --- | --- | --- |
-| `plugin.json` | Yes | The manifest: identity, permissions, commands. |
-| The entry script | Yes | One UTF-8 JavaScript file, named by `main` in the manifest. |
+| `plugin.json` | Yes | The manifest: identity, API version, permissions, commands, and languages. |
+| The entry script | For executable plugins | One UTF-8 JavaScript file, named by `main` in the manifest. A declarative v2 package has none. |
 
-Nulis copies exactly these two files into its own data folder when you install. Anything else in the folder — TypeScript sources, `package.json`, a README, `node_modules` — is ignored, so you can install straight from your project folder.
+Nulis copies exactly these files into its own data folder when you install. Anything else in the folder — TypeScript sources, `package.json`, a README, `node_modules` — is ignored, so you can install straight from your project folder.
 
 Rules for the package:
 
@@ -116,14 +119,16 @@ Rules for the package:
 
 | Field | Required | Meaning and rules |
 | --- | --- | --- |
+| `apiVersion` | No | `1` (the default) or `2`. Version 2 allows `main` to be omitted and `contributes.languages` to be present. |
 | `id` | Yes | The plugin's unique identity. Letters, digits, `.`, `-`, and `_` only; it must contain at least one `.`; at most 128 characters. It may not start with `plugin.` or `automation.`. Use a prefix you own, such as `yourname.pluginname`. |
 | `name` | Yes | The name shown in the Plugins panel. 1 to 128 characters. |
 | `version` | Yes | A semantic version: `1.0.0`, `0.3.1`, `2.0.0-beta.1`. |
 | `engines.nulis` | Yes | The Nulis versions the plugin works with, as a semantic-version range: `>=0.1.0`, `^0.1`, `>=0.1.0, <0.3.0`. Installation is refused if the running Nulis is outside the range. |
 | `permissions` | No | What the plugin asks to be allowed to do. See [Permissions](#permissions). Default: none. |
-| `activationEvents` | No* | When the plugin runs. See below. |
-| `main` | Yes | The entry script, relative to the folder. |
-| `contributes.commands` | No | The commands the plugin adds. |
+| `activationEvents` | No* | When the plugin runs. See below. Required for an executable plugin, forbidden without `main`. |
+| `main` | For executable plugins | The entry script, relative to the folder. Optional in version 2 when the plugin contributes only languages. |
+| `contributes.commands` | No | The commands the plugin adds. Requires `main`. |
+| `contributes.languages` | No | Declarative languages, version 2 only. |
 
 Each command has:
 
@@ -152,6 +157,82 @@ Two rules connect events and commands, and installation is refused if either is 
 2. **Every `onCommand:` event needs its command.** An event that names an undeclared command is an error.
 
 `onStartup` is optional and is the only event that is not tied to a command.
+
+## Declarative languages (API v2)
+
+A language can be pure data. Set `"apiVersion": 2`, omit `main`, and put the language under `contributes.languages`. The complete package is one `plugin.json`.
+
+**1. Create `plugin.json`:**
+
+```json
+{
+  "apiVersion": 2,
+  "id": "yourname.nim",
+  "name": "Nim",
+  "version": "1.0.0",
+  "engines": { "nulis": ">=0.1.0" },
+  "contributes": {
+    "languages": [{
+      "id": "nim",
+      "displayName": "Nim",
+      "extensions": ["nim", "nims"],
+      "filenames": ["config.nims"],
+      "firstLine": "^#!.*\\bnim\\b",
+      "comments": { "line": "#", "block": ["#[", "]#"] },
+      "highlight": {
+        "keywords": ["proc", "func", "let", "var", "if", "else"],
+        "types": ["int", "string", "bool"],
+        "strings": [{ "open": "\"", "close": "\"", "escape": true }]
+      },
+      "indentation": {
+        "increaseAfter": ":\\s*(?:#.*)?$",
+        "outdentOnType": "^\\s*(?:elif|else|except|finally)\\b"
+      },
+      "completion": { "keywords": true, "words": true },
+      "snippets": [
+        { "prefix": "proc", "body": "proc ${1:name}() =\n  $0", "description": "Procedure" }
+      ]
+    }]
+  }
+}
+```
+
+**2. Install and approve it.** It requests no permissions and starts no process. The language appears in the language menu, and its file associations apply to files opened afterwards.
+
+What each part does:
+
+| Part | What it adds |
+| --- | --- |
+| `extensions`, `filenames` | File associations. `extensions` entries are written without a dot; `filenames` are exact names or `prefix*`. Matching is case-insensitive. |
+| `firstLine` | A regex tried against the first line when the file name matches nothing. Built-in detection runs first. |
+| `comments` | Markers for Toggle Comment: `line` and/or a `block` pair. |
+| `highlight` | Keywords, types, strings, `caseInsensitive`, and extra identifier bytes in `identChars`. `mode` is `code` (default), `markup`, `css`, or `delimited`. |
+| `indentation` | `increaseAfter` opens a block after Enter; `outdentOnType` moves a matching line left as its first character is typed. |
+| `completion` | `keywords` offers the declared words and `words` offers words already in the document. Both default to `true`. |
+| `snippets` | Plain-text `prefix`, `body`, and optional `description`; up to 256 per language. |
+| `brackets` | Validated pairs reserved for auto-pairing in a later release. |
+
+Limits and safety:
+
+- at most 32 languages per plugin, 64 associations per language, 1,024 keywords plus types, 32 string rules, 256 snippets, 4 KiB per snippet body, 256 KiB per manifest;
+- every regex is compiled at install time with a 1 MiB automaton limit and a 4,096-byte pattern cap, using the Rust `regex` crate, which does not backtrack;
+- unknown fields, malformed associations, duplicate language IDs, empty string delimiters, and invalid bracket pairs reject the whole package before installation;
+- a plugin may contribute a new language ID, but it may not redefine a built-in one. It may add associations to a built-in language;
+- when two languages claim the same pattern, Settings ▸ Languages lists the conflict. Choosing one writes `files.associations` in `settings.json`.
+
+See `examples/plugins/nulis-nim` for the complete example. Field-by-field rules and the manifest schema are in [PLUGIN_API.md](PLUGIN_API.md).
+
+### Turning a plugin or one feature off
+
+An approved plugin stays installed but can be made inert, and each feature family can be switched separately:
+
+- **Disable** stops its commands and removes its languages and providers without revoking approval.
+- **Languages** off removes its languages, associations, and providers.
+- **Highlight** off keeps the language and its other features but draws no colors.
+- **Indentation**, **Completion**, and **Snippets** switch only those providers.
+- **Revoke** removes approval; **Uninstall** removes the package.
+
+Switches are bound to the exact package digest, so changing the manifest or entry source asks for approval again.
 
 ## The runtime API
 
@@ -455,6 +536,14 @@ cargo test -p nulis-plugin-host --test process_worker
 | Response (result and messages) | 1 MiB |
 | One message | 64 KiB |
 | Host operations per run | 256 |
+| Languages per plugin | 32 |
+| Associations per language | 64 |
+| Keywords plus types per language | 1,024 |
+| String rules per language | 32 |
+| Snippets per language | 256 |
+| Snippet body | 4 KiB |
+| Language ID | 64 bytes |
+| Declarative regex pattern | 4,096 bytes, 1 MiB compiled |
 
 ## Troubleshooting
 
@@ -475,6 +564,10 @@ cargo test -p nulis-plugin-host --test process_worker
 | "JavaScript runtime limit exceeded", or the command stops after two seconds | The run hit the loop, recursion, or time limit. Do less work per run. |
 | `X is not defined` | The script uses an API that does not exist in the plugin runtime (`console`, `setTimeout`, `fetch`, `require`, …). |
 | "a plugin is already running" | Another plugin run has not finished. Try again. |
+| A language does not appear | The plugin is not approved or enabled, or its **Languages** feature is off in the Plugins panel. |
+| A file opens as Plain Text although the plugin is on | Another language or a user `files.associations` entry claims that pattern. Check Settings ▸ Languages ▸ File association conflicts. |
+| A contributed language rejects installation with "invalid declarative regex" | `firstLine`, `increaseAfter`, or `outdentOnType` is not a valid regular expression, or is longer than 4,096 bytes. |
+| A contributed language rejects installation with "invalid language association" | An extension contains a dot, slash, or `*`, or a file name is empty. |
 
 ## Checklist before sharing a plugin
 
@@ -485,4 +578,5 @@ cargo test -p nulis-plugin-host --test process_worker
 - Every command has a clear title and a category.
 - Handlers work with an empty argument.
 - The built `index.js` is included, so the plugin installs without a build step.
+- A declarative package sets `"apiVersion": 2`, omits `main`, and contains no JavaScript.
 - A license file says how others may use it.

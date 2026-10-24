@@ -297,7 +297,7 @@ impl DocumentManager {
             _ => {
                 let kind = format.ok_or(EditorError::StateUnavailable)?;
                 let comment = self.languages().comment_syntax(&session.language_id);
-                plan.format_lines(kind, options, comment)?
+                plan.format_lines(kind, options, comment.as_ref())?
             }
         };
         if edits.is_empty() {

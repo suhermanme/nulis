@@ -26,7 +26,7 @@ pub(crate) enum Mode {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct StringRule {
+pub(crate) struct StringRuleSeed {
     pub open: &'static str,
     pub close: &'static str,
     /// A backslash hides the next byte from the closing delimiter.
@@ -39,8 +39,8 @@ const fn string(
     close: &'static str,
     escape: bool,
     multiline: bool,
-) -> StringRule {
-    StringRule {
+) -> StringRuleSeed {
+    StringRuleSeed {
         open,
         close,
         escape,
@@ -48,9 +48,113 @@ const fn string(
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
+pub(crate) struct StringRule {
+    pub open: String,
+    pub close: String,
+    /// A backslash hides the next byte from the closing delimiter.
+    pub escape: bool,
+    pub multiline: bool,
+}
+
+/// A lexer table owned by the registry: built-in tables are converted from
+/// their compile-time seeds, plugin tables are built from validated manifest
+/// data at run time.
+#[derive(Clone, Debug)]
 #[allow(clippy::struct_excessive_bools)] // Independent per-language switches read as a table.
 pub(crate) struct LexerSpec {
+    pub id: String,
+    pub name: String,
+    pub extensions: Vec<String>,
+    pub filenames: Vec<String>,
+    pub mode: Mode,
+    /// Lowercase when `case_insensitive` is set.
+    pub keywords: Vec<String>,
+    pub types: Vec<String>,
+    pub line_comments: Vec<String>,
+    /// Words that start a comment running to the end of the line (`rem`).
+    pub comment_words: Vec<String>,
+    pub block_comments: Vec<(String, String)>,
+    pub strings: Vec<StringRule>,
+    pub case_insensitive: bool,
+    /// Prefixes that mark a variable (`$name`, `@name`).
+    pub sigils: Vec<u8>,
+    /// Extra bytes allowed inside an identifier.
+    pub ident_chars: Vec<u8>,
+    /// `#directive` at the start of a line is a keyword.
+    pub preprocessor: bool,
+    /// An identifier in `CamelCase` is a type by convention.
+    pub capital_types: bool,
+    /// An identifier directly followed by this byte is a key (`key:` or `key =`).
+    pub key_suffix: Option<u8>,
+    /// Markup only: `<script>` and `<style>` bodies are skipped, not tokenized.
+    pub raw_text_elements: bool,
+    /// Delimited only: the field separator. A comma means "guess from the
+    /// first line" among comma, semicolon, tab, and bar.
+    pub delimiter: Option<u8>,
+    /// YAML additions to the code scanner: document markers, anchors and
+    /// aliases, tags, block scalars, and quoted keys.
+    pub yaml: bool,
+    /// Extra words offered by completion that are not highlighted as
+    /// keywords (HTML element names).
+    pub completion_words: Vec<String>,
+    /// JavaScript forms: regular-expression literals and `${…}` inside
+    /// template strings.
+    pub ecmascript: bool,
+    /// JSX elements in expressions (`<Button label="x">{child}</Button>`).
+    pub jsx: bool,
+}
+
+impl LexerSpec {
+    /// Copies a compile-time table into the owned form used at run time.
+    pub(crate) fn from_seed(seed: &LexerSeed) -> Self {
+        let strings = |rules: &[StringRuleSeed]| {
+            rules
+                .iter()
+                .map(|rule| StringRule {
+                    open: rule.open.into(),
+                    close: rule.close.into(),
+                    escape: rule.escape,
+                    multiline: rule.multiline,
+                })
+                .collect()
+        };
+        let strings_list = |items: &[&str]| items.iter().map(|item| (*item).into()).collect();
+        Self {
+            id: seed.id.into(),
+            name: seed.name.into(),
+            extensions: strings_list(seed.extensions),
+            filenames: strings_list(seed.filenames),
+            mode: seed.mode,
+            keywords: strings_list(seed.keywords),
+            types: strings_list(seed.types),
+            line_comments: strings_list(seed.line_comments),
+            comment_words: strings_list(seed.comment_words),
+            block_comments: seed
+                .block_comments
+                .iter()
+                .map(|(open, close)| ((*open).into(), (*close).into()))
+                .collect(),
+            strings: strings(seed.strings),
+            case_insensitive: seed.case_insensitive,
+            sigils: seed.sigils.to_vec(),
+            ident_chars: seed.ident_chars.to_vec(),
+            preprocessor: seed.preprocessor,
+            capital_types: seed.capital_types,
+            key_suffix: seed.key_suffix,
+            raw_text_elements: seed.raw_text_elements,
+            delimiter: seed.delimiter,
+            yaml: seed.yaml,
+            completion_words: strings_list(seed.completion_words),
+            ecmascript: seed.ecmascript,
+            jsx: seed.jsx,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+#[allow(clippy::struct_excessive_bools)] // Independent per-language switches read as a table.
+pub(crate) struct LexerSeed {
     pub id: &'static str,
     pub name: &'static str,
     pub extensions: &'static [&'static str],
@@ -63,7 +167,7 @@ pub(crate) struct LexerSpec {
     /// Words that start a comment running to the end of the line (`rem`).
     pub comment_words: &'static [&'static str],
     pub block_comments: &'static [(&'static str, &'static str)],
-    pub strings: &'static [StringRule],
+    pub strings: &'static [StringRuleSeed],
     pub case_insensitive: bool,
     /// Prefixes that mark a variable (`$name`, `@name`).
     pub sigils: &'static [u8],
@@ -96,7 +200,7 @@ pub(crate) struct LexerSpec {
     pub jsx: bool,
 }
 
-const BASE: LexerSpec = LexerSpec {
+const BASE: LexerSeed = LexerSeed {
     id: "",
     name: "",
     extensions: &[],
@@ -123,11 +227,11 @@ const BASE: LexerSpec = LexerSpec {
     jsx: false,
 };
 
-const C_STRINGS: &[StringRule] = &[
+const C_STRINGS: &[StringRuleSeed] = &[
     string("\"", "\"", true, false),
     string("'", "'", true, false),
 ];
-const QUOTES_MULTILINE: &[StringRule] =
+const QUOTES_MULTILINE: &[StringRuleSeed] =
     &[string("\"", "\"", true, true), string("'", "'", true, true)];
 const SLASH_COMMENTS: &[&str] = &["//"];
 const C_BLOCK: &[(&str, &str)] = &[("/*", "*/")];
@@ -1586,7 +1690,7 @@ const SQL_TYPES: &[&str] = &[
     "varchar2",
     "year",
 ];
-const SQL_STRINGS: &[StringRule] = &[
+const SQL_STRINGS: &[StringRuleSeed] = &[
     string("'", "'", false, true),
     string("\"", "\"", false, false),
     string("`", "`", false, false),
@@ -1780,8 +1884,8 @@ pub(crate) const PYTHON_WORDS: &[&str] = &[
 const YAML_KEYWORDS: &[&str] = &["true", "false", "null", "yes", "no", "on", "off"];
 
 /// Every table-driven language. Order only matters for ties in detection.
-pub(crate) const SPECS: &[LexerSpec] = &[
-    LexerSpec {
+pub(crate) const SPECS: &[LexerSeed] = &[
+    LexerSeed {
         id: "applescript",
         name: "AppleScript",
         extensions: &["applescript", "scpt"],
@@ -1792,7 +1896,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         case_insensitive: true,
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "bash",
         name: "Bash",
         extensions: &["sh", "bash", "zsh", "ksh", "command"],
@@ -1814,7 +1918,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         sigils: b"$",
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "batch",
         name: "Batch",
         extensions: &["bat", "cmd"],
@@ -1825,7 +1929,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         case_insensitive: true,
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "c",
         name: "C",
         extensions: &["c", "h"],
@@ -1837,7 +1941,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         preprocessor: true,
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "cpp",
         name: "C++",
         extensions: &[
@@ -1852,7 +1956,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         capital_types: true,
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "csharp",
         name: "C#",
         extensions: &["cs", "csx"],
@@ -1869,7 +1973,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         capital_types: true,
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "css",
         name: "CSS",
         extensions: &["css", "scss", "less"],
@@ -1880,7 +1984,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         toggles_line_comments: false,
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "ignore",
         name: "Ignore File",
         filenames: &[
@@ -1894,7 +1998,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         line_comments: HASH,
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "csv",
         name: "CSV",
         extensions: &["csv"],
@@ -1902,7 +2006,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         delimiter: Some(b','),
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "dockerfile",
         name: "Dockerfile",
         extensions: &["dockerfile"],
@@ -1919,7 +2023,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         sigils: b"$",
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "go",
         name: "Go",
         extensions: &["go"],
@@ -1934,7 +2038,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         ],
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "html",
         name: "HTML",
         extensions: &["html", "htm", "xhtml", "vue", "svelte"],
@@ -1944,7 +2048,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         completion_words: HTML_ELEMENTS,
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "ini",
         name: "INI",
         extensions: &["ini", "cfg", "conf", "properties", "editorconfig"],
@@ -1955,7 +2059,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         key_suffix: Some(b'='),
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "java",
         name: "Java",
         extensions: &["java"],
@@ -1971,7 +2075,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         capital_types: true,
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "javascript",
         name: "JavaScript",
         extensions: &["js", "mjs", "cjs", "jsx"],
@@ -1989,7 +2093,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         jsx: true,
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "kotlin",
         name: "Kotlin",
         extensions: &["kt", "kts"],
@@ -2004,7 +2108,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         capital_types: true,
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "lua",
         name: "Lua",
         extensions: &["lua"],
@@ -2018,7 +2122,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         ],
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "makefile",
         name: "Makefile",
         extensions: &["mk", "mak"],
@@ -2029,7 +2133,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         sigils: b"$",
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "mysql",
         name: "MySQL / MariaDB",
         extensions: &["mysql", "mariadb"],
@@ -2042,7 +2146,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         sigils: b"@",
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "objective-c",
         name: "Objective-C/C++",
         extensions: &["m", "mm"],
@@ -2059,7 +2163,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         capital_types: true,
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "perl",
         name: "Perl",
         extensions: &["pl", "pm", "t", "perl"],
@@ -2070,7 +2174,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         sigils: b"$@%",
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "php",
         name: "PHP",
         extensions: &["php", "phtml", "php3", "php4", "php5", "phps"],
@@ -2085,7 +2189,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         capital_types: true,
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "plsql",
         name: "Oracle SQL",
         extensions: &["pls", "plsql", "pks", "pkb", "plb", "ora"],
@@ -2097,7 +2201,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         case_insensitive: true,
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "powershell",
         name: "PowerShell",
         extensions: &["ps1", "psm1", "psd1"],
@@ -2115,7 +2219,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         ident_chars: b"-",
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "ruby",
         name: "Ruby",
         extensions: &["rb", "rake", "gemspec", "ru"],
@@ -2129,7 +2233,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         capital_types: true,
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "rust",
         name: "Rust",
         extensions: &["rs"],
@@ -2146,7 +2250,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         capital_types: true,
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "sql",
         name: "SQL",
         extensions: &["sql", "ddl", "dml"],
@@ -2158,7 +2262,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         case_insensitive: true,
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "swift",
         name: "Swift",
         extensions: &["swift"],
@@ -2173,7 +2277,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         capital_types: true,
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "toml",
         name: "TOML",
         extensions: &["toml"],
@@ -2190,7 +2294,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         key_suffix: Some(b'='),
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "tsv",
         name: "TSV",
         extensions: &["tsv", "tab"],
@@ -2198,7 +2302,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         delimiter: Some(b'\t'),
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "typescript",
         name: "TypeScript",
         extensions: &["ts", "mts", "cts"],
@@ -2218,7 +2322,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
     },
     // TypeScript with JSX. Separate from TypeScript because a `.ts` file may
     // write `<Type>value` as a cast, which would read as an element.
-    LexerSpec {
+    LexerSeed {
         id: "tsx",
         name: "TSX",
         extensions: &["tsx"],
@@ -2237,7 +2341,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         jsx: true,
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "vb",
         name: "Visual Basic",
         extensions: &["vb", "bas", "cls", "frm", "vba"],
@@ -2250,7 +2354,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         preprocessor: true,
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "vbscript",
         name: "VBScript ASP",
         extensions: &["vbs", "vbe", "asp", "wsf"],
@@ -2262,7 +2366,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         case_insensitive: true,
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "xml",
         name: "XML",
         extensions: &[
@@ -2287,21 +2391,21 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         mode: Mode::Markup,
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "plist",
         name: "Property List",
         extensions: &["plist"],
         mode: Mode::Markup,
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "xsl",
         name: "XSL",
         extensions: &["xsl", "xslt"],
         mode: Mode::Markup,
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "yaml",
         name: "YAML",
         extensions: &["yaml", "yml"],
@@ -2314,7 +2418,7 @@ pub(crate) const SPECS: &[LexerSpec] = &[
         key_suffix: Some(b':'),
         ..BASE
     },
-    LexerSpec {
+    LexerSeed {
         id: "zig",
         name: "Zig",
         extensions: &["zig", "zon"],
@@ -2390,7 +2494,7 @@ pub(crate) fn analyze(
         brackets: Vec::new(),
         frames: Vec::new(),
         out: SyntaxAnalysis {
-            language_id: LanguageId(spec.id.into()),
+            language_id: LanguageId(spec.id.clone()),
             parsed_bytes: source.len(),
             highlights: Vec::new(),
             folds: Vec::new(),
@@ -2474,7 +2578,7 @@ impl Scan<'_> {
     }
 
     fn ident_end(&self, from: usize) -> usize {
-        let extra = self.spec.ident_chars;
+        let extra = &self.spec.ident_chars;
         self.src[from..]
             .iter()
             .position(|byte| {
@@ -2501,17 +2605,17 @@ impl Scan<'_> {
     }
 
     fn comment(&mut self) -> bool {
-        for (open, close) in self.spec.block_comments {
-            if self.starts_with(open) {
+        for (open, close) in &self.spec.block_comments {
+            if self.starts_with(open.as_str()) {
                 let end = self
-                    .find(self.pos + open.len(), close)
+                    .find(self.pos + open.len(), close.as_str())
                     .map_or(self.src.len(), |index| index + close.len());
                 self.take(end, SyntaxToken::Comment);
                 return true;
             }
         }
-        for prefix in self.spec.line_comments {
-            if self.starts_with(prefix) {
+        for prefix in &self.spec.line_comments {
+            if self.starts_with(prefix.as_str()) {
                 self.take(self.line_end(self.pos), SyntaxToken::Comment);
                 return true;
             }
@@ -2520,8 +2624,8 @@ impl Scan<'_> {
     }
 
     fn string(&mut self) -> bool {
-        for rule in self.spec.strings {
-            if !self.starts_with(rule.open) {
+        for rule in &self.spec.strings {
+            if !self.starts_with(rule.open.as_str()) {
                 continue;
             }
             let close = rule.close.as_bytes();
@@ -2911,13 +3015,13 @@ impl Scan<'_> {
         let byte = self.src[self.pos];
         let end = self.ident_end(self.pos);
         let word = self.word(self.pos, end);
-        if spec.comment_words.contains(&word.as_str()) {
+        if spec.comment_words.iter().any(|item| item == &word) {
             self.take(self.line_end(self.pos), SyntaxToken::Comment);
             return previous;
         }
-        let token = if spec.keywords.contains(&word.as_str()) {
+        let token = if spec.keywords.iter().any(|item| item == &word) {
             Some(SyntaxToken::Keyword)
-        } else if spec.types.contains(&word.as_str()) {
+        } else if spec.types.iter().any(|item| item == &word) {
             Some(SyntaxToken::Type)
         } else if spec.key_suffix.is_some() && self.next_significant(end) == spec.key_suffix {
             Some(SyntaxToken::Property)

@@ -510,7 +510,18 @@ fn comment_markers_are_unchanged() {
     let registry = LanguageRegistry::with_builtins();
     for (id, line, block) in COMMENTS {
         let syntax = registry.comment_syntax(&LanguageId::new(*id).expect("valid id"));
-        assert_eq!(syntax.and_then(|syntax| syntax.line), *line, "{id} line");
-        assert_eq!(syntax.and_then(|syntax| syntax.block), *block, "{id} block");
+        assert_eq!(
+            syntax.as_ref().and_then(|syntax| syntax.line.as_deref()),
+            *line,
+            "{id} line"
+        );
+        assert_eq!(
+            syntax
+                .as_ref()
+                .and_then(|syntax| syntax.block.as_ref())
+                .map(|(open, close)| (open.as_str(), close.as_str())),
+            *block,
+            "{id} block"
+        );
     }
 }

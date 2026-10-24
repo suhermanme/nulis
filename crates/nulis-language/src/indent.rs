@@ -5,6 +5,7 @@
 //! Every family starts from the current line's indentation and adjusts it
 //! with language rules, so a language without rules still keeps its indent.
 
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 
 /// Most lines above the caret an indentation rule looks at.
@@ -132,6 +133,75 @@ pub enum Family {
 pub struct RuleIndenter {
     pub family: Family,
     pub line_comment: Option<&'static str>,
+}
+
+/// A plugin language's indentation, as validated declarative regexes.
+#[derive(Clone, Debug)]
+pub struct RegexIndenter {
+    /// A line matching this opens a block after Enter.
+    pub increase_after: Option<Regex>,
+    /// A line matching this moves left when its first characters are typed.
+    pub outdent_on_type: Option<Regex>,
+}
+
+impl RegexIndenter {
+    /// Compiles the manifest's patterns with the same size limits the
+    /// manifest validator used.
+    ///
+    /// # Errors
+    /// Returns the regex compiler's message for an invalid pattern.
+    pub fn new(
+        increase_after: Option<&str>,
+        outdent_on_type: Option<&str>,
+    ) -> Result<Self, String> {
+        let compile = |pattern: Option<&str>| {
+            pattern
+                .map(|pattern| {
+                    regex::RegexBuilder::new(pattern)
+                        .size_limit(1_048_576)
+                        .dfa_size_limit(1_048_576)
+                        .build()
+                        .map_err(|error| error.to_string())
+                })
+                .transpose()
+        };
+        Ok(Self {
+            increase_after: compile(increase_after)?,
+            outdent_on_type: compile(outdent_on_type)?,
+        })
+    }
+}
+
+impl IndentProvider for RegexIndenter {
+    fn on_enter(&self, context: &IndentContext<'_>) -> NewlineAction {
+        let line = context.before.trim_end();
+        let opens = self
+            .increase_after
+            .as_ref()
+            .is_some_and(|pattern| pattern.is_match(line));
+        NewlineAction {
+            current_indent: None,
+            indent: if opens {
+                context.deeper(context.base())
+            } else {
+                context.base().to_owned()
+            },
+            closing_indent: None,
+        }
+    }
+
+    fn on_type(&self, context: &IndentContext<'_>, _typed: char) -> Option<String> {
+        if !self
+            .outdent_on_type
+            .as_ref()
+            .is_some_and(|pattern| pattern.is_match(context.before))
+        {
+            return None;
+        }
+        let base = context.base();
+        let target = context.shallower(base);
+        (context.columns(&target) < context.columns(base)).then_some(target)
+    }
 }
 
 const BRACE_PAIRS: [(char, char); 3] = [('{', '}'), ('[', ']'), ('(', ')')];

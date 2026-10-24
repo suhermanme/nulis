@@ -1,7 +1,7 @@
 use super::{
     detect_unit, indent_columns, indent_text, leading_whitespace, Family, IndentContext,
-    IndentProvider, IndentUnit, NewlineAction, RequiredUnit, RuleIndenter, APPLESCRIPT, BASH, LUA,
-    PLSQL, RUBY, VISUAL_BASIC,
+    IndentProvider, IndentUnit, NewlineAction, RegexIndenter, RequiredUnit, RuleIndenter,
+    APPLESCRIPT, BASH, LUA, PLSQL, RUBY, VISUAL_BASIC,
 };
 
 const SPACES: IndentUnit = IndentUnit::Spaces(4);
@@ -23,6 +23,14 @@ fn context_parts(text: &str) -> (Vec<String>, String, String) {
 }
 
 fn enter_with(rules: &RuleIndenter, unit: IndentUnit, text: &str) -> NewlineAction {
+    enter_with_provider(rules, unit, text)
+}
+
+fn enter_with_provider<P: IndentProvider + ?Sized>(
+    rules: &P,
+    unit: IndentUnit,
+    text: &str,
+) -> NewlineAction {
     let (previous, before, after) = context_parts(text);
     let previous: Vec<&str> = previous.iter().map(String::as_str).collect();
     rules.on_enter(&IndentContext {
@@ -38,7 +46,7 @@ fn enter(rules: &RuleIndenter, text: &str) -> String {
     enter_with(rules, SPACES, text).indent
 }
 
-fn typed(rules: &RuleIndenter, text: &str, character: char) -> Option<String> {
+fn typed<P: IndentProvider + ?Sized>(rules: &P, text: &str, character: char) -> Option<String> {
     let (previous, before, after) = context_parts(text);
     let previous: Vec<&str> = previous.iter().map(String::as_str).collect();
     rules.on_type(
@@ -375,4 +383,24 @@ fn no_family_panics_on_awkward_text_and_all_results_are_whitespace() {
             }
         }
     }
+}
+
+#[test]
+fn a_plugin_regex_opens_blocks_and_outdents_its_closers() {
+    let rules =
+        RegexIndenter::new(Some(":$"), Some(r"^\s*(?:else|elif|except)\b")).expect("patterns");
+    assert_eq!(
+        enter_with_provider(&rules, SPACES, "proc go():|").indent,
+        "    "
+    );
+    assert_eq!(enter_with_provider(&rules, SPACES, "echo 1|").indent, "");
+    assert_eq!(typed(&rules, "    else|", 'e'), Some(String::new()));
+    assert_eq!(typed(&rules, "    echo|", 'e'), None);
+    // A closer at the left margin has nowhere to move.
+    assert_eq!(typed(&rules, "else|", 'e'), None);
+    // A regex with no matches simply leaves text alone.
+    let plain = RegexIndenter::new(None, None).expect("empty rules");
+    assert_eq!(enter_with_provider(&plain, SPACES, "x|").indent, "");
+    assert_eq!(typed(&plain, "    x|", 'x'), None);
+    assert!(RegexIndenter::new(Some("("), None).is_err());
 }

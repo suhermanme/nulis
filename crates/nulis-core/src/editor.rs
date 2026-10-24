@@ -1,5 +1,6 @@
 use crate::format_tools;
 use crate::line_changes::{ChangeHistory, ChangeTracker, LineChange, LineChangeStatus};
+use crate::plugin_languages::PluginLanguageSync;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use nulis_diff::{
     compare_binary, compare_text, BinaryDiffRequest, CompareMode, DiffPage, TextDiffRequest,
@@ -17,7 +18,9 @@ use nulis_search::{
     SearchMatch, MAX_PAGE_MATCHES,
 };
 pub use nulis_search::{SearchMode, SearchOptions};
-use nulis_syntax::{LanguageId, LanguageRegistry, SymbolKind, SyntaxAnalysis, SyntaxToken};
+use nulis_syntax::{
+    AssociationSource, LanguageId, LanguageRegistry, SymbolKind, SyntaxAnalysis, SyntaxToken,
+};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -261,6 +264,25 @@ pub struct LanguageCapabilities {
     pub id: String,
     pub display_name: String,
     pub capabilities: Vec<CapabilitySwitch>,
+}
+
+/// One language's claim on a file pattern, for the conflict list.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssociationClaim {
+    pub language: String,
+    pub display_name: String,
+    /// `builtin` or the contributing plugin ID.
+    pub source: String,
+}
+
+/// Several languages claim one file pattern. The first claim is used until
+/// the user records a `files.associations` choice.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LanguageConflict {
+    pub pattern: String,
+    pub claims: Vec<AssociationClaim>,
 }
 
 /// The outcome of checking a document with a built-in tool.
@@ -920,6 +942,109 @@ impl DocumentManager {
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .set_user_associations(entries)
+    }
+
+    /// Rebuilds every plugin-contributed language, association, and provider.
+    /// Returns one message per contribution that could not be applied; a bad
+    /// plugin never stops the others, and a document whose language vanished
+    /// stays readable as Plain Text.
+    pub fn apply_plugin_languages(&self, sync: PluginLanguageSync) -> Vec<String> {
+        let mut errors = sync.errors;
+        let mut providers = Vec::new();
+        {
+            let mut registry = self
+                .languages
+                .write()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            registry.clear_plugin_languages();
+            for language in sync.languages {
+                let crate::plugin_languages::PluginLanguage {
+                    plugin_id,
+                    module,
+                    association_only,
+                    providers: language_providers,
+                } = language;
+                let id = module.descriptor().id.clone();
+                if registry.contains(&id) {
+                    if association_only {
+                        let descriptor = module.descriptor();
+                        match registry.add_plugin_associations(
+                            &plugin_id,
+                            &id,
+                            &descriptor.extensions,
+                            &descriptor.filenames,
+                        ) {
+                            Ok(()) => providers.extend(language_providers),
+                            Err(error) => errors.push(format!("{plugin_id}: {error}")),
+                        }
+                    } else {
+                        errors.push(format!(
+                            "plugin {plugin_id} cannot redefine built-in language {}",
+                            id.as_str()
+                        ));
+                    }
+                } else {
+                    match registry.register(module, AssociationSource::Plugin(plugin_id.clone())) {
+                        Ok(()) => providers.extend(language_providers),
+                        Err(error) => errors.push(format!("{plugin_id}: {error}")),
+                    }
+                }
+            }
+        }
+        {
+            let mut capabilities = self
+                .capabilities
+                .write()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            capabilities.remove_all_plugin_providers();
+            for (info, provider) in providers {
+                if let Err(error) = capabilities.register(info, provider) {
+                    errors.push(error.to_string());
+                }
+            }
+        }
+        if let Ok(mut sessions) = self.sessions.lock() {
+            for session in sessions.values_mut() {
+                self.refresh_language_state(session);
+            }
+        }
+        errors
+    }
+
+    /// File patterns claimed by more than one language, in pattern order.
+    /// Built-in claims come first, then plugins by ID, which is the order the
+    /// registry resolves them in.
+    #[must_use]
+    pub fn language_conflicts(&self) -> Vec<LanguageConflict> {
+        let registry = self.languages();
+        let names = registry
+            .descriptors()
+            .into_iter()
+            .map(|descriptor| (descriptor.id, descriptor.display_name))
+            .collect::<BTreeMap<_, _>>();
+        registry
+            .conflicts()
+            .into_iter()
+            .map(|conflict| LanguageConflict {
+                pattern: conflict.matcher.pattern(),
+                claims: conflict
+                    .claims
+                    .into_iter()
+                    .map(|(language, source)| AssociationClaim {
+                        display_name: names
+                            .get(&language)
+                            .cloned()
+                            .unwrap_or_else(|| language.as_str().to_owned()),
+                        language: language.as_str().to_owned(),
+                        source: match source {
+                            AssociationSource::Builtin => "builtin".into(),
+                            AssociationSource::Plugin(plugin) => plugin,
+                            AssociationSource::User => "user".into(),
+                        },
+                    })
+                    .collect(),
+            })
+            .collect()
     }
 
     fn capability_registry(&self) -> std::sync::RwLockReadGuard<'_, CapabilityRegistry> {
@@ -5873,10 +5998,39 @@ mod tests {
         MAX_NAVIGATION_CHECKPOINTS,
     };
     use nulis_document::PieceTable;
+    use nulis_syntax::{CommentSyntax, LanguageDescriptor, LanguageId, LanguageModule, Vocabulary};
     use std::{
         fs::{self, OpenOptions},
         io::{Seek, SeekFrom, Write},
     };
+
+    fn plugin_language(
+        id: &str,
+        plugin_id: &str,
+        extensions: &[&str],
+        association_only: bool,
+    ) -> crate::plugin_languages::PluginLanguage {
+        let id = LanguageId::new(id).expect("language id");
+        let module = LanguageModule::declarative(
+            LanguageDescriptor {
+                display_name: id.as_str().to_uppercase(),
+                id,
+                extensions: extensions.iter().map(|item| (*item).to_owned()).collect(),
+                filenames: Vec::new(),
+            },
+            None,
+            CommentSyntax::default(),
+            Vocabulary::default(),
+            None,
+        )
+        .expect("declarative module");
+        crate::plugin_languages::PluginLanguage {
+            plugin_id: plugin_id.into(),
+            module,
+            association_only,
+            providers: Vec::new(),
+        }
+    }
 
     #[test]
     fn viewport_is_bounded_and_continues_long_lines() {
@@ -6700,6 +6854,92 @@ mod tests {
             .expect("json")
             .get("languageOverride")
             .is_none());
+    }
+
+    #[test]
+    fn plugin_languages_are_synced_without_breaking_other_plugins_or_documents() {
+        let manager = DocumentManager::default();
+        let sync = crate::plugin_languages::PluginLanguageSync {
+            languages: vec![
+                plugin_language("nim", "acme.nim", &["nim"], false),
+                // A plugin may add associations to a built-in language.
+                plugin_language("json", "acme.json", &["acmejson"], true),
+                // But it may not redefine it.
+                plugin_language("json", "bad.json", &["broken"], false),
+            ],
+            errors: Vec::new(),
+        };
+        let errors = manager.apply_plugin_languages(sync);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].contains("bad.json"));
+        assert!(errors[0].contains("built-in language json"));
+
+        let nim = manager
+            .create_untitled("script.nim".into(), "echo 1".into())
+            .expect("nim document");
+        assert_eq!(nim.language_id, "nim");
+        let json = manager
+            .create_untitled("data.acmejson".into(), "{}".into())
+            .expect("json document");
+        assert_eq!(json.language_id, "json");
+
+        let conflicts = manager.language_conflicts();
+        let json = conflicts
+            .iter()
+            .find(|conflict| conflict.pattern == "*.json")
+            .or_else(|| {
+                conflicts
+                    .iter()
+                    .find(|conflict| conflict.pattern == "*.acmejson")
+            });
+        assert!(
+            json.is_none(),
+            "association-only additions do not claim an existing pattern: {conflicts:?}"
+        );
+
+        // A plugin that claims a built-in pattern shows up in the conflict list.
+        let claimed = crate::plugin_languages::PluginLanguageSync {
+            languages: vec![plugin_language(
+                "better-json",
+                "zeta.json",
+                &["json"],
+                false,
+            )],
+            errors: Vec::new(),
+        };
+        assert_eq!(manager.apply_plugin_languages(claimed).len(), 0);
+        let conflicts = manager.language_conflicts();
+        let conflict = conflicts
+            .iter()
+            .find(|conflict| conflict.pattern == "*.json")
+            .expect("json conflict");
+        assert_eq!(conflict.claims[0].source, "builtin");
+        assert_eq!(conflict.claims[0].language, "json");
+        assert_eq!(conflict.claims[1].source, "zeta.json");
+        assert_eq!(conflict.claims[1].language, "better-json");
+
+        // Removing every plugin leaves the document readable as Plain Text.
+        assert_eq!(
+            manager
+                .apply_plugin_languages(crate::plugin_languages::PluginLanguageSync::default())
+                .len(),
+            0
+        );
+        let refreshed = manager
+            .create_untitled("script.nim".into(), "echo 1".into())
+            .expect("plain document");
+        assert_eq!(refreshed.language_id, "plaintext");
+        let view = manager
+            .viewport(&ViewportRequest {
+                document_id: nim.document_id.clone(),
+                start_byte: 0,
+                start_line: 1,
+                line_continuation: false,
+                max_bytes: 1024,
+            })
+            .expect("viewport");
+        assert_eq!(view.lines[0].text, "echo 1");
+        assert_eq!(view.syntax.language_id, "plaintext");
     }
 
     #[test]

@@ -55,10 +55,10 @@ fn words_come_from_the_text_nearest_first_without_the_word_being_typed() {
 fn keywords_follow_the_case_the_user_started_with_in_case_insensitive_languages() {
     let sql = KeywordCompletion {
         vocabulary: Vocabulary {
-            keywords: vec!["select"],
-            types: vec!["varchar"],
+            keywords: vec!["select".into()],
+            types: vec!["varchar".into()],
             case_insensitive: true,
-            word_bytes: b"",
+            word_bytes: Vec::new(),
         },
     };
     let insert = |prefix: &str| {

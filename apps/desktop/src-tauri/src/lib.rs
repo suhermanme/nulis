@@ -115,6 +115,7 @@ const SETTINGS_COMMANDS: &[&str] = &[
     "theme.install",
     "theme.uninstall",
     "language.list",
+    "language.conflicts",
     "plugin.list",
 ];
 const CUSTOMIZATION_MUTATIONS: &[&str] = &[

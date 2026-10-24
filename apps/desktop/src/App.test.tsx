@@ -885,6 +885,47 @@ test("language features can be switched off per language and are saved to settin
   expect(within(dialog).queryByRole("img", { name: "unapplied changes" })).not.toBeInTheDocument();
 });
 
+test("a file association conflict records the chosen language on Apply", async () => {
+  const settingsAtStart = {
+    revision: 7, loadError: null, rejectedAssociations: [],
+    document: { schemaVersion: 1, values: { files: { associations: { "*.txt": "plaintext" } } } },
+  };
+  responses["settings.state"] = [settingsAtStart, settingsAtStart];
+  responses["language.capabilities"] = [[], []];
+  responses["language.conflicts"] = [
+    [{
+      pattern: "*.json",
+      claims: [
+        { language: "json", displayName: "JSON", source: "builtin" },
+        { language: "better-json", displayName: "Better JSON", source: "acme.json" },
+      ],
+    }],
+    [],
+  ];
+  const dialog = await openSettings();
+  fireEvent.click(within(dialog).getByRole("tab", { name: "Languages" }));
+  const conflict = await within(dialog).findByRole("list", { name: "File association conflicts" });
+  expect(conflict).toHaveTextContent("*.json");
+  expect(conflict).toHaveTextContent("builtin");
+  expect(conflict).toHaveTextContent("acme.json");
+  fireEvent.click(within(dialog).getByRole("radio", { name: "Use Better JSON for *.json" }));
+  expect(within(within(dialog).getByRole("tab", { name: /^Languages/ })).getByRole("img", { name: "unapplied changes" })).toBeInTheDocument();
+
+  responses["settings.state"] = [{
+    revision: 8, loadError: null, rejectedAssociations: [],
+    document: { schemaVersion: 1, values: {} },
+  }];
+  fireEvent.click(within(dialog).getByRole("button", { name: "Apply" }));
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({ id: "settings.saveChecked" })));
+  const saved = vi.mocked(executeCommand).mock.calls.find(([request]) => request.id === "settings.saveChecked")?.[0];
+  expect(saved?.arguments).toEqual({
+    expectedRevision: 7,
+    document: { schemaVersion: 1, values: {
+      files: { associations: { "*.txt": "plaintext", "*.json": "better-json" } },
+    } },
+  });
+});
+
 test("indentation settings are saved to settings.json and keep other editor values", async () => {
   const settingsAtStart = {
     revision: 1, loadError: null, rejectedAssociations: [],

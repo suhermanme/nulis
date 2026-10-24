@@ -1,5 +1,5 @@
 /** Versioned JSON-compatible values mirrored from nulis-core's public IPC DTOs. */
-export const IPC_PROTOCOL_VERSION = 46 as const;
+export const IPC_PROTOCOL_VERSION = 47 as const;
 
 export interface ThemeRecord {
   schema?: string;
@@ -142,6 +142,10 @@ export interface ScriptRunOutcome {
 
 export type PluginPermission = "showMessage";
 
+/** A contribution family a user can switch off without revoking a plugin. */
+export type PluginCapability =
+  | "commands" | "languages" | "highlight" | "indentation" | "completion" | "snippets";
+
 export interface PluginCommandContribution {
   command: string;
   title: string;
@@ -152,14 +156,40 @@ export interface PluginGrant {
   permissions: PluginPermission[];
 }
 
+export interface PluginLanguageSummary {
+  id: string;
+  displayName: string;
+  extensions: string[];
+  filenames: string[];
+  capabilities: PluginCapability[];
+}
+
 export interface PluginSummary {
   id: string;
   name: string;
   version: string;
   digest: string;
+  apiVersion: number;
   requestedPermissions: PluginPermission[];
   approved: boolean;
+  /** False keeps an approved plugin installed but inert. */
+  enabled: boolean;
+  disabledCapabilities: PluginCapability[];
   commands: PluginCommandContribution[];
+  languages: PluginLanguageSummary[];
+}
+
+/** One language's claim on a file pattern, from `language.conflicts`. */
+export interface AssociationClaim {
+  language: string;
+  displayName: string;
+  /** `builtin` or the contributing plugin ID. */
+  source: string;
+}
+
+export interface LanguageConflict {
+  pattern: string;
+  claims: AssociationClaim[];
 }
 
 export interface PluginRunOutcome {

@@ -238,7 +238,7 @@ impl Plan<'_> {
         &self,
         kind: FormatKind,
         options: LineFormatOptions,
-        comment: Option<CommentSyntax>,
+        comment: Option<&CommentSyntax>,
     ) -> Result<Vec<PlannedEdit>, EditorError> {
         let tab_width = usize::from(options.tab_width.clamp(1, 16));
         let unit: Vec<u8> = if options.indent_with_spaces {
@@ -339,7 +339,7 @@ fn reformat(
     unit: &[u8],
     tab_width: usize,
     options: LineFormatOptions,
-    comment: Option<CommentSyntax>,
+    comment: Option<&CommentSyntax>,
 ) -> Result<(Vec<(i128, usize)>, bool), EditorError> {
     // (shift, at) per line: where the line's bytes moved.
     let mut changes = vec![(0_i128, 0_usize); lines.len()];
@@ -370,7 +370,7 @@ fn reformat(
             }
         }
         FormatKind::ToggleComment => {
-            let syntax = comment.ok_or(EditorError::NoCommentSyntax)?;
+            let syntax = comment.cloned().ok_or(EditorError::NoCommentSyntax)?;
             changes = toggle_comments(lines, syntax);
         }
         FormatKind::TrimTrailingSpaces => {

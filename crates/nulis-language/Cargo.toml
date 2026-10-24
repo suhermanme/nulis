@@ -10,5 +10,6 @@ workspace = true
 
 [dependencies]
 nulis-syntax = { path = "../nulis-syntax" }
+regex.workspace = true
 serde.workspace = true
 thiserror.workspace = true

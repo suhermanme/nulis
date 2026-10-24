@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { CommandDescriptor, PluginSummary } from "./contracts";
+import type { CommandDescriptor, PluginCapability, PluginSummary } from "./contracts";
 import { executeCommand, listCommands } from "./ipc";
 
 interface PluginPanelProps {
@@ -11,6 +11,19 @@ interface PluginPanelProps {
 
 function message(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
+}
+
+/** Every family this plugin actually declares, in a stable order. */
+function capabilitiesOf(plugin: PluginSummary): PluginCapability[] {
+  const all = new Set<PluginCapability>();
+  if (plugin.commands.length > 0) all.add("commands");
+  for (const language of plugin.languages) {
+    for (const capability of language.capabilities) all.add(capability);
+  }
+  const order: PluginCapability[] = [
+    "commands", "languages", "highlight", "indentation", "completion", "snippets",
+  ];
+  return order.filter((capability) => all.has(capability));
 }
 
 export function PluginPanel({ onClose, onCommandsChange, onStatus }: PluginPanelProps) {
@@ -100,36 +113,87 @@ export function PluginPanel({ onClose, onCommandsChange, onStatus }: PluginPanel
     }
   };
 
+  const setEnabled = async (plugin: PluginSummary, enabled: boolean) => {
+    setBusy(true);
+    try {
+      await executeCommand({
+        id: "plugin.setEnabled", context: { windowId: "main" },
+        arguments: { id: plugin.id, enabled },
+      });
+      await reload(true);
+      onStatus(`${enabled ? "Enabled" : "Disabled"} ${plugin.name}`);
+    } catch (error: unknown) {
+      onStatus(message(error, `Could not change ${plugin.name}`));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const setCapability = async (
+    plugin: PluginSummary, capability: PluginCapability, enabled: boolean,
+  ) => {
+    setBusy(true);
+    try {
+      await executeCommand({
+        id: "plugin.setCapabilityEnabled", context: { windowId: "main" },
+        arguments: { id: plugin.id, capability, enabled },
+      });
+      await reload(true);
+    } catch (error: unknown) {
+      onStatus(message(error, `Could not change ${plugin.name}`));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return <section className="plugin-panel" role="dialog" aria-modal="true" aria-label="Plugins">
     <header>
       <div><span>EXTENSIONS</span><strong>Installed plugins</strong></div>
       <button type="button" aria-label="Close plugins" onClick={onClose}>×</button>
     </header>
     <div className="plugin-intro">
-      <p>Plugins run in isolated worker processes. Commands remain unavailable until you explicitly approve the requested access.</p>
+      <p>Plugins run in isolated worker processes or contribute validated language data. Turn one off to keep it installed without its commands, languages, or highlighting.</p>
       <button type="button" disabled={busy} onClick={() => void install()}>Install from folder…</button>
     </div>
     <div className="plugin-list" aria-label="Installed plugins">
-      {plugins.map((plugin) => <article key={plugin.id}>
-        <div className="plugin-heading">
-          <div><strong>{plugin.name}</strong><small>{plugin.id} · {plugin.version}</small></div>
-          <span className={plugin.approved ? "approved" : "approval-required"}>
-            {plugin.approved ? "Approved" : "Approval required"}
-          </span>
-        </div>
-        <dl>
-          <div><dt>Permissions</dt><dd>{plugin.requestedPermissions.join(", ") || "None"}</dd></div>
-          <div><dt>Commands</dt><dd>{plugin.commands.map((command) => command.command).join(", ") || "None"}</dd></div>
-          <div><dt>Revision</dt><dd title={plugin.digest}>{plugin.digest.slice(0, 12)}</dd></div>
-        </dl>
-        <div className="plugin-actions">
-          {plugin.approved
-            ? <button type="button" disabled={busy} onClick={() => void revoke(plugin)}>Revoke</button>
-            : <button className="primary" type="button" disabled={busy} onClick={() => void approve(plugin)}>Approve requested access</button>}
-          <button type="button" disabled={busy} aria-label={`Uninstall ${plugin.name}`}
-            onClick={() => void uninstall(plugin)}>Uninstall</button>
-        </div>
-      </article>)}
+      {plugins.map((plugin) => {
+        const capabilities = capabilitiesOf(plugin);
+        return <article key={plugin.id}>
+          <div className="plugin-heading">
+            <div><strong>{plugin.name}</strong><small>{plugin.id} · {plugin.version}</small></div>
+            <span className={plugin.approved ? (plugin.enabled ? "approved" : "disabled") : "approval-required"}>
+              {plugin.approved ? (plugin.enabled ? "Approved" : "Disabled") : "Approval required"}
+            </span>
+          </div>
+          <dl>
+            <div><dt>Permissions</dt><dd>{plugin.requestedPermissions.join(", ") || "None"}</dd></div>
+            <div><dt>Commands</dt><dd>{plugin.commands.map((command) => command.command).join(", ") || "None"}</dd></div>
+            <div><dt>Languages</dt><dd>{plugin.languages.map((language) => language.displayName).join(", ") || "None"}</dd></div>
+            <div><dt>Revision</dt><dd title={plugin.digest}>{plugin.digest.slice(0, 12)}</dd></div>
+          </dl>
+          {plugin.approved && plugin.enabled && capabilities.length > 0
+            ? <fieldset className="plugin-capabilities"><legend>Features</legend>
+              {capabilities.map((capability) => <label key={capability}>
+                <input type="checkbox" disabled={busy}
+                  checked={!plugin.disabledCapabilities.includes(capability)}
+                  aria-label={`${plugin.name} ${capability}`}
+                  onChange={(event) => void setCapability(plugin, capability, event.target.checked)} />
+                {capability}
+              </label>)}
+            </fieldset> : null}
+          <div className="plugin-actions">
+            {plugin.approved
+              ? <button type="button" disabled={busy} onClick={() => void setEnabled(plugin, !plugin.enabled)}>
+                {plugin.enabled ? "Disable" : "Enable"}
+              </button>
+              : <button className="primary" type="button" disabled={busy} onClick={() => void approve(plugin)}>Approve requested access</button>}
+            {plugin.approved
+              ? <button type="button" disabled={busy} onClick={() => void revoke(plugin)}>Revoke</button> : null}
+            <button type="button" disabled={busy} aria-label={`Uninstall ${plugin.name}`}
+              onClick={() => void uninstall(plugin)}>Uninstall</button>
+          </div>
+        </article>;
+      })}
       {plugins.length === 0 ? <p>No plugins installed.</p> : null}
     </div>
   </section>;
