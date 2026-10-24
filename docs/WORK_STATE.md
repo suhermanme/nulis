@@ -2,7 +2,7 @@
 
 ## Nulis 0.5.0 (plan 4, M41–M48)
 
-Release 0.5.0 (2026-10-24). Automatic indentation, suggestions while typing, a language catalog with per-language capabilities, first-party providers behind a capability registry, broader language coverage, optional language servers with a Problems panel, and declarative language plugins. Scope, decisions, and verification: `IMPROVEMENT_PLAN_4.md`, `IMPLEMENTATION_TRACKER.md` (M41–M48), and `handover/M42_HANDOVER.md` to `M48_HANDOVER.md`; the user-facing summary is `release-notes/v0.5.0.md`. Plan 4 was checked by automated tests only: the in-app walkthrough on macOS, Windows, and Linux, the `rust-analyzer`/`clangd` checks, and CI for earlier milestones in the branch remain to be recorded in `PLATFORM_MATRIX.md`. IPC protocol 47.
+Release 0.5.0 (2026-10-24). Automatic indentation, suggestions while typing, a language catalog with per-language capabilities, first-party providers behind a capability registry, broader language coverage, optional language servers with a Problems panel, and declarative language plugins. Scope, decisions, and verification: `IMPROVEMENT_PLAN_4.md`, `IMPLEMENTATION_TRACKER.md` (M41–M48), and `handover/M42_HANDOVER.md` to `M48_HANDOVER.md`; the user-facing summary is `release-notes/v0.5.0.md`. CI on `main` passed every job on macOS, Windows, and Linux (run 40096525220, `7bf01ba`), and the tag `v0.5.0` published the `.dmg`, the NSIS installer, the `.deb`, the `.rpm`, and `SHA256SUMS.txt` (run 40096867716); the Homebrew cask points at that `.dmg`. Plan 4 was checked by automated tests only: the in-app walkthrough on macOS, Windows, and Linux and the `rust-analyzer`/`clangd` checks remain to be recorded in `PLATFORM_MATRIX.md`. IPC protocol 47.
 
 ## Nulis 0.4.0 (plan 3, M36–M40)
 
