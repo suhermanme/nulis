@@ -49,7 +49,8 @@ export const SETTINGS_SECTIONS = [
 export type SettingsSectionId = typeof SETTINGS_SECTIONS[number]["id"];
 export type SettingsMainAction = "workspace.rename" | "workbench.openPlugins";
 
-const SECTION_KEY = "nulis.settings.section.v1";
+/** The section the Settings window opens on; the toolbar's "Customize Toolbar…" sets it. */
+export const SECTION_KEY = "nulis.settings.section.v1";
 const CONTEXT = { windowId: "main" } as const;
 
 interface SettingsWindowProps {

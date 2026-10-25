@@ -49,7 +49,7 @@ import licenseText from "../../../LICENSE?raw";
 import { TerminalPanel } from "./TerminalPanel";
 import { MacroPanel } from "./MacroPanel";
 import { PluginPanel } from "./PluginPanel";
-import { SettingsWindow, type SettingsMainAction } from "./SettingsWindow";
+import { SECTION_KEY, SettingsWindow, type SettingsMainAction } from "./SettingsWindow";
 import { ProblemsPanel, worstSeverity } from "./ProblemsPanel";
 import { WorkTabs } from "./EditorLayout";
 import { FileExplorer, loadExplorerTab, saveExplorerTab, type ExplorerTab } from "./FileExplorer";
@@ -1799,6 +1799,12 @@ export function App() {
       setSettingsOpen(true);
     }
   };
+  // The toolbar editor lives in Settings ▸ Menus & Toolbar: ask for that section, then open Settings.
+  // A Settings window that is already open keeps the section it was showing.
+  const customizeToolbar = () => {
+    try { window.localStorage.setItem(SECTION_KEY, "menus"); } catch { /* Opening Settings works without storage. */ }
+    openSettings();
+  };
   const openHelp = (topic?: HelpTopic) => {
     if (desktopShell) {
       void openHelpWindow(topic).catch((error: unknown) => setStatus(errorMessage(error, "Could not open Help")));
@@ -2551,7 +2557,7 @@ export function App() {
           <MenuButton name="Workspace" items={workspaceMenu} />
           <MenuButton name="Help" items={helpMenu} />
         </nav> : null}
-        <OverflowToolbar className="custom-toolbar" label="Custom toolbar" items={toolbarItems} />
+        <OverflowToolbar className="custom-toolbar" label="Custom toolbar" items={toolbarItems} onCustomize={customizeToolbar} />
         <IconButton icon="command" label="Open command palette" tooltip="Search commands" caption="Commands"
           className="command-button" shortcut={shortcutFor("workbench.commandPalette") || undefined}
           disabled={!sessionReady} onClick={() => setPaletteOpen(true)} />

@@ -15,14 +15,14 @@ From top to bottom, the window has these parts.
 | Part | What it is for |
 | --- | --- |
 | Title bar | The **Nulis** brand (click it to open the About page), the main toolbar, and the **Commands** button at the far right. |
-| Main toolbar | Icon buttons with a caption under each: New, Open, Save, Close, Undo, Redo, Split Right, Split Down, Files, Automation, Plugins, and Settings. Validate, Beautify, and Minify appear here while a document that has them is focused (JSON, XML, YAML, property lists). Buttons that do not fit move into an overflow menu. |
+| Main toolbar | Icon buttons with a caption under each: New, Open, Save, Close, Undo, Redo, Split Right, Split Down, Files, Automation, Plugins, and Settings. Validate, Beautify, and Minify appear here while a document that has them is focused (JSON, XML, YAML, property lists). What does not fit moves into the **More** control: its menu names each action that left, with its shortcut, and ends with **Customize Toolbar…**, which opens Settings on the toolbar editor. The last controls to leave are the file buttons and **Settings**. |
 | Side bar | File View. Show or hide it with the **Files** button in the toolbar, or View ▸ Files Panel. Drag its edge to resize it. |
 | Tab strip | One tab per open file or workspace, the **+** button for a new tab, and on the right the buttons for split view, document comparison, folder comparison, the terminal, and the hexadecimal editor. |
 | Editor toolbar | Tools for the focused document: find, Go To, bookmarks, Transform, encoding, View As, word wrap, column editing, folding, line change indicators, the document map, the **EDIT** / **READ ONLY** mode button, and the insert/overwrite indicator. |
 | Editor | The text (or hexadecimal) view, with line numbers and the change-indicator lane in the gutter. |
 | Status bar | Messages about the last action on the left. On the right: the **EDIT** / **READ ONLY** mode, the caret's line and column and the code point after it, the document's size and counts, the zoom when it is not 100%, the version, the encoding, and the line endings. See *The status bar* below. |
 
-Every icon button has a tooltip that names its action and its shortcut.
+Every icon button has a tooltip that names its action and its shortcut. Where the word under an icon is shorter than the action itself, the tooltip gives both, such as **Compare Documents — Compare**.
 
 #### Menus
 
@@ -617,7 +617,7 @@ Open Settings with **Ctrl/⌘ ,**, the **Settings** toolbar button, or the menu.
 | **Appearance & Themes** | The color theme, and your own themes (see [Your own theme colors](#your-own-theme-colors)). There are 99 built-in themes, with Nulis's own **Nulis · Ember Night** (dark) and **Nulis · Paper Current** (light) at the top. The theme you apply paints the editor and every Nulis window. Install a theme file (Nulis theme JSON, or a NvChad Base46 Lua theme), **Duplicate Selected** to make an editable copy of any theme, and **Remove Selected** to uninstall one you installed. Every theme keeps the text selection, secondary text, and toolbar icons easy to see: where a theme's own colors are too faint, Nulis strengthens them in that theme's hues, and the panel names any color it will paint (see [Theme colors and readability](#theme-colors-and-readability)). The Nulis mark in the title bar and the About window's background follow the theme. |
 | **Languages** | The languages Nulis recognizes, which language features are on for each, file association conflicts, and the language servers you configured. |
 | **Keybindings** | The shortcut for any command. |
-| **Menus & Toolbar** | Which commands are in the File menu and on the main toolbar, and in what order. |
+| **Menus & Toolbar** | Which commands are in the File menu and on the main toolbar, and in what order: add one from the list, move a row up or down, remove it. The toolbar's **More ▸ Customize Toolbar…** opens Settings on this page (a Settings window that is already open keeps the page it was showing). |
 | **Workspace** | Workspace and layout options. |
 | **Extensions & Security** | Installed plugins and their approval state. |
 

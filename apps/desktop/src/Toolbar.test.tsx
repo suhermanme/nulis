@@ -78,19 +78,46 @@ test("low-priority controls move to an overflow menu while essential actions sta
   expect(visible()).toEqual(["New", "Open", "Save", "Undo", "Redo", "Split Horizontal", "Settings"]);
 
   // Medium: only non-essential controls leave, in their original order.
-  resize?.(34 * 6);
-  expect(visible()).toEqual(["New", "Open", "Save", "Undo", "Settings", "More toolbar actions"]);
+  resize?.(60 * 5);
+  expect(visible()).toEqual(["New", "Open", "Save", "Settings", "More toolbar actions"]);
   fireEvent.click(screen.getByRole("button", { name: "More toolbar actions" }));
   const menu = screen.getByRole("menu", { name: "More toolbar actions" });
-  expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Redo", "Split Horizontal"]);
+  expect(within(menu).getAllByRole("menuitem").map((item) => item.getAttribute("aria-label"))).toEqual(["Undo", "Redo", "Split Horizontal"]);
   fireEvent.click(within(menu).getByRole("menuitem", { name: "Redo" }));
   expect(selected).toEqual(["redo"]);
   expect(screen.queryByRole("menu")).not.toBeInTheDocument();
 
   // Narrow: essential file actions remain before anything else.
-  resize?.(34 * 4);
-  expect(visible()).toEqual(["New", "Open", "Save", "More toolbar actions"]);
+  resize?.(60 * 3);
+  expect(visible()).toEqual(["New", "Open", "More toolbar actions"]);
   fireEvent.click(screen.getByRole("button", { name: "More toolbar actions" }));
   expect(within(screen.getByRole("menu")).getByRole("menuitem", { name: /Undo/ })).toHaveTextContent("Ctrl+Z");
   expect(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Settings" })).toBeInTheDocument();
+});
+
+test("the overflow control shows its word, and its menu names each control and offers the toolbar editor", () => {
+  const onCustomize = vi.fn();
+  const items: ToolbarItem[] = [
+    { id: "file.new", label: "New file", title: "New File", caption: "New", icon: "new", essential: true, onSelect: () => undefined },
+    { id: "nulis.settings", label: "Open settings", title: "Settings", caption: "Settings", icon: "settings", essential: true, pressed: true, onSelect: () => undefined },
+    { id: "nulis.compare", label: "Compare open documents", title: "Compare Documents", caption: "Compare", icon: "compare", shortcut: "Ctrl+Shift+C", onSelect: () => undefined },
+  ];
+  render(<OverflowToolbar label="Main" items={items} onCustomize={onCustomize} />);
+  // Three labeled controls in the room of two: the last non-essential one leaves.
+  resize?.(60 * 2);
+  const more = screen.getByRole("button", { name: "More toolbar actions" });
+  expect(more).toHaveTextContent("More");
+  expect(more.querySelector("[data-icon='chevronRight']")).not.toBeNull();
+  expect(more).toHaveAttribute("title", "More — Show extra toolbar items");
+  fireEvent.click(more);
+  const menu = screen.getByRole("menu", { name: "More toolbar actions" });
+  const row = within(menu).getByRole("menuitem", { name: "Compare open documents" });
+  expect(row).toHaveTextContent("Compare");
+  expect(row).toHaveAttribute("title", "Compare Documents — Compare (Ctrl+Shift+C)");
+  expect(row).toHaveTextContent("Ctrl+Shift+C");
+  // A pressed control reports its state as a checkable menu row, not as a plain menuitem.
+  expect(within(menu).getByRole("menuitemcheckbox", { name: "Open settings" })).toHaveAttribute("aria-checked", "true");
+  fireEvent.click(within(menu).getByRole("menuitem", { name: "Customize Toolbar…" }));
+  expect(onCustomize).toHaveBeenCalledOnce();
+  expect(screen.queryByRole("menu")).not.toBeInTheDocument();
 });

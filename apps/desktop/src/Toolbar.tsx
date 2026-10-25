@@ -1,8 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Icon, IconButton, type IconName } from "./icons";
 
-const ITEM_WIDTH = 34;
-const CAPTIONED_ITEM_WIDTH = 60;
+// Every control in this toolbar shows its word, so one width covers all of them.
+const LABELED_ITEM_WIDTH = 60;
+const MORE_LABEL = "More toolbar actions";
+const MORE_CAPTION = "More";
+const CUSTOMIZE_LABEL = "Customize Toolbar…";
 
 export interface ToolbarItem {
   id: string;
@@ -25,7 +28,9 @@ export interface ToolbarItem {
  * Icon toolbar that never deforms its icons: at narrow widths the
  * lowest-priority controls move into an overflow menu instead.
  */
-export function OverflowToolbar({ items, label, className }: { items: ToolbarItem[]; label: string; className?: string }) {
+export function OverflowToolbar({ items, label, className, onCustomize }: {
+  items: ToolbarItem[]; label: string; className?: string; onCustomize?(): void;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [open, setOpen] = useState(false);
@@ -40,8 +45,7 @@ export function OverflowToolbar({ items, label, className }: { items: ToolbarIte
   }, []);
 
   // An unmeasured toolbar (first paint, tests) shows everything.
-  const itemWidth = items.some((item) => item.caption) ? CAPTIONED_ITEM_WIDTH : ITEM_WIDTH;
-  const capacity = width > 0 ? Math.floor(width / itemWidth) : items.length;
+  const capacity = width > 0 ? Math.floor(width / LABELED_ITEM_WIDTH) : items.length;
   let hidden = new Set<string>();
   if (items.length > capacity) {
     const room = Math.max(1, capacity - 1);
@@ -50,20 +54,38 @@ export function OverflowToolbar({ items, label, className }: { items: ToolbarIte
   }
   const overflow = items.filter((item) => hidden.has(item.id));
 
+  // A row names itself with its short word, and the tooltip carries the full title with it.
+  const rowTooltip = (item: ToolbarItem) => {
+    const title = item.caption && item.caption !== item.title ? `${item.title} — ${item.caption}` : item.title;
+    return item.shortcut ? `${title} (${item.shortcut})` : title;
+  };
+
   return <div className={`icon-toolbar${className ? ` ${className}` : ""}`} role="toolbar" aria-label={label} ref={containerRef}>
     {items.filter((item) => !hidden.has(item.id)).map((item) => <IconButton key={item.id} icon={item.icon}
-      label={item.label} tooltip={item.title} caption={item.caption} shortcut={item.shortcut} pressed={item.pressed}
-      disabled={item.disabled} onClick={item.onSelect} />)}
+      label={item.label} tooltip={item.title} caption={item.caption ?? item.title} shortcut={item.shortcut}
+      pressed={item.pressed} disabled={item.disabled} onClick={item.onSelect} />)}
     {overflow.length > 0 ? <div className="toolbar-overflow" onBlur={(event) => {
       if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
     }}>
-      <button type="button" className="icon-button" aria-label="More toolbar actions" title="More actions"
-        aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((shown) => !shown)}><Icon name="more" /></button>
-      {open ? <div className="file-menu-popover overflow-menu" role="menu" aria-label="More toolbar actions">
-        {overflow.map((item) => <button type="button" role="menuitem" key={item.id} disabled={item.disabled}
-          aria-checked={item.pressed} onClick={() => { setOpen(false); item.onSelect(); }}>
-          <Icon name={item.icon} size={16} /><span>{item.title}</span>{item.shortcut ? <kbd>{item.shortcut}</kbd> : null}
+      <button type="button" className="icon-button captioned" aria-label={MORE_LABEL}
+        title={`${MORE_CAPTION} — Show extra toolbar items`}
+        aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((shown) => !shown)}>
+        <Icon name="chevronRight" /><span className="icon-caption" aria-hidden="true">{MORE_CAPTION}</span>
+      </button>
+      {open ? <div className="file-menu-popover overflow-menu" role="menu" aria-label={MORE_LABEL}>
+        {overflow.map((item) => <button type="button" key={item.id} disabled={item.disabled}
+          role={item.pressed === undefined ? "menuitem" : "menuitemcheckbox"} aria-label={item.label} aria-checked={item.pressed} title={rowTooltip(item)}
+          onClick={() => { setOpen(false); item.onSelect(); }}>
+          <Icon name={item.icon} /><span className="menu-caption">{item.caption ?? item.title}</span>
+          {item.shortcut ? <kbd>{item.shortcut}</kbd> : null}
         </button>)}
+        {onCustomize ? <>
+          <div className="menu-separator" role="separator" />
+          <button type="button" role="menuitem" aria-label={CUSTOMIZE_LABEL} title={CUSTOMIZE_LABEL}
+            onClick={() => { setOpen(false); onCustomize(); }}>
+            <Icon name="settings" /><span className="menu-caption">{CUSTOMIZE_LABEL}</span>
+          </button>
+        </> : null}
       </div> : null}
     </div> : null}
   </div>;

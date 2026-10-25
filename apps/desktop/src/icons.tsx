@@ -45,6 +45,7 @@ const PATHS = {
   bookmarkClear: <><path d="M7 4.5h10a1 1 0 0 1 1 1V20l-6-4.2L6 20V5.5a1 1 0 0 1 1-1z" /><path d="M9.8 8.3l4.4 4.4M14.2 8.3l-4.4 4.4" /></>,
   fold: <><path d="M4 6h16M4 18h16" /><path d="M9 10.5l3 2.8 3-2.8" /></>,
   more: <><circle cx="5.5" cy="12" r="1.1" /><circle cx="12" cy="12" r="1.1" /><circle cx="18.5" cy="12" r="1.1" /></>,
+  chevronRight: <path d="M9.5 6l6 6-6 6" />,
   plus: <path d="M12 5.5v13M5.5 12h13" />,
   command: <><path d="M5 8l4 4-4 4" /><path d="M11.5 16.5H19" /></>,
   problems: <><circle cx="12" cy="12" r="8.2" /><path d="M12 7.6v5.6M12 16.4v.2" /></>,
