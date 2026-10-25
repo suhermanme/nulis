@@ -87,7 +87,7 @@ use nulis_automation::{
     CURRENT_REVISION_ARGUMENT,
 };
 
-pub const IPC_PROTOCOL_VERSION: u32 = 47;
+pub const IPC_PROTOCOL_VERSION: u32 = 48;
 pub const PRODUCT_NAME: &str = "Nulis";
 pub const APPLICATION_ID: &str = "com.nulis.editor";
 const MAX_SCRIPT_MESSAGES: usize = 100;
@@ -5897,8 +5897,8 @@ mod tests {
         )
         .expect("author the custom theme");
 
-        // The Settings window applies a theme by posting the appearance it edited, the tint
-        // flag included. Saving that draft is the "apply theme colors" action.
+        // The Settings window applies a theme by posting the appearance it edited: picking the
+        // theme and saving that draft is the "apply" action, and nothing else gates it.
         let state = core
             .execute_command(
                 "customization.state",
@@ -5908,7 +5908,6 @@ mod tests {
             .expect("state customization");
         let mut document = state["document"].clone();
         document["appearance"]["theme"] = serde_json::json!("example.applied");
-        document["appearance"]["applyUiTheme"] = serde_json::json!(true);
         core.execute_command(
             "customization.saveChecked",
             CommandContext::default(),
@@ -5917,7 +5916,7 @@ mod tests {
                 "document": document
             }),
         )
-        .expect("select the custom theme with the tint flag on");
+        .expect("select the custom theme");
 
         drop(core);
         let reopened = NulisCore::with_session_root(directory.path().into());
@@ -5925,7 +5924,29 @@ mod tests {
             .execute_command("customization.get", CommandContext::default(), Value::Null)
             .expect("reload the customization");
         assert_eq!(loaded["appearance"]["theme"], "example.applied");
+
+        // A customization written while the panel carried the "Apply theme colors" switch keeps
+        // its stored flag across the same save and restart: the old document is not rewritten.
+        let state = reopened
+            .execute_command("customization.state", CommandContext::default(), Value::Null)
+            .expect("state the customization again");
+        let mut document = state["document"].clone();
+        document["appearance"]["applyUiTheme"] = serde_json::json!(true);
+        reopened
+            .execute_command(
+                "customization.saveChecked",
+                CommandContext::default(),
+                serde_json::json!({
+                    "expectedRevision": state["revision"],
+                    "document": document
+                }),
+            )
+            .expect("save the appearance an older build wrote");
+        let loaded = reopened
+            .execute_command("customization.get", CommandContext::default(), Value::Null)
+            .expect("reload after the older appearance");
         assert_eq!(loaded["appearance"]["applyUiTheme"], true);
+        assert_eq!(loaded["appearance"]["theme"], "example.applied");
     }
 
     #[test]

@@ -1,5 +1,5 @@
 /** Versioned JSON-compatible values mirrored from nulis-core's public IPC DTOs. */
-export const IPC_PROTOCOL_VERSION = 47 as const;
+export const IPC_PROTOCOL_VERSION = 48 as const;
 
 export type ThemeKind = "dark" | "light";
 
@@ -41,8 +41,6 @@ export interface EditorPreferences {
   fontSize: number;
   lineHeight: number;
   fontLigatures: boolean;
-  /** Paint the selected theme's colors in every Nulis window, not just the editor. */
-  applyUiTheme?: boolean;
 }
 
 /** The window theme payload: colors after readability floors plus UI token presence. */

@@ -2108,11 +2108,10 @@ export function App() {
     ...preferenceCssVariables({ ...preferences, fontSize: zoomedFontSize }, themes),
   } as CSSProperties;
 
-  // "Apply theme colors" exports the selected theme's colors onto the window
-  // root: every window repaints, and the choice survives a restart. Built-ins
-  // export their own palette, and with the toggle off nothing touches the root.
+  // The applied theme's colors export onto the window root: every window repaints,
+  // and the theme survives a restart. Built-ins export their own palette, so their
+  // appearance never shifts.
   useEffect(() => {
-    if (!preferences.applyUiTheme) return undefined;
     const payload = preferenceWindowTheme(preferences, themes);
     const base = themes.find((theme) => theme.id === payload.theme) ?? themes[0];
     return exportWindowTheme(window.document.documentElement, payload, base?.colors ?? {});

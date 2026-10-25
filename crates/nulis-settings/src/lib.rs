@@ -264,8 +264,12 @@ pub struct AppearanceSettings {
     pub font_size: f64,
     pub line_height: f64,
     pub font_ligatures: bool,
-    /// Whether a user theme also tints the native window chrome.
-    #[serde(default)]
+    /// Accepted for documents written while the Appearance panel carried the **Apply theme
+    /// colors** switch. Theme colors now paint every Nulis window unconditionally, so the
+    /// stored value changes nothing; keeping it lets older documents load unchanged. It is
+    /// omitted when off, so a document this build writes also loads on a build that never
+    /// had the switch, whose serde contract refuses unknown fields.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub apply_ui_theme: bool,
 }
 
@@ -305,7 +309,9 @@ impl Default for CustomizationDocument {
                 font_size: 13.0,
                 line_height: 1.7,
                 font_ligatures: true,
-                apply_ui_theme: true,
+                // Off, and skipped on write: the flag decides nothing, and leaving it out keeps
+                // the document readable by a build that predates the switch.
+                apply_ui_theme: false,
             },
             keybindings: vec![
                 Keybinding {
@@ -631,10 +637,11 @@ mod tests {
     }
 
     #[test]
-    fn appearance_accepts_the_tint_flag_the_editor_posts() {
-        // The Settings window posts the appearance it edits, `applyUiTheme` included; the
-        // serde contract that rejected it is what made "apply theme colors" fail.
-        let posted: AppearanceSettings = serde_json::from_value(json!({
+    fn appearance_loads_documents_written_while_the_switch_existed() {
+        // Documents saved while the panel carried the **Apply theme colors** switch carry
+        // `applyUiTheme`. `deny_unknown_fields` would refuse them outright, so the field stays
+        // as a compatibility field: it loads, round-trips, and decides nothing.
+        let older: AppearanceSettings = serde_json::from_value(json!({
             "theme": "example.ocean",
             "fontFamily": "Mono",
             "fontSize": 13.0,
@@ -642,23 +649,29 @@ mod tests {
             "fontLigatures": true,
             "applyUiTheme": true
         }))
-        .expect("the appearance payload the editor posts");
-        assert!(posted.apply_ui_theme);
+        .expect("an appearance saved while the switch existed");
+        assert!(older.apply_ui_theme);
         assert_eq!(
-            serde_json::to_value(&posted).expect("serialize the appearance")["applyUiTheme"],
+            serde_json::to_value(&older).expect("serialize the appearance")["applyUiTheme"],
             json!(true)
         );
 
-        // A customization written before the switch exists still loads, with the tint off.
-        let stored: AppearanceSettings = serde_json::from_value(json!({
+        // The appearance the panel posts today has no such key, and loads with the default. An
+        // appearance off is never written back, so the document a build writes now keeps no
+        // trace of the switch and loads on a build that predates it.
+        let posted: AppearanceSettings = serde_json::from_value(json!({
             "theme": "dark",
             "fontFamily": "Mono",
             "fontSize": 13.0,
             "lineHeight": 1.7,
             "fontLigatures": true
         }))
-        .expect("a customization saved before the tint switch");
-        assert!(!stored.apply_ui_theme);
+        .expect("the appearance the editor posts");
+        assert!(!posted.apply_ui_theme);
+        assert!(
+            serde_json::to_value(&posted).expect("serialize the appearance")["applyUiTheme"]
+                .is_null()
+        );
     }
 }
 #[cfg(test)]

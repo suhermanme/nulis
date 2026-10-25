@@ -27,14 +27,28 @@ test("zoom steps through fixed levels and stops at the ends", () => {
   expect(stepZoom(175, 0)).toBe(100);
 });
 
-test("applyUiTheme defaults to off and only a boolean turns it on", () => {
-  expect(DEFAULT_EDITOR_PREFERENCES.applyUiTheme).toBe(false);
-  expect(normalizeEditorPreferences(null).applyUiTheme).toBe(false);
-  expect(normalizeEditorPreferences({ applyUiTheme: true }).applyUiTheme).toBe(true);
-  expect(normalizeEditorPreferences({ applyUiTheme: "yes" }).applyUiTheme).toBe(false);
+test("stored preferences written before the theme-colors switch normalize without it", () => {
+  const user: ThemeRecord = {
+    schema: "nulis.theme/1",
+    id: "test.theme",
+    name: "Test Theme",
+    version: 1,
+    kind: "dark",
+    colors: { "editor.background": "#101820" },
+    builtIn: false,
+    custom: { maxSaturation: 620, minLuma: 200, maxLuma: 920, minChroma: 30 },
+    uiTokens: ["ui.background"],
+  };
+  // Older localStorage and older customization documents carry applyUiTheme. Theme colors paint
+  // every window now, so normalization drops the key and nothing reads it to decide what to paint.
+  const stored = { theme: "test.theme", applyUiTheme: true };
+  const normalized = normalizeEditorPreferences(stored, [user]);
+  expect(normalized).not.toHaveProperty("applyUiTheme");
+  expect(normalized.theme).toBe("test.theme");
+  expect(normalizeEditorPreferences(null, [user])).not.toHaveProperty("applyUiTheme");
 });
 
-test("a user theme's window payload carries its floors, tokens and the apply switch", () => {
+test("a user theme's window payload carries its floors and tokens", () => {
   const user: ThemeRecord = {
     schema: "nulis.theme/1",
     id: "test.theme",
@@ -47,12 +61,11 @@ test("a user theme's window payload carries its floors, tokens and the apply swi
     uiTokens: ["ui.background"],
   };
   const preferences: EditorPreferences = {
-    theme: "test.theme", fontFamily: "Mono", fontSize: 14, lineHeight: 1.6, fontLigatures: true, applyUiTheme: true,
+    theme: "test.theme", fontFamily: "Mono", fontSize: 14, lineHeight: 1.6, fontLigatures: true,
   };
   const payload = preferenceWindowTheme(preferences, [user]);
   expect(payload.theme).toBe("test.theme");
   expect(payload.baseTheme).toBe("test.theme");
-  expect(payload.applyUiTheme).toBe(true);
   expect(payload.customTheme).toEqual({ maxSaturation: 620, minLuma: 200, maxLuma: 920, minChroma: 30 });
   expect(payload.uiTokens).toEqual(["ui.background"]);
   // The exported color is the authored one clamped to the floors, never the raw pick.
@@ -63,7 +76,7 @@ test("a user theme's window payload carries its floors, tokens and the apply swi
 test("a built-in theme's payload keeps its own palette and carries no custom floors", () => {
   const builtIn = BUILT_IN_THEMES[0];
   const preferences: EditorPreferences = {
-    theme: builtIn.id, fontFamily: "Mono", fontSize: 14, lineHeight: 1.6, fontLigatures: true, applyUiTheme: true,
+    theme: builtIn.id, fontFamily: "Mono", fontSize: 14, lineHeight: 1.6, fontLigatures: true,
   };
   const payload = preferenceWindowTheme(preferences, BUILT_IN_THEMES);
   expect(payload.customTheme).toBeUndefined();

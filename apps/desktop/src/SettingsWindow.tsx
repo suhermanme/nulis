@@ -611,7 +611,6 @@ export function SettingsWindow({
       colors: paintedColors,
       customTheme: editableTheme.builtIn ? undefined : (editableTheme.custom ?? undefined),
       uiTokens: editableTheme.uiTokens,
-      applyUiTheme: true,
     };
     return exportWindowTheme(window.document.documentElement, payload, editableTheme.colors);
   }, [previewing, editableTheme, paintedColors]);
@@ -809,9 +808,7 @@ export function SettingsWindow({
             <option key={theme.id} value={theme.id}>{theme.name}{theme.builtIn ? "" : " · User"}</option>))}
         </select></label>
         <p className="settings-help">{themes.length} themes available · {selectedTheme?.kind === "light" ? "Light" : "Dark"} theme selected</p>
-        <label className="settings-apply"><span>Apply theme colors</span><input type="checkbox" aria-label="Apply theme colors"
-          checked={draft.appearance.applyUiTheme}
-          onChange={(event) => updateAppearance({ applyUiTheme: event.currentTarget.checked })} /></label>
+        <p className="settings-help">The applied theme paints the editor and every Nulis window. The preview shows it while you edit; <strong>Apply</strong> saves it.</p>
       </fieldset>
       <fieldset className="settings-group">
         <legend>User themes</legend>

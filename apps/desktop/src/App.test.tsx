@@ -2746,16 +2746,13 @@ test("approves a language server in Settings", async () => {
   expect(within(dialog).getByRole("button", { name: "Revoke" })).toBeInTheDocument();
 });
 
-test("applying theme colors marks the window, repaints it, and re-applies the colors after a restart", async () => {
+test("applying a user theme marks the window, repaints every window, and survives a restart", async () => {
+  // No switch gates this: the applied theme's colors paint the chrome in every Nulis window.
   const dialog = await openAppearance([userTheme(), EMBER_THEME]);
-  const apply = within(dialog).getByRole("checkbox", { name: "Apply theme colors" });
-  expect(apply).not.toBeChecked();
   fireEvent.change(within(dialog).getByRole("combobox", { name: "Color theme" }), { target: { value: "test.theme" } });
-  fireEvent.click(apply);
-  expect(apply).toBeChecked();
   fireEvent.click(within(dialog).getByRole("button", { name: "Apply" }));
   await waitFor(() => expect(storedCustomization.document.appearance)
-    .toMatchObject({ theme: "test.theme", applyUiTheme: true }));
+    .toMatchObject({ theme: "test.theme" }));
   fireEvent.click(within(dialog).getByRole("button", { name: "Close settings" }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Settings" })).not.toBeInTheDocument());
   // The workbench marks the user theme and repaints with the saved colors.
@@ -2766,18 +2763,18 @@ test("applying theme colors marks the window, repaints it, and re-applies the co
   // The window root carries the readable colors; the workbench keeps the authored pick.
   expect(exported).not.toBe("#101820");
   expect(document.querySelector("main")).toHaveStyle({ "--editor-bg": "#101820" });
-  // A restart reads the switch and the theme back out of storage.
-  expect(JSON.parse(window.localStorage.getItem(PREFERENCES_KEY) ?? "{}"))
-    .toMatchObject({ theme: "test.theme", applyUiTheme: true });
+  // A restart reads the theme back out of storage, and the old switch key plays no part.
+  const stored = JSON.parse(window.localStorage.getItem(PREFERENCES_KEY) ?? "{}");
+  expect(stored).toMatchObject({ theme: "test.theme" });
+  expect(stored).not.toHaveProperty("applyUiTheme");
 });
 
 test("a built-in theme repaints its own palette and never marks the window", async () => {
   const dialog = await openAppearance([userTheme(), EMBER_THEME]);
   fireEvent.change(within(dialog).getByRole("combobox", { name: "Color theme" }), { target: { value: "Nulis Ember" } });
-  fireEvent.click(within(dialog).getByRole("checkbox", { name: "Apply theme colors" }));
   fireEvent.click(within(dialog).getByRole("button", { name: "Apply" }));
   await waitFor(() => expect(storedCustomization.document.appearance)
-    .toMatchObject({ theme: "Nulis Ember", applyUiTheme: true }));
+    .toMatchObject({ theme: "Nulis Ember" }));
   fireEvent.click(within(dialog).getByRole("button", { name: "Close settings" }));
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "Settings" })).not.toBeInTheDocument());
   await waitFor(() => expect(document.querySelector("main")?.hasAttribute("data-custom")).toBe(false));

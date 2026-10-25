@@ -49,7 +49,7 @@ export function exportWindowTheme(
   const vars: Record<string, string> = {};
   // Map the colors through the same table the workbench uses; the font entries
   // come from preferences here, so only color variables are exported.
-  const fonts: EditorPreferences = { theme: payload.theme, fontFamily: " ", fontSize: 0, lineHeight: 0, fontLigatures: false, applyUiTheme: payload.applyUiTheme };
+  const fonts: EditorPreferences = { theme: payload.theme, fontFamily: " ", fontSize: 0, lineHeight: 0, fontLigatures: false };
   for (const [name, value] of Object.entries(preferenceCssVariables(fonts, [record]))) {
     if (value && !name.includes("font") && !name.includes("line-height") && !name.includes("ligature")) vars[name] = value;
   }
@@ -58,7 +58,7 @@ export function exportWindowTheme(
   for (const key of Object.keys(vars)) prior.set(key, element.style.getPropertyValue(key));
   const priorCustom = element.dataset.custom ?? null;
   for (const [key, value] of Object.entries(vars)) element.style.setProperty(key, value);
-  if (userTheme && payload.applyUiTheme) element.dataset.custom = "true"; else delete element.dataset.custom;
+  if (userTheme) element.dataset.custom = "true"; else delete element.dataset.custom;
   return () => {
     for (const [key, value] of prior) {
       if (value === null) element.style.removeProperty(key); else element.style.setProperty(key, value);
@@ -87,10 +87,8 @@ export function useWindowTheme(windowId: string): CSSProperties | undefined {
           // export their own palette, so their appearance never shifts.
           restore?.();
           const payload = preferenceWindowTheme(appearance, themes);
-          if (payload.applyUiTheme) {
-            const base = themes.find((theme) => theme.id === payload.theme) ?? themes[0];
-            restore = exportWindowTheme(window.document.documentElement, payload, base?.colors ?? {});
-          }
+          const base = themes.find((theme) => theme.id === payload.theme) ?? themes[0];
+          restore = exportWindowTheme(window.document.documentElement, payload, base?.colors ?? {});
         }
       }).catch(() => undefined);
     };

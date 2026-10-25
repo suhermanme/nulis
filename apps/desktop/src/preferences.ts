@@ -11,7 +11,6 @@ export const DEFAULT_EDITOR_PREFERENCES: EditorPreferences = {
   fontSize: 13,
   lineHeight: 1.7,
   fontLigatures: true,
-  applyUiTheme: false,
 };
 
 export const FONT_FAMILIES = [
@@ -61,7 +60,6 @@ export function normalizeEditorPreferences(value: unknown, themes: readonly Them
     fontLigatures: typeof candidate.fontLigatures === "boolean"
       ? candidate.fontLigatures
       : DEFAULT_EDITOR_PREFERENCES.fontLigatures,
-    applyUiTheme: candidate.applyUiTheme === true,
   };
 }
 
@@ -344,7 +342,7 @@ export function readabilityFloors(custom: ThemeCustomFloors, colors: Record<stri
   return result;
 }
 
-/** The window theme payload: readable colors after floors, floors, UI tokens, apply switch. */
+/** The window theme payload: readable colors after floors, the theme's floors, and UI tokens. */
 export interface WindowThemePayload {
   theme: string;
   colors: Record<string, string>;
@@ -352,7 +350,6 @@ export interface WindowThemePayload {
   baseTheme: string;
   customTheme?: ThemeCustomFloors;
   uiTokens?: string[];
-  applyUiTheme: boolean;
 }
 
 export function preferenceWindowTheme(
@@ -373,6 +370,5 @@ export function preferenceWindowTheme(
     baseTheme: theme.id,
     ...(theme.builtIn ? {} : { customTheme: custom }),
     ...(theme.uiTokens ? { uiTokens: [...theme.uiTokens] } : {}),
-    applyUiTheme: preferences.applyUiTheme === true,
   };
 }
