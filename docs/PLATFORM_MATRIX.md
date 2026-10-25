@@ -17,6 +17,12 @@ Also in CI: document fuzzing, a large-file smoke benchmark, and dependency advis
 
 Nulis 0.5.0 passed every job above on all three systems (CI run 40096525220 on `7bf01ba`, 2026-10-24), and the release run for tag `v0.5.0` (40096867716) installed and started each package before publishing it. The Homebrew cask (`Casks/nulis.rb`) uses the `.dmg`'s `SHA256SUMS.txt` entry and passes `brew style` and `brew audit --cask --online`.
 
+Nulis 0.5.1 passed every job on all three systems (CI run 40216554644 on `1b929ef`, 2026-10-26, after run
+40215756053 caught a rustfmt offense and an unused import on the release commit), and the release run for tag
+`v0.5.1` (40217132454) installed and started each package before publishing it. Its cask pins the published
+0.5.1 `.dmg` hash and passes `brew style`; the online cask audit has not been run yet, because Homebrew
+refuses to audit a cask from an untrusted tap — trusting the tap is the owner's decision.
+
 Tests that guard platform differences: `contracts.test.ts` (the desktop and core protocol versions match), `commands.test.ts` (the core, the desktop, and the native menus list the same commands), and the Windows Rust job, which caught a Rename File check that relied on inode numbers that Windows does not have and a language server that the reader had seen stop before Windows reported the exit.
 
 ## By hand

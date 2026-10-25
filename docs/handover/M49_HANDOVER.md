@@ -65,7 +65,7 @@ M49 lets the user duplicate a shipped theme, edit its colors, and keep the resul
 - **Tests rewritten for the new behavior:** `preferences.test.ts` "stored preferences written before the theme-colors switch normalize without it"; `App.test.tsx` "applying a user theme marks the window, repaints every window, and survives a restart" and "a built-in theme repaints its own palette and never marks the window" (no checkbox interaction, no `applyUiTheme` in the assertions); `nulis-settings` `appearance_loads_documents_written_while_the_switch_existed`; `nulis-core` `applying_a_custom_theme_accepts_the_appearance_the_editor_posts` (the appearance the editor posts has no flag, and an older document's flag survives the save and the restart).
 - `docs/THEME_SPEC.md` §Custom themes describes the new behavior and the compatibility field.
 
-**Checks run for the removal:** `npx tsc -b` clean; `npx vitest run src/preferences.test.ts` 5 passed; `npx vitest run src/App.test.tsx` 88 passed; `cargo test -p nulis-settings` 8 passed; `cargo test -p nulis-core` 203 passed. The full boundary run below stays pending, as the owner chose.
+**Checks run for the removal:** `npx tsc -b` clean; `npx vitest run src/preferences.test.ts` 5 passed; `npx vitest run src/App.test.tsx` 88 passed; `cargo test -p nulis-settings` 8 passed; `cargo test -p nulis-core` 203 passed. The full boundary run below ran as CI on `1b929ef` and is green (*Next* item 4).
 
 ## Next
 
@@ -75,5 +75,11 @@ M49 lets the user duplicate a shipped theme, edit its colors, and keep the resul
    (2026-10-25)**, from the `~/Desktop/Nulis.app` build of 22:56: the panel shows the notice while
    picking. The rest of M49's manual list (relaunch and restore, Remove Selected, Windows and
    Linux) is still open.
-4. Full boundary run over the follow-up — `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, desktop Vitest, lint, typecheck, `frontend:build` — recorded in `docs/IMPLEMENTATION_TRACKER.md`.
+4. Full boundary run over the follow-up — **ran, green.** CI ran the sweep on `main`: run 40215756053
+   (`d5f851e`) failed only `cargo fmt --all -- --check` and the frontend lint, and `1b929ef` fixed both
+   (rustfmt reflowed three long statements in the follow-up tests, no assertion changed;
+   `DEFAULT_EDITOR_PREFERENCES` was an import `preferences.test.ts` no longer used). Run 40216554644 on
+   `1b929ef` passed everything — fmt, Clippy `-D warnings` and the Rust tests on macOS, Windows and Linux,
+   desktop lint, typecheck, Vitest, `frontend:build`, all four bundles built, installed and started,
+   fuzzing, the large-file benchmark, dependency advisories. Recorded in `docs/IMPLEMENTATION_TRACKER.md`.
 5. Manual check of the removed switch on the owner's display: Appearance shows no **Apply theme colors** checkbox, and applying a user theme repaints the window chrome (title bar area, side panels, status line) in every Nulis window, with the built-in themes painting their own. From the `~/Desktop/Nulis.app` build of the removal commit; the Desktop copy and any installed Nulis share the same `com.nulis.editor` store, so run one at a time.
