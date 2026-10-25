@@ -2,7 +2,6 @@ import { expect, test } from "vitest";
 import type { EditorPreferences, ThemeRecord } from "./contracts";
 import {
   BUILT_IN_THEMES,
-  DEFAULT_EDITOR_PREFERENCES,
   DEFAULT_VIEW_OPTIONS,
   normalizeEditorPreferences,
   normalizeViewOptions,

@@ -368,7 +368,9 @@ mod tests {
         let mut theme = ember.clone();
         let gutter = theme.colors["editor.gutter"].clone();
         // A bright highlight under ember's light text fails the text floor, so it is strengthened.
-        theme.colors.insert("editor.selection".into(), "#FF9300".into());
+        theme
+            .colors
+            .insert("editor.selection".into(), "#FF9300".into());
         let applied = theme.ensure_readable();
         let shown = &theme.colors["editor.selection"];
         assert_ne!(shown, "#FF9300", "the bright pick cannot paint as typed");

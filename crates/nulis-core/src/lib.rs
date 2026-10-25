@@ -5724,9 +5724,14 @@ mod tests {
             "{changes:?}"
         );
         // The floors touch four tokens, so a color outside them is reported exactly as authored.
-        assert_eq!(reply["colors"]["editor.gutter"], draft["colors"]["editor.gutter"]);
+        assert_eq!(
+            reply["colors"]["editor.gutter"],
+            draft["colors"]["editor.gutter"]
+        );
         assert!(
-            !changes.iter().any(|change| change["token"] == "editor.gutter"),
+            !changes
+                .iter()
+                .any(|change| change["token"] == "editor.gutter"),
             "{changes:?}"
         );
         // Asking stores nothing and changes no answer: the catalog and the draft stand as they were.
@@ -5928,7 +5933,11 @@ mod tests {
         // A customization written while the panel carried the "Apply theme colors" switch keeps
         // its stored flag across the same save and restart: the old document is not rewritten.
         let state = reopened
-            .execute_command("customization.state", CommandContext::default(), Value::Null)
+            .execute_command(
+                "customization.state",
+                CommandContext::default(),
+                Value::Null,
+            )
             .expect("state the customization again");
         let mut document = state["document"].clone();
         document["appearance"]["applyUiTheme"] = serde_json::json!(true);
