@@ -114,6 +114,7 @@ const SETTINGS_COMMANDS: &[&str] = &[
     "theme.list",
     "theme.install",
     "theme.uninstall",
+    "theme.save",
     "language.list",
     "language.conflicts",
     "plugin.list",
@@ -125,6 +126,7 @@ const CUSTOMIZATION_MUTATIONS: &[&str] = &[
     "customization.reset",
     "theme.install",
     "theme.uninstall",
+    "theme.save",
     // Approving, revoking, or restarting a server changes open documents' capabilities.
     "lsp.approve",
     "lsp.revoke",
@@ -2015,7 +2017,12 @@ mod tests {
             assert!(authorize_window_command("main", id).is_ok());
             assert!(authorize_window_command("settings", id).is_err(), "{id}");
         }
-        for id in ["customization.saveChecked", "theme.install", "plugin.list"] {
+        for id in [
+            "customization.saveChecked",
+            "theme.install",
+            "theme.save",
+            "plugin.list",
+        ] {
             assert!(authorize_window_command("settings", id).is_ok(), "{id}");
         }
         // Help can read the theme and nothing else.

@@ -1,11 +1,11 @@
-# Implementation tracker (M19–M48)
+# Implementation tracker (M19–M49)
 
-Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30), `IMPROVEMENT_PLAN_2.md` (M31–M35), `IMPROVEMENT_PLAN_3.md` (M36–M40), and `IMPROVEMENT_PLAN_4.md` (M41–M48). Keep it in step with the repository; never mark work complete without the verification listed.
+Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30), `IMPROVEMENT_PLAN_2.md` (M31–M35), `IMPROVEMENT_PLAN_3.md` (M36–M40), `IMPROVEMENT_PLAN_4.md` (M41–M48), and `THEME_IMPLEMENTATION_PLAN.md` (M49). Keep it in step with the repository; never mark work complete without the verification listed.
 
 ## Current state
 
-- **Current milestone:** M48 complete (2026-10-24); Nulis 0.5.0. Plan 4 is complete on `main`. **To resume plan 4, read the "Plan 4" section below.** Plan 3 is complete and released in Nulis 0.4.0 (2026-10-23).
-- **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 5 of 5 milestones completed (M31–M35); plan 3: 5 of 5 completed (M36–M40, in Nulis 0.4.0); plan 4: 8 of 8 (M41–M48)
+- **Current milestone:** M49 custom themes is complete on `feat/theme-customization` (2026-10-25, commit `799fbda`): catalog write path, `theme.save` (IPC 47), Appearance panel, preview scoping, spec and handover. The manual app acceptance on the owner's display is pending, as in M46-M48. M48 complete (2026-10-24); Nulis 0.5.0. Plan 4 is complete on `main`. **To resume plan 4, read the "Plan 4" section below.** Plan 3 is complete and released in Nulis 0.4.0 (2026-10-23).
+- **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 5 of 5 milestones completed (M31–M35); plan 3: 5 of 5 completed (M36–M40, in Nulis 0.4.0); plan 4: 8 of 8 (M41–M48); plan 5: 1 of 1 complete (M49, manual app check pending)
 - **Baseline before M19 (commit `66853e1`):** `cargo test -p nulis-core` 86 passed; desktop Vitest 11 files, 115 tests passed.
 
 | Milestone | Status | Handover |
@@ -40,6 +40,20 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 | M46 Expand bundled coverage | Completed 2026-10-23 (app check pending) | `handover/M46_HANDOVER.md` |
 | M47 Optional LSP | Completed 2026-10-24 (manual rust-analyzer check pending) | `handover/M47_HANDOVER.md` |
 | M48 External plugin readiness | Completed 2026-10-24 (manual app check pending) | `handover/M48_HANDOVER.md` |
+| M49 Custom themes | Completed 2026-10-25 (manual app check pending) | `handover/M49_HANDOVER.md` |
+
+## Plan 5 (M49) — custom themes
+
+Plan: `THEME_IMPLEMENTATION_PLAN.md`. Spec: `THEME_SPEC.md` ("Custom themes"). Statuses: Not Started, In Progress, Blocked, Completed.
+
+1. Read the plan's Findings and Milestones sections, then the "Custom themes" part of the spec. Work on `feat/theme-customization`; stop at the milestone boundary with a handover in `docs/handover/M49_HANDOVER.md` and an update here.
+2. M49 is the whole feature: the catalog write path in `nulis-theme`, the `theme.save` command (IPC 47) in `nulis-core`, the Appearance panel in `SettingsWindow.tsx` (Duplicate, color fields, Save Colors, Revert, Remove Selected), preview scoping in `styles.css`, and the lifecycle tests.
+3. Checks at the boundary: `cargo fmt --all -- --check`; `cargo clippy --workspace --all-targets`; `cargo test --workspace`; `npm run test --prefix apps/desktop`; `npm run typecheck --prefix apps/desktop`; `npm run lint --prefix apps/desktop`; `npm run frontend:build --prefix apps/desktop`.
+
+**Boundary checks (2026-10-25, commit `799fbda`):** `cargo fmt --all -- --check` clean; `cargo clippy --workspace --all-targets -- -D warnings` clean; `cargo test --workspace` green — 46 result lines, 0 failures, among them `nulis-core` 200, `nulis-theme` 16 (incl. `saves_creates_then_edits_a_user_theme_across_a_restart`), `nulis-syntax` `self_hosting` 2, `nulis-desktop-lib` 9, `nulis-automation` 15. Desktop Vitest 23 files / 220 tests passed; `typecheck` and `lint` clean; `frontend:build` built.
+
+`self_hosting` walks every file under the repository root, so scratch trees (linked worktrees, fuzz corpora, downloads) must live outside it. The M49/M45 scratch worktree now lives at `../nulis-scratch-vbase`; `git worktree list` shows it registered.
+
 
 ## Plan 4 (M41–M48) — language capabilities
 

@@ -1,14 +1,38 @@
 /** Versioned JSON-compatible values mirrored from nulis-core's public IPC DTOs. */
 export const IPC_PROTOCOL_VERSION = 47 as const;
 
+export type ThemeKind = "dark" | "light";
+
+/** Readability floors authored with a user theme, each 0..1000. */
+export interface ThemeCustomFloors {
+  maxSaturation: number;
+  minLuma: number;
+  maxLuma: number;
+  minChroma: number;
+}
+
+/** A theme sent to `theme.save`; mirrors nulis-theme's `Theme`, which rejects unknown fields. */
+export interface ThemeInput {
+  id: string;
+  name: string;
+  version: number;
+  kind: ThemeKind;
+  colors: Record<string, string>;
+  schema?: string;
+}
 export interface ThemeRecord {
   schema?: string;
   id: string;
   name: string;
   version: number;
-  kind: "dark" | "light";
+  kind: ThemeKind;
   colors: Record<string, string>;
   builtIn: boolean;
+  /** UI-side extras; `theme.list` never sends them, so they are read as absent. */
+  uiTokens?: string[];
+  plugins?: string[];
+  /** Readability floors authored with a user theme; built-ins carry none. */
+  custom?: ThemeCustomFloors | null;
 }
 
 export interface EditorPreferences {
@@ -17,6 +41,20 @@ export interface EditorPreferences {
   fontSize: number;
   lineHeight: number;
   fontLigatures: boolean;
+  /** Paint the selected theme's colors in every Nulis window, not just the editor. */
+  applyUiTheme?: boolean;
+}
+
+/** The window theme payload: colors after readability floors plus UI token presence. */
+export interface ThemeView {
+  theme: string;
+  colors: Record<string, string>;
+  kind: ThemeKind;
+  baseTheme: string;
+  /** Readability floors of a user theme; built-in themes carry none. */
+  customTheme?: ThemeCustomFloors;
+  /** Theme-packaged UI tokens (semantic UI color roles). */
+  uiTokens?: string[];
 }
 
 export interface Keybinding {

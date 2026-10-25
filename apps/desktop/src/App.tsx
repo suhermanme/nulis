@@ -106,6 +106,7 @@ import {
   loadWelcomeOnStartup,
   normalizeEditorPreferences,
   preferenceCssVariables,
+  preferenceWindowTheme,
   saveEditorPreferences,
   saveLineChangeDefault,
   saveRecentFiles,
@@ -115,6 +116,7 @@ import {
   withRecentFile,
   type ViewOptions,
 } from "./preferences";
+import { exportWindowTheme } from "./windowTheme";
 
 const NAV_ITEMS = ["Files"] as const;
 const EXPLORER_ENTRY_LIMIT = 500;
@@ -429,6 +431,8 @@ export function App() {
   const tabOrderRef = useRef<string[]>([]);
   const customizationRef = useRef(customization);
   customizationRef.current = customization;
+  const themesRef = useRef(themes);
+  themesRef.current = themes;
 
   useEffect(() => {
     let mounted = true;
@@ -1257,7 +1261,7 @@ export function App() {
     }).then(keep);
     void listen<EditorPreferences | null>(APPEARANCE_PREVIEW_EVENT, (event) => {
       setPreferences(event.payload
-        ? normalizeEditorPreferences(event.payload, BUILT_IN_THEMES.concat([]))
+        ? normalizeEditorPreferences(event.payload, themesRef.current)
         : customizationRef.current.appearance);
     }).then(keep);
     return () => { disposed = true; stops.forEach((stop) => stop()); };
@@ -2104,6 +2108,16 @@ export function App() {
     ...preferenceCssVariables({ ...preferences, fontSize: zoomedFontSize }, themes),
   } as CSSProperties;
 
+  // "Apply theme colors" exports the selected theme's colors onto the window
+  // root: every window repaints, and the choice survives a restart. Built-ins
+  // export their own palette, and with the toggle off nothing touches the root.
+  useEffect(() => {
+    if (!preferences.applyUiTheme) return undefined;
+    const payload = preferenceWindowTheme(preferences, themes);
+    const base = themes.find((theme) => theme.id === payload.theme) ?? themes[0];
+    return exportWindowTheme(window.document.documentElement, payload, base?.colors ?? {});
+  }, [preferences, themes]);
+
   const forgetPrompts = (documentId: string) => {
     for (const key of [...promptedChanges.current]) if (key.startsWith(`${documentId}:`)) promptedChanges.current.delete(key);
   };
@@ -2526,7 +2540,7 @@ export function App() {
   </div>;
 
   return (
-    <main className={`workbench${sidebarVisible ? "" : " sidebar-hidden"}${resizingSidebar ? " resizing" : ""}`} style={layoutStyle}>
+    <main className={`workbench${sidebarVisible ? "" : " sidebar-hidden"}${resizingSidebar ? " resizing" : ""}`} style={layoutStyle} data-custom={activeTheme.builtIn ? undefined : "true"}>
       {dragOver ? <div className="file-drop-target" aria-hidden="true">Drop files to open</div> : null}
       <header className="titlebar">
         <button className="brand" type="button" title="About Nulis" aria-label="About Nulis" onClick={() => { setLicenseOpen(false); setAboutOpen(true); }}>

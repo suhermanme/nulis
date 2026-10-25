@@ -350,6 +350,7 @@ impl NulisCore {
             ("theme.list", "List Themes"),
             ("theme.install", "Install Theme"),
             ("theme.uninstall", "Uninstall Theme"),
+            ("theme.save", "Save Theme"),
         ] {
             commands
                 .register(
@@ -655,6 +656,22 @@ impl NulisCore {
                     .uninstall(&request.id)
                     .map_err(|error| CommandError::Failed(error.to_string()))?;
                 Ok(Value::Null)
+            }
+            "theme.save" => {
+                #[derive(Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct Request {
+                    theme: Theme,
+                }
+                let request: Request = serde_json::from_value(arguments).map_err(|error| {
+                    CommandError::Failed(format!("invalid theme save request: {error}"))
+                })?;
+                let record = state
+                    .themes
+                    .save(&request.theme)
+                    .map_err(|error| CommandError::Failed(error.to_string()))?;
+                serde_json::to_value(record)
+                    .map_err(|error| CommandError::Failed(error.to_string()))
             }
             _ => Err(CommandError::Unknown(id.into())),
         }
@@ -5632,6 +5649,147 @@ mod tests {
             .execute_command("customization.get", CommandContext::default(), Value::Null)
             .expect("current");
         assert_eq!(current["appearance"]["fontSize"], 15.0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[allow(clippy::too_many_lines)] // One end-to-end custom-theme lifecycle check.
+    fn custom_theme_edits_persist_through_core_commands_and_protect_built_ins() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let core = NulisCore::with_session_root(directory.path().into());
+        let themes = core
+            .execute_command("theme.list", CommandContext::default(), Value::Null)
+            .expect("list themes");
+        let shipped = themes.as_array().expect("theme array").len();
+        // theme.list flattens every record: the theme fields sit beside builtIn.
+        let theme_of = |record: &Value| {
+            let mut theme = record.clone();
+            if let Some(object) = theme.as_object_mut() {
+                object.remove("builtIn");
+            }
+            theme
+        };
+        let built_in = theme_of(&themes.as_array().expect("theme array")[0]);
+        let built_in_id = built_in["id"].as_str().expect("built-in id").to_owned();
+        let mut custom = built_in.clone();
+        custom["id"] = serde_json::json!("example.custom");
+        custom["name"] = serde_json::json!("My Custom Theme");
+        custom["colors"]["ui.accent"] = serde_json::json!("#F0A500");
+        let saved = core
+            .execute_command(
+                "theme.save",
+                CommandContext::default(),
+                serde_json::json!({ "theme": custom }),
+            )
+            .expect("save a custom theme");
+        assert_eq!(saved["id"], "example.custom");
+        assert_eq!(saved["builtIn"], false);
+        let listed = core
+            .execute_command("theme.list", CommandContext::default(), Value::Null)
+            .expect("list themes");
+        let listed = listed.as_array().expect("theme array");
+        assert_eq!(listed.len(), shipped + 1);
+        assert!(listed
+            .iter()
+            .any(|record| record["id"] == "example.custom" && record == &saved));
+
+        // A built-in theme keeps its shipped colors: saving it is refused outright.
+        let refused = core
+            .execute_command(
+                "theme.save",
+                CommandContext::default(),
+                serde_json::json!({ "theme": built_in }),
+            )
+            .expect_err("built-ins are read-only");
+        assert!(
+            format!("{refused}").contains("built-in theme cannot be changed"),
+            "{refused}"
+        );
+
+        // Selecting the custom theme is a normal customization save, and editing it
+        // in place keeps one file for one id.
+        let mut customization = core
+            .execute_command("customization.get", CommandContext::default(), Value::Null)
+            .expect("get customization");
+        customization["appearance"]["theme"] = serde_json::json!("example.custom");
+        core.execute_command(
+            "customization.save",
+            CommandContext::default(),
+            customization,
+        )
+        .expect("select the custom theme");
+        custom["colors"]["ui.accent"] = serde_json::json!("#00A5F0");
+        let edited = core
+            .execute_command(
+                "theme.save",
+                CommandContext::default(),
+                serde_json::json!({ "theme": custom }),
+            )
+            .expect("edit the custom theme");
+        let listed = core
+            .execute_command("theme.list", CommandContext::default(), Value::Null)
+            .expect("list themes");
+        let listed = listed.as_array().expect("theme array");
+        assert_eq!(listed.len(), shipped + 1);
+        assert!(listed.iter().any(|record| record == &edited));
+
+        // Neither the selected theme nor a built-in can be uninstalled.
+        let refused = core
+            .execute_command(
+                "theme.uninstall",
+                CommandContext::default(),
+                serde_json::json!({ "id": "example.custom" }),
+            )
+            .expect_err("the selected theme is protected");
+        assert!(
+            format!("{refused}").contains("select another theme"),
+            "{refused}"
+        );
+        let refused = core
+            .execute_command(
+                "theme.uninstall",
+                CommandContext::default(),
+                serde_json::json!({ "id": built_in_id }),
+            )
+            .expect_err("built-ins are not user themes");
+        assert!(
+            format!("{refused}").contains("built-in theme cannot be changed"),
+            "{refused}"
+        );
+
+        // A restart reads user themes back from the session directory.
+        drop(core);
+        let reopened = NulisCore::with_session_root(directory.path().into());
+        let listed = reopened
+            .execute_command("theme.list", CommandContext::default(), Value::Null)
+            .expect("list themes after a restart");
+        let listed = listed.as_array().expect("theme array");
+        assert_eq!(listed.len(), shipped + 1);
+        assert!(listed.iter().any(|record| record["id"] == "example.custom"));
+
+        // Deleting a custom theme needs another theme selected first.
+        let mut customization = reopened
+            .execute_command("customization.get", CommandContext::default(), Value::Null)
+            .expect("get customization");
+        customization["appearance"]["theme"] = serde_json::json!(built_in_id);
+        reopened
+            .execute_command(
+                "customization.save",
+                CommandContext::default(),
+                customization,
+            )
+            .expect("select a built-in theme");
+        reopened
+            .execute_command(
+                "theme.uninstall",
+                CommandContext::default(),
+                serde_json::json!({ "id": "example.custom" }),
+            )
+            .expect("uninstall the custom theme");
+        let listed = reopened
+            .execute_command("theme.list", CommandContext::default(), Value::Null)
+            .expect("list themes");
+        assert_eq!(listed.as_array().expect("theme array").len(), shipped);
     }
 
     #[cfg(unix)]

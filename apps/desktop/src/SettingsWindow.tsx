@@ -13,6 +13,7 @@ import type {
   LanguageServersState,
   SettingsState,
   PluginSummary,
+  ThemeInput,
   ThemeRecord,
 } from "./contracts";
 import { CUSTOMIZABLE_COMMANDS } from "./commands";
@@ -20,7 +21,7 @@ import { Icon, IconButton, type IconName } from "./icons";
 import { suggestSettingsOf } from "./contracts";
 import { executeCommand, getApplicationInfo, listCommands } from "./ipc";
 import { LAYOUT_LIMITS } from "./layout";
-import { useShowWhenReady } from "./windowTheme";
+import { exportWindowTheme, useShowWhenReady } from "./windowTheme";
 import {
   BUILT_IN_THEMES,
   FONT_FAMILIES,
@@ -28,6 +29,8 @@ import {
   loadWelcomeOnStartup,
   normalizeEditorPreferences,
   preferenceCssVariables,
+  previewCssVariables,
+  type WindowThemePayload,
   saveLineChangeDefault,
   saveWelcomeOnStartup,
 } from "./preferences";
@@ -39,7 +42,7 @@ export const SETTINGS_SECTIONS = [
   { id: "languages", title: "Languages", icon: "language" },
   { id: "keybindings", title: "Keybindings", icon: "keyboard" },
   { id: "menus", title: "Menus & Toolbar", icon: "menus" },
-  { id: "workspace", title: "Workspace", icon: "workspace" },
+  { id: "workspace", title: "Workspace", icon: "files" },
   { id: "extensions", title: "Extensions & Security", icon: "security" },
 ] as const satisfies ReadonlyArray<{ id: string; title: string; icon: IconName }>;
 
@@ -186,6 +189,57 @@ function move<T>(values: T[], index: number, offset: -1 | 1): T[] {
   return next;
 }
 
+const THEME_HEX = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+
+/** The six-digit form a theme color needs for the native color picker. */
+export function expandedThemeColor(color: string): string | null {
+  if (!THEME_HEX.test(color)) return null;
+  return color.length === 4
+    ? `#${color.slice(1).split("").map((channel) => channel + channel).join("")}`
+    : color;
+}
+
+/** A theme id for a copy of `base` that no theme in `taken` already uses. */
+export function copiedThemeId(base: string, taken: readonly string[]): string {
+  // The id must pass the core's rules: lowercase letters, digits, dashes, and dots between groups.
+  const slug =
+    base
+      .trim()
+      .toLowerCase()
+      .replace(/\.+/g, ".")
+      .replace(/[^a-z0-9.-]+/g, "-")
+      .slice(0, 100)
+      .replace(/^[-.]+|[-.]+$/g, "") || "theme";
+  const stem = slug.includes(".") ? slug : `${slug}.1`;
+  let candidate = `${stem}.copy`;
+  for (let suffix = 2; taken.includes(candidate); suffix += 1) candidate = `${stem}.copy-${suffix}`;
+  return candidate;
+}
+
+/** The colors the Appearance preview paints: the draft theme's colors, ignoring hex the user is still typing. */
+export function previewColors(theme: ThemeRecord | null, colorDraft: Record<string, string>): Record<string, string> {
+  if (!theme) return {};
+  const colors = { ...theme.colors };
+  for (const [token, color] of Object.entries(colorDraft)) if (THEME_HEX.test(color)) colors[token] = color;
+  return colors;
+}
+
+/** A readable caption for a theme token, shown as the tooltip of the Appearance fields. */
+export function themeTokenLabel(token: string): string {
+  return token.split(".").map((word) => `${word.charAt(0).toUpperCase()}${word.slice(1)}`).join(" ");
+}
+
+/** The color one arrow-key nudge produces in a hex field: plain arrows ±1 on blue, Shift ±1 on red, Alt ±1 on green; null when the text is not a color. */
+export function nudgedThemeColor(color: string, key: string, shift: boolean, alt: boolean): string | null {
+  const expanded = expandedThemeColor(color);
+  if (!expanded) return null;
+  const channel = shift ? 0 : alt ? 1 : 2;
+  const step = key === "ArrowUp" || key === "ArrowRight" ? 1 : -1;
+  const channels = [1, 3, 5].map((start) => Number.parseInt(expanded.slice(start, start + 2), 16));
+  channels[channel] = Math.min(255, Math.max(0, channels[channel] + step));
+  return `#${channels.map((value) => value.toString(16).padStart(2, "0")).join("")}`;
+}
+
 /** Separate, sectioned settings surface with a draft that is applied or discarded as a whole. */
 export function SettingsWindow({
   mode, onPreview, onSaved, onMainAction, onClose, closeSignal = 0, externalChangeSignal = 0,
@@ -201,6 +255,8 @@ export function SettingsWindow({
   const [featureRows, setFeatureRows] = useState<LanguageCapabilities[]>([]);
   const [featureDraft, setFeatureDraft] = useState<FeatureSwitches>({});
   const [indentDraft, setIndentDraft] = useState<IndentationDraft>(() => indentationOf(null));
+  const [colorDraft, setColorDraft] = useState<Record<string, string>>({});
+  const [themeDraft, setThemeDraft] = useState<ThemeRecord | null>(null);
   const [plugins, setPlugins] = useState<PluginSummary[]>([]);
   const [conflicts, setConflicts] = useState<LanguageConflict[]>([]);
   const [associationDraft, setAssociationDraft] = useState<Record<string, string>>({});
@@ -215,7 +271,7 @@ export function SettingsWindow({
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [stale, setStale] = useState(false);
-  const [confirm, setConfirm] = useState<"close" | "reset" | null>(null);
+  const [confirm, setConfirm] = useState<"close" | "reset" | "remove" | null>(null);
   const signals = useRef({ close: closeSignal, external: externalChangeSignal });
 
   const loadLanguageSettings = useCallback(async () => {
@@ -304,6 +360,8 @@ export function SettingsWindow({
     setLineChanges(savedLineChanges);
     setWelcome(savedWelcome);
     setAssociationDraft({});
+    setThemeDraft(null);
+    setColorDraft({});
     onPreview(null);
   }, [featureRows, onPreview, saved, savedLineChanges, savedWelcome, settingsState]);
 
@@ -440,9 +498,15 @@ export function SettingsWindow({
   };
 
   const removeTheme = async (id: string) => {
-    if (!saved) return;
+    if (busy || !saved) return;
+    setConfirm(null);
+    const target = themes.find((theme) => theme.id === id);
     if (saved.document.appearance.theme === id) {
-      setNotice("Apply another theme before removing this one");
+      setNotice(`${target?.name ?? id} is the theme in use. Apply another theme before removing it.`);
+      return;
+    }
+    if (target?.builtIn) {
+      setNotice(`${target.name} is built into Nulis; only your themes can be removed`);
       return;
     }
     setBusy(true);
@@ -473,6 +537,47 @@ export function SettingsWindow({
   // The separate window is shown once its settings (or why they failed) are on screen.
   useShowWhenReady(mode === "window" && (Boolean(saved && draft) || notice !== null));
 
+  const selectedTheme = saved && draft
+    ? themes.find((theme) => theme.id === draft.appearance.theme)
+    : undefined;
+  const editableTheme = themeDraft ?? (selectedTheme && !selectedTheme.builtIn ? selectedTheme : null);
+  const editedColors: Record<string, string> = editableTheme
+    ? { ...editableTheme.colors, ...colorDraft }
+    : {};
+  const colorChanges = Object.keys(colorDraft).length;
+  /** A duplicate and its color edits are a draft; Save Colors stores it, Revert discards it. */
+  const draftIsPending = themeDraft !== null || colorChanges > 0;
+
+  // Live preview paints the drafted colors on the preview boxes; discarding restores the saved theme.
+  const draftColors = useMemo(() => previewColors(editableTheme, colorDraft), [editableTheme, colorDraft]);
+  const previewing = themeDraft !== null || colorChanges > 0;
+  const previewStyle = previewing
+    ? (previewCssVariables({ ...editableTheme?.colors, ...draftColors }) as CSSProperties)
+    : undefined;
+
+  // Picked colors and unsaved duplicates belong to the theme that was open when they were made.
+  useEffect(() => {
+    setColorDraft({});
+    setThemeDraft(null);
+  }, [draft?.appearance.theme]);
+
+  // Drafted colors export onto the window root for the live preview; closing the
+  // panel or discarding the draft restores the committed theme appearance. The
+  // preview path stores nothing: only Save Colors writes a theme.
+  useEffect(() => {
+    if (!previewing || !editableTheme) return undefined;
+    const payload: WindowThemePayload = {
+      theme: editableTheme.id,
+      baseTheme: editableTheme.id,
+      kind: editableTheme.kind,
+      colors: { ...editableTheme.colors, ...draftColors },
+      customTheme: editableTheme.builtIn ? undefined : (editableTheme.custom ?? undefined),
+      uiTokens: editableTheme.uiTokens,
+      applyUiTheme: true,
+    };
+    return exportWindowTheme(window.document.documentElement, payload, editableTheme.colors);
+  }, [previewing, editableTheme, draftColors]);
+
   if (!saved || !draft) {
     return <div className={`settings-window ${mode}`} role={mode === "inline" ? "dialog" : undefined} aria-label="Settings">
       <p className="settings-loading" role="status">{notice ?? "Loading settings…"}</p>
@@ -480,10 +585,55 @@ export function SettingsWindow({
     </div>;
   }
 
-  const updateAppearance = (change: Partial<EditorPreferences>) => {
-    const appearance = normalizeEditorPreferences({ ...draft.appearance, ...change }, themes);
+  const updateAppearance = (change: Partial<EditorPreferences>, themeList: readonly ThemeRecord[] = themes) => {
+    const appearance = normalizeEditorPreferences({ ...draft.appearance, ...change }, themeList);
     setDraft({ ...draft, appearance });
     onPreview(appearance);
+  };
+
+
+  /** Clones the selected theme into an editable draft; nothing is stored until Save Colors. */
+  const duplicateTheme = () => {
+    if (!selectedTheme) return;
+    const id = copiedThemeId(selectedTheme.id, themes.map((theme) => theme.id));
+    setThemeDraft({ ...selectedTheme, id, name: `${selectedTheme.name} copy`, version: 1, builtIn: false });
+    setColorDraft({});
+    setNotice(`Editing a copy of "${selectedTheme.name}" as ${id}; Save Colors stores it`);
+  };
+
+  /** Stores the drafted theme: a duplicate, or the edited colors of the selected user theme. */
+  const saveThemeColors = async () => {
+    if (!editableTheme || !saved) return;
+    if (Object.values(colorDraft).some((color) => !THEME_HEX.test(color))) {
+      setNotice("Colors need #rgb or #rrggbb");
+      return;
+    }
+    setBusy(true);
+    try {
+      // Only the authored fields travel: `theme.save` takes a theme file, and the built-in
+      // flag and the readability floors belong to the server.
+      const source = themeDraft ?? editableTheme;
+      const theme: ThemeInput = {
+        id: source.id,
+        name: source.name,
+        version: themeDraft ? 1 : source.version,
+        kind: source.kind,
+        colors: { ...source.colors, ...editedColors },
+      };
+      await executeCommand<ThemeRecord>({ id: "theme.save", context: CONTEXT, arguments: { theme } });
+      const nextThemes = await executeCommand<ThemeRecord[]>({ id: "theme.list", context: CONTEXT, arguments: {} });
+      const savedDraft = themeDraft;
+      setThemes(nextThemes);
+      setThemeDraft(null);
+      setColorDraft({});
+      if (savedDraft) updateAppearance({ theme: theme.id }, nextThemes);
+      onSaved(saved, nextThemes);
+      setNotice(savedDraft ? `Saved ${theme.id}` : "Theme colors saved");
+    } catch (error: unknown) {
+      setNotice(message(error, "Could not save theme colors"));
+    } finally {
+      setBusy(false);
+    }
   };
   const configurable = commands.filter((command) => CUSTOMIZABLE_COMMANDS.has(command.id)
     || command.category.startsWith("Plugin ·"));
@@ -492,7 +642,6 @@ export function SettingsWindow({
   const needle = filter.trim().toLocaleLowerCase();
   const matches = (text: string) => !needle || text.toLocaleLowerCase().includes(needle);
   const current = SETTINGS_SECTIONS.find((item) => item.id === section) ?? SETTINGS_SECTIONS[0];
-  const selectedTheme = themes.find((theme) => theme.id === draft.appearance.theme);
   const filterField = (label: string) => <input className="settings-filter" type="search" aria-label={label}
     placeholder={label} value={filter} onChange={(event) => setFilter(event.currentTarget.value)} />;
 
@@ -576,7 +725,7 @@ export function SettingsWindow({
           onChange={(event) => setLineChanges(event.currentTarget.checked)} /><span>Show line change indicators by default</span></label>
         <p className="settings-help">Marks lines edited since the last save and lines saved during this editing session. A document can override this from its toolbar until it is closed.</p>
       </fieldset>
-      <div className="settings-preview"><small>Preview</small><code>const nulis = "write clearly";</code></div>
+      <div className="settings-preview" style={previewStyle} data-previewing={previewStyle ? "true" : undefined}><small>Preview</small><code>const nulis = "write clearly";</code></div>
     </>,
     appearance: <>
       <fieldset className="settings-group"><legend>Color theme</legend>
@@ -587,16 +736,54 @@ export function SettingsWindow({
             <option key={theme.id} value={theme.id}>{theme.name}{theme.builtIn ? "" : " · User"}</option>))}
         </select></label>
         <p className="settings-help">{themes.length} themes available · {selectedTheme?.kind === "light" ? "Light" : "Dark"} theme selected</p>
+        <label className="settings-apply"><span>Apply theme colors</span><input type="checkbox" aria-label="Apply theme colors"
+          checked={draft.appearance.applyUiTheme}
+          onChange={(event) => updateAppearance({ applyUiTheme: event.currentTarget.checked })} /></label>
       </fieldset>
-      <fieldset className="settings-group"><legend>User themes</legend>
-        <p className="settings-help">Themes are imported through the system file picker and validated before installation.</p>
+      <fieldset className="settings-group">
+        <legend>User themes</legend>
+        <p className="settings-help">Installed themes are read-only. Duplicate one to change its colors; copies live beside your settings.</p>
         <div className="settings-inline">
-          <button type="button" disabled={busy} onClick={() => void installTheme()}>Install Theme…</button>
-          {selectedTheme && !selectedTheme.builtIn
-            ? <button type="button" disabled={busy} onClick={() => void removeTheme(selectedTheme.id)}>Remove {selectedTheme.name}</button> : null}
+          <button type="button" disabled={busy} onClick={() => void installTheme()}>Install Theme...</button>
+          <button type="button" disabled={busy || !selectedTheme} onClick={() => void duplicateTheme()}>Duplicate Selected</button>
+          <button type="button" disabled={busy || !selectedTheme || selectedTheme.builtIn} onClick={() => setConfirm("remove")}>Remove Selected</button>
         </div>
+        {editableTheme ? (
+          <div className="settings-colors">
+            {themeDraft ? <p className="settings-help" role="status">"{themeDraft.name}" ({themeDraft.id}) is a draft. Save Colors stores it; Revert discards it.</p> : null}
+            {Object.keys(editableTheme.colors).map((token) => {
+              const color = editedColors[token] ?? "";
+              const picker = expandedThemeColor(color);
+              return (
+                <label key={token} className="settings-color" data-invalid={picker ? undefined : "true"}>
+                  <span title={themeTokenLabel(token)}>{token}</span>
+                  <input type="color" value={picker ?? "#000000"} disabled={busy} aria-label={`${token} color`}
+                    onChange={(event) => {
+                      const color = event.currentTarget.value;
+                      setColorDraft((current) => ({ ...current, [token]: color }));
+                    }} />
+                  <input type="text" aria-label={`${token} hex`} value={color} onKeyDown={(event) => {
+                    if (event.key !== "ArrowUp" && event.key !== "ArrowDown" && event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+                    const nudged = nudgedThemeColor(color, event.key, event.shiftKey, event.altKey);
+                    if (nudged === null) return;
+                    event.preventDefault();
+                    setColorDraft((current) => ({ ...current, [token]: nudged }));
+                  }} onChange={(event) => {
+                    const color = event.currentTarget.value;
+                    setColorDraft((current) => ({ ...current, [token]: color }));
+                  }} />
+                </label>
+              );
+            })}
+            <div className="settings-color-actions">
+              <button type="button" disabled={busy || !draftIsPending} onClick={() => void saveThemeColors()}>Save Colors</button>
+              <button type="button" disabled={busy || !draftIsPending}
+                onClick={() => { setColorDraft({}); setThemeDraft(null); }}>Revert</button>
+            </div>
+          </div>
+        ) : selectedTheme ? <p className="settings-help">"{selectedTheme.name}" is installed. Duplicate it to change its colors.</p> : null}
       </fieldset>
-      <div className="settings-preview"><small>Preview</small><code>const nulis = "write clearly";</code></div>
+      <div className="settings-preview" style={previewStyle} data-previewing={previewStyle ? "true" : undefined}><small>Preview</small><code>const nulis = "write clearly";</code></div>
     </>,
     languages: <>
       <fieldset className="settings-group"><legend>Language features</legend>
@@ -765,8 +952,14 @@ export function SettingsWindow({
     </>,
   };
 
-  const style = mode === "window" ? preferenceCssVariables(draft.appearance, themes) as CSSProperties : undefined;
-  return <div className={`settings-window ${mode}`} style={style} role={mode === "inline" ? "dialog" : undefined}
+  const chromeColors = previewing && editableTheme && editableTheme.id === draft.appearance.theme
+    ? { [editableTheme.id]: draftColors }
+    : undefined;
+  const style = mode === "window"
+    ? preferenceCssVariables(draft.appearance, themes, chromeColors) as CSSProperties
+    : undefined;
+  return <div className={`settings-window ${mode}`} style={style}
+    role={mode === "inline" ? "dialog" : undefined}
     aria-modal={mode === "inline" ? true : undefined} aria-label="Settings"
     onKeyDown={(event) => { if (event.key === "Escape" && !confirm) { event.stopPropagation(); requestClose(); } }}>
     <nav className="settings-sidebar" aria-label="Settings sections">
@@ -807,7 +1000,14 @@ export function SettingsWindow({
               void apply().then((stored) => { setConfirm(null); if (stored) onClose(); });
             }}>Apply</button>
           </div>
-        </> : <>
+          </> : confirm === "remove" ? <>
+            <h2 id="settings-confirm-title">Remove this theme?</h2>
+            <p>"{selectedTheme?.name ?? draft.appearance.theme}" and its stored colors are deleted. A theme in use stays until you apply another one.</p>
+            <div className="decision-actions">
+              <button autoFocus type="button" onClick={() => setConfirm(null)}>Cancel</button>
+              <button className="primary danger" type="button" onClick={() => { if (selectedTheme) void removeTheme(selectedTheme.id); }}>Remove Theme</button>
+            </div>
+          </> : <>
           <h2 id="settings-confirm-title">Restore default settings?</h2>
           <p>Appearance, keybindings, the File menu, and the toolbar return to their defaults.</p>
           <div className="decision-actions">

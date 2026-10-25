@@ -28,6 +28,7 @@ Tests that guard platform differences: `contracts.test.ts` (the desktop and core
 | M20–M29 features (keys, Find window, line endings, view options, file commands, column and clipboard tools, Quick Open) | not recorded | not yet | not yet |
 | New icon in the Dock, Finder, taskbar, and Start menu; About background in dark and light themes | not recorded | not yet | not yet |
 | M47 language servers: configure and approve `rust-analyzer`, gutter dot and underline, Problems panel jump, revoke and restart | not yet | not yet | not yet |
+| Custom themes (M49): Duplicate, color editor with live preview, Save Colors, Revert, Delete; built-ins refused; copy survives a restart | not yet | not yet | not yet |
 | 0.5.0: automatic indentation, suggestions, Problems panel and declarative language plugin (`examples/plugins/nulis-nim`) | not yet | not yet | not yet |
 | 0.3.0: Find window fit, regular expressions, Search in column, groups in Replace | yes, debug build driven by hand-written automation (2026-10-20) | not yet | not yet |
 | 0.3.0: readable selection and icons in NvChad themes, the two Nulis themes first | yes, by the user on a release build (2026-10-20) | not yet | not yet |

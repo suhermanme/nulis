@@ -1,5 +1,14 @@
 import { expect, test } from "vitest";
-import { DEFAULT_VIEW_OPTIONS, normalizeViewOptions, stepZoom } from "./preferences";
+import type { EditorPreferences, ThemeRecord } from "./contracts";
+import {
+  BUILT_IN_THEMES,
+  DEFAULT_EDITOR_PREFERENCES,
+  DEFAULT_VIEW_OPTIONS,
+  normalizeEditorPreferences,
+  normalizeViewOptions,
+  preferenceWindowTheme,
+  stepZoom,
+} from "./preferences";
 
 test("view options keep known values and fall back for the rest", () => {
   expect(normalizeViewOptions(null)).toEqual(DEFAULT_VIEW_OPTIONS);
@@ -16,4 +25,48 @@ test("zoom steps through fixed levels and stops at the ends", () => {
   expect(stepZoom(300, 1)).toBe(300);
   expect(stepZoom(50, -1)).toBe(50);
   expect(stepZoom(175, 0)).toBe(100);
+});
+
+test("applyUiTheme defaults to off and only a boolean turns it on", () => {
+  expect(DEFAULT_EDITOR_PREFERENCES.applyUiTheme).toBe(false);
+  expect(normalizeEditorPreferences(null).applyUiTheme).toBe(false);
+  expect(normalizeEditorPreferences({ applyUiTheme: true }).applyUiTheme).toBe(true);
+  expect(normalizeEditorPreferences({ applyUiTheme: "yes" }).applyUiTheme).toBe(false);
+});
+
+test("a user theme's window payload carries its floors, tokens and the apply switch", () => {
+  const user: ThemeRecord = {
+    schema: "nulis.theme/1",
+    id: "test.theme",
+    name: "Test Theme",
+    version: 1,
+    kind: "dark",
+    colors: { "editor.background": "#101820" },
+    builtIn: false,
+    custom: { maxSaturation: 620, minLuma: 200, maxLuma: 920, minChroma: 30 },
+    uiTokens: ["ui.background"],
+  };
+  const preferences: EditorPreferences = {
+    theme: "test.theme", fontFamily: "Mono", fontSize: 14, lineHeight: 1.6, fontLigatures: true, applyUiTheme: true,
+  };
+  const payload = preferenceWindowTheme(preferences, [user]);
+  expect(payload.theme).toBe("test.theme");
+  expect(payload.baseTheme).toBe("test.theme");
+  expect(payload.applyUiTheme).toBe(true);
+  expect(payload.customTheme).toEqual({ maxSaturation: 620, minLuma: 200, maxLuma: 920, minChroma: 30 });
+  expect(payload.uiTokens).toEqual(["ui.background"]);
+  // The exported color is the authored one clamped to the floors, never the raw pick.
+  expect(payload.colors["editor.background"]).toMatch(/^#[0-9a-f]{6}$/);
+  expect(payload.colors["editor.background"]).not.toBe("#101820");
+});
+
+test("a built-in theme's payload keeps its own palette and carries no custom floors", () => {
+  const builtIn = BUILT_IN_THEMES[0];
+  const preferences: EditorPreferences = {
+    theme: builtIn.id, fontFamily: "Mono", fontSize: 14, lineHeight: 1.6, fontLigatures: true, applyUiTheme: true,
+  };
+  const payload = preferenceWindowTheme(preferences, BUILT_IN_THEMES);
+  expect(payload.customTheme).toBeUndefined();
+  expect(payload.uiTokens).toBeUndefined();
+  expect(payload.colors).toEqual(builtIn.colors);
 });

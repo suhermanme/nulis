@@ -211,7 +211,31 @@ impl ThemeCatalog {
         self.install_theme(theme)
     }
 
+    /// Saves a theme the user edited, creating it or replacing an existing user theme.
+    ///
+    /// Built-in themes are never written: a copy carries a new ID, and `list` reads the copy's
+    /// file back.
+    ///
+    /// # Errors
+    /// Returns an error for an invalid theme, a built-in ID, an unsafe file, exhausted capacity,
+    /// or I/O failures.
+    pub fn save(&self, theme: &Theme) -> Result<ThemeRecord, ThemeError> {
+        theme.validate()?;
+        self.write_theme(theme.clone(), true)
+    }
+
     fn install_theme(&self, theme: Theme) -> Result<ThemeRecord, ThemeError> {
+        self.write_theme(theme, false)
+    }
+
+    /// Writes one user theme atomically. Installing never replaces a file it did not create, and
+    /// only a save may update the user theme it is editing; a save that starts a new file still
+    /// respects the user-theme limit.
+    fn write_theme(
+        &self,
+        theme: Theme,
+        replaces_existing: bool,
+    ) -> Result<ThemeRecord, ThemeError> {
         if built_in_themes()?
             .iter()
             .any(|record| record.theme.id == theme.id)
@@ -219,10 +243,12 @@ impl ThemeCatalog {
             return Err(ThemeError::BuiltIn(theme.id));
         }
         let current = self.list()?;
-        if current.iter().any(|record| record.theme.id == theme.id) {
+        let existing = current.iter().any(|record| record.theme.id == theme.id);
+        let user_themes = current.iter().filter(|record| !record.built_in).count();
+        if existing && !replaces_existing {
             return Err(ThemeError::Duplicate(theme.id));
         }
-        if current.iter().filter(|record| !record.built_in).count() >= MAX_USER_THEMES {
+        if !existing && user_themes >= MAX_USER_THEMES {
             return Err(ThemeError::TooManyThemes);
         }
         fs::create_dir_all(&self.directory)?;
@@ -233,8 +259,12 @@ impl ThemeCatalog {
         let mut file = tempfile::NamedTempFile::new_in(&self.directory)?;
         file.write_all(&bytes)?;
         file.as_file().sync_all()?;
-        file.persist_noclobber(&target)
-            .map_err(|error| error.error)?;
+        let persisted = if existing {
+            file.persist(&target)
+        } else {
+            file.persist_noclobber(&target)
+        };
+        persisted.map_err(|error| error.error)?;
         // The file keeps the author's colors; what Nulis shows meets the contrast floors.
         let mut theme = theme;
         theme.ensure_readable();
@@ -881,7 +911,8 @@ pub enum ThemeError {
 #[cfg(test)]
 mod tests {
     use super::{
-        import_nvchad_theme, Theme, ThemeCatalog, ThemeKind, OPTIONAL_THEME_TOKENS, THEME_TOKENS,
+        built_in_themes, import_nvchad_theme, Theme, ThemeCatalog, ThemeError, ThemeKind,
+        MAX_USER_THEMES, OPTIONAL_THEME_TOKENS, THEME_TOKENS,
     };
 
     const BASE46_THEME: &str = r##"
@@ -1063,5 +1094,210 @@ return M
             "quoted-type"
         )
         .is_err());
+    }
+
+    fn user_theme(id: &str) -> Theme {
+        Theme {
+            schema: None,
+            id: id.into(),
+            name: "Ocean".into(),
+            version: 1,
+            kind: ThemeKind::Dark,
+            colors: THEME_TOKENS
+                .iter()
+                .map(|token| ((*token).into(), "#123456".into()))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn saves_creates_then_edits_a_user_theme_across_a_restart() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let themes = directory.path().join("themes");
+        let catalog = ThemeCatalog::new(themes.clone());
+        let authored = user_theme("example.ocean");
+        let created = catalog.save(&authored).expect("create a custom theme");
+        assert_eq!(created.theme.id, "example.ocean");
+        assert!(!created.built_in);
+        assert!(themes.join("example.ocean.nulis-theme.json").is_file());
+
+        let mut edited = authored.clone();
+        edited
+            .colors
+            .insert("editor.background".into(), "#202226".into());
+        let replaced = catalog.save(&edited).expect("edit a custom theme");
+        assert_eq!(replaced.theme.colors["editor.background"], "#202226");
+
+        // A restart reads the saved file back through a brand-new catalog.
+        let restored = ThemeCatalog::new(themes.clone())
+            .list()
+            .expect("themes")
+            .into_iter()
+            .find(|record| record.theme.id == "example.ocean")
+            .expect("the saved theme")
+            .theme;
+        assert_eq!(restored, replaced.theme);
+        assert_eq!(restored.colors["editor.background"], "#202226");
+        assert_eq!(
+            ThemeCatalog::new(themes)
+                .list()
+                .expect("themes")
+                .iter()
+                .filter(|record| !record.built_in)
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn saving_refuses_a_built_in_theme_and_leaves_the_catalog_alone() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let themes = directory.path().join("themes");
+        let catalog = ThemeCatalog::new(themes.clone());
+        let built_ins = built_in_themes().expect("built-ins");
+        let built_in = &built_ins[0].theme;
+        let shipped = catalog.list().expect("themes").len();
+        let error = catalog.save(built_in).expect_err("built-ins are read-only");
+        assert!(matches!(
+            error,
+            ThemeError::BuiltIn(id) if id == built_in.id
+        ));
+        assert_eq!(catalog.list().expect("themes").len(), shipped);
+        assert!(!themes
+            .join(format!("{}.nulis-theme.json", built_in.id))
+            .is_file());
+    }
+
+    #[test]
+    fn saving_rejects_invalid_custom_theme_data() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let catalog = ThemeCatalog::new(directory.path().join("themes"));
+
+        let mut bad_color = user_theme("example.bad-color");
+        bad_color
+            .colors
+            .insert("editor.background".into(), "#123".into());
+        assert!(matches!(
+            catalog.save(&bad_color),
+            Err(ThemeError::InvalidColor { .. })
+        ));
+
+        let mut unknown_token = user_theme("example.unknown-token");
+        unknown_token
+            .colors
+            .insert("editor.notAToken".into(), "#123456".into());
+        assert!(matches!(
+            catalog.save(&unknown_token),
+            Err(ThemeError::UnknownToken(_))
+        ));
+
+        let mut missing_token = user_theme("example.missing-token");
+        missing_token.colors.remove("ui.accent");
+        assert!(matches!(
+            catalog.save(&missing_token),
+            Err(ThemeError::MissingToken(_))
+        ));
+
+        let mut unnamed = user_theme("example.unnamed");
+        unnamed.name = String::new();
+        assert!(matches!(
+            catalog.save(&unnamed),
+            Err(ThemeError::InvalidMetadata)
+        ));
+
+        let mut escaping = user_theme("example.safe");
+        escaping.id = "example/../escape".into();
+        assert!(matches!(
+            catalog.save(&escaping),
+            Err(ThemeError::InvalidId(_))
+        ));
+
+        // Nothing invalid reached the user-theme directory.
+        assert!(!directory.path().join("themes").exists());
+    }
+
+    #[test]
+    fn saving_stops_at_the_user_theme_limit_and_still_edits_within_it() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let catalog = ThemeCatalog::new(directory.path().join("themes"));
+        let user_themes = || {
+            catalog
+                .list()
+                .expect("themes")
+                .iter()
+                .filter(|record| !record.built_in)
+                .count()
+        };
+        for index in 0..MAX_USER_THEMES {
+            let theme = user_theme(&format!("example.custom{index}"));
+            catalog.save(&theme).expect("save within the limit");
+        }
+        assert_eq!(user_themes(), MAX_USER_THEMES);
+        let overflow = catalog
+            .save(&user_theme("example.overflow"))
+            .expect_err("the user-theme limit holds");
+        assert!(matches!(overflow, ThemeError::TooManyThemes));
+        // Editing a theme the user owns needs no room for a new file.
+        let mut edit = user_theme("example.custom0");
+        edit.colors.insert("ui.accent".into(), "#F0A500".into());
+        assert_eq!(
+            catalog.save(&edit).expect("edit at the limit").theme.colors["ui.accent"],
+            "#F0A500"
+        );
+        assert_eq!(user_themes(), MAX_USER_THEMES);
+    }
+
+    #[test]
+    fn a_saved_theme_keeps_the_authored_colors_and_shows_readable_ones() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let themes = directory.path().join("themes");
+        let catalog = ThemeCatalog::new(themes.clone());
+        let mut authored = user_theme("example.faint");
+        for token in THEME_TOKENS {
+            authored.colors.insert((*token).into(), "#101317".into());
+        }
+        let saved = catalog.save(&authored).expect("save a faint theme");
+        assert_ne!(saved.theme.colors["ui.mutedText"], "#101317");
+        assert!(saved.theme.colors.contains_key("ui.icon"));
+        let on_disk: Theme = serde_json::from_slice(
+            &std::fs::read(themes.join("example.faint.nulis-theme.json")).expect("read the theme"),
+        )
+        .expect("the saved file is valid JSON");
+        assert_eq!(on_disk, authored);
+        let shown = catalog
+            .list()
+            .expect("themes")
+            .into_iter()
+            .find(|record| record.theme.id == "example.faint")
+            .expect("the saved theme")
+            .theme;
+        assert_eq!(shown, saved.theme);
+    }
+
+    #[test]
+    fn installing_a_taken_id_is_refused_while_saving_replaces_it() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let source = directory.path().join("source.nulis-theme.json");
+        let theme = user_theme("example.ocean");
+        std::fs::write(&source, serde_json::to_vec(&theme).expect("serialize")).expect("write");
+        let catalog = ThemeCatalog::new(directory.path().join("themes"));
+        catalog.install(&source).expect("install");
+        let duplicate = catalog
+            .install(&source)
+            .expect_err("installs never overwrite");
+        assert!(matches!(
+            duplicate,
+            ThemeError::Duplicate(id) if id == "example.ocean"
+        ));
+        let mut edited = theme.clone();
+        edited.colors.insert("ui.accent".into(), "#F0A500".into());
+        assert_eq!(
+            catalog
+                .save(&edited)
+                .expect("saving edits in place")
+                .theme
+                .colors["ui.accent"],
+            "#F0A500"
+        );
     }
 }

@@ -6,6 +6,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { emitTo, listen } from "@tauri-apps/api/event";
+import { copiedThemeId } from "./SettingsWindow";
 import { App } from "./App";
 import type { CustomizationDocument, ExecuteCommandRequest, WorkbenchSession } from "./contracts";
 import {
@@ -104,6 +105,8 @@ vi.mock("./HexViewport", () => ({
 
 let responses: Record<string, unknown[]>;
 let storedCustomization: { revision: number; document: CustomizationDocument };
+type SavedTheme = { id: string };
+let savedThemes: SavedTheme[];
 
 class PointerEventStub extends MouseEvent {
   readonly pointerId: number;
@@ -175,6 +178,7 @@ async function chooseMenu(menu: string, item: string | RegExp) {
 
 beforeEach(() => {
   responses = {};
+  savedThemes = [];
   vi.stubGlobal("PointerEvent", PointerEventStub);
   storedCustomization = {
     revision: 0,
@@ -207,9 +211,26 @@ beforeEach(() => {
       storedCustomization = { revision: expectedRevision + 1, document };
       return storedCustomization as never;
     }
+    // The theme store mirrors the core: saving puts the theme in the list and removing takes
+    // it out, so the refetch after a save shows the theme that was just stored.
+    if (request.id === "theme.save") {
+      const { theme } = request.arguments as { theme: SavedTheme };
+      savedThemes = [...savedThemes.filter((item) => item.id !== theme.id), theme];
+      return true as never;
+    }
+    if (request.id === "theme.uninstall") {
+      const { id } = request.arguments as { id: string };
+      savedThemes = savedThemes.filter((item) => item.id !== id);
+      return true as never;
+    }
     const queue = responses[request.id];
     if (!queue?.length) return null as never;
-    return queue.shift() as never;
+    const reply = queue.shift() as unknown;
+    if (request.id === "theme.list" && Array.isArray(reply)) {
+      const list = reply as SavedTheme[];
+      return [...list, ...savedThemes.filter((theme) => !list.some((item) => item.id === theme.id))] as never;
+    }
+    return reply as never;
   });
   vi.mocked(closeWindowAfterSave).mockReset().mockResolvedValue(undefined);
 });
@@ -1029,6 +1050,155 @@ test("a stale settings revision is reported and never overwrites the newer one",
   expect(within(dialog).getByRole("spinbutton", { name: "Editor font size" })).toHaveValue(DEFAULT_EDITOR_PREFERENCES.fontSize);
   fireEvent.click(within(dialog).getByRole("tab", { name: "Menus & Toolbar" }));
   expect(within(dialog).getByRole("button", { name: "Remove Open File… from toolbar" })).toBeInTheDocument();
+});
+
+const PREFERENCES_KEY = "nulis.editorPreferences.v1";
+
+function userTheme(over: Record<string, unknown> = {}) {
+  return {
+    schema: "nulis.theme/1", id: "test.theme", name: "Test Theme", version: 1, kind: "dark",
+    colors: { "editor.background": "#101820", "ui.accent": "#ff00aa", "syntax.keyword": "#00ff00" },
+    builtIn: false, plugins: [], uiTokens: ["ui.accent"],
+    custom: { maxSaturation: 620, minLuma: 200, maxLuma: 920, minChroma: 30 },
+    ...over,
+  };
+}
+
+const EMBER_THEME = {
+  schema: "nulis.theme/1", id: "Nulis Ember", name: "Nulis Ember", version: 1, kind: "dark",
+  colors: { "editor.background": "#232626", "ui.accent": "#ff7a1a", "syntax.keyword": "#ff8fb1" },
+  builtIn: true, plugins: [],
+};
+
+/** Opens Settings on the Appearance & Themes section with the Test Theme selected. */
+async function openAppearance(...themeList: object[][]) {
+  // The main window and the Settings panel each read the list on open, and the panel
+  // reloads it on tab switches, saves, and removals; every list gets enough copies that
+  // the two readers see the same state, and the last list repeats so the queue never drains.
+  const queue: object[][] = themeList.flatMap((list) => [list, list, list]);
+  responses["theme.list"] = Array.from({ length: 12 }, (_, index) => queue[Math.min(index, queue.length - 1)]);
+  const dialog = await openSettings();
+  fireEvent.click(within(dialog).getByRole("tab", { name: "Appearance & Themes" }));
+  return dialog;
+}
+
+test("a copied theme id meets the core's id rules", () => {
+  // Built-in names are not ids: "Nulis Ember" needs lowercase letters and a dot before it is stored.
+  expect(copiedThemeId("Nulis Ember", ["Nulis Ember"])).toBe("nulis-ember.1.copy");
+  // The next duplicate of the same theme takes the next suffix instead of reusing the first copy's id.
+  expect(copiedThemeId("Nulis Ember", ["Nulis Ember", "nulis-ember.1.copy"])).toBe("nulis-ember.1.copy-2");
+  // An id that already meets the rules keeps its stem.
+  expect(copiedThemeId("com.dark.violet", ["com.dark.violet"])).toBe("com.dark.violet.copy");
+});
+
+test("drafting a user theme color recolors the preview live, Save persists it, and closing reverts", async () => {
+  const dialog = await openAppearance([userTheme()], [userTheme()]);
+  fireEvent.change(within(dialog).getByRole("combobox", { name: "Color theme" }), { target: { value: "test.theme" } });
+  const hex = within(dialog).getByRole("textbox", { name: "editor.background hex" });
+  expect(hex.getAttribute("aria-label")).toBe("editor.background hex");
+  fireEvent.change(hex, { target: { value: "#112233" } });
+  const swatch = dialog.querySelector<HTMLElement>(".settings-preview")!;
+  await waitFor(() => expect(swatch.style.getPropertyValue("--editor-bg")).toBe("#112233"));
+
+  // The live preview paints the root too, while nothing stored changed.
+  expect(document.documentElement.style.getPropertyValue("--editor-bg")).toBe("#112233");
+  expect(window.localStorage.getItem(PREFERENCES_KEY)).not.toContain("112233");
+  // Arrow keys nudge one channel step: Up nudges blue, Shift+Up red, Alt+Up green.
+  fireEvent.keyDown(hex, { key: "ArrowUp" });
+  await waitFor(() => expect(swatch.style.getPropertyValue("--editor-bg")).toBe("#112234"));
+  fireEvent.keyDown(hex, { key: "ArrowUp", shiftKey: true });
+  await waitFor(() => expect(swatch.style.getPropertyValue("--editor-bg")).toBe("#122234"));
+  fireEvent.keyDown(hex, { key: "ArrowUp", altKey: true });
+  await waitFor(() => expect(swatch.style.getPropertyValue("--editor-bg")).toBe("#122334"));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Save Colors" }));
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({ id: "theme.save" })));
+  const saved = vi.mocked(executeCommand).mock.calls.find(([request]) => request.id === "theme.save")?.[0] as
+    { arguments: { theme: Record<string, unknown> } } | undefined;
+  expect(saved?.arguments.theme).toEqual(expect.objectContaining({
+    id: "test.theme", colors: expect.objectContaining({ "editor.background": "#122334" }),
+  }));
+  expect(saved?.arguments.theme).not.toHaveProperty("builtIn");
+  // Closing without applying settings reverts the preview to the committed appearance.
+  fireEvent.click(within(dialog).getByRole("button", { name: "Close settings" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Discard" }));
+  await waitFor(() => expect(document.documentElement.style.getPropertyValue("--editor-bg")).not.toBe("#122334"));
+  expect(window.localStorage.getItem(PREFERENCES_KEY)).not.toContain("122334");
+});
+
+test("duplicating a theme stores an independent copy, applies it, and keeps the built-in read-only", async () => {
+  const dialog = await openAppearance([EMBER_THEME]);
+  const select = within(dialog).getByRole("combobox", { name: "Color theme" });
+  fireEvent.change(select, { target: { value: "Nulis Ember" } });
+  // Duplicate starts a draft with a fresh id: nothing is stored, the built-in stays selected,
+  // and a built-in cannot be removed.
+  fireEvent.click(within(dialog).getByRole("button", { name: "Duplicate Selected" }));
+  expect(within(dialog).getByText(/"Nulis Ember copy" \(nulis-ember\.1\.copy\) is a draft/)).toBeInTheDocument();
+  expect(select).toHaveValue("Nulis Ember");
+  expect(within(dialog).getByRole("button", { name: "Remove Selected" })).toBeDisabled();
+  fireEvent.change(within(dialog).getByRole("textbox", { name: "editor.background hex" }), {
+    target: { value: "#112233" },
+  });
+  const swatch = dialog.querySelector<HTMLElement>(".settings-preview")!;
+  await waitFor(() => expect(swatch.style.getPropertyValue("--editor-bg")).toBe("#112233"));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Save Colors" }));
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({ id: "theme.save" })));
+  const stored = vi.mocked(executeCommand).mock.calls.find(([request]) => request.id === "theme.save")?.[0] as
+    { arguments: { theme: Record<string, unknown> } } | undefined;
+  expect(stored?.arguments.theme).toEqual(expect.objectContaining({
+    id: "nulis-ember.1.copy", name: "Nulis Ember copy", version: 1,
+    colors: expect.objectContaining({ "editor.background": "#112233" }),
+  }));
+  expect(stored?.arguments.theme).not.toHaveProperty("builtIn");
+  // Saving stores the copy, so it joins the list as a user theme and becomes the selected theme.
+  await waitFor(() => expect(select).toHaveValue("nulis-ember.1.copy"));
+  expect(within(select).getByRole("option", { name: "Nulis Ember copy · User" })).toBeInTheDocument();
+  expect(within(dialog).getByRole("button", { name: "Remove Selected" })).toBeEnabled();
+  // Choosing the copy is an unapplied appearance change: the footer's Apply is disabled until a
+  // change is applied, so it is the only way the copy reaches the stored document.
+  const apply = within(dialog).getByRole("button", { name: "Apply" });
+  expect(apply).toBeEnabled();
+  fireEvent.click(apply);
+  await screen.findByText("Customization saved");
+  // The stored document is what a restart reads back, so the copy is what Nulis loads next.
+  const applied = vi.mocked(executeCommand).mock.calls
+    .filter(([command]) => command.id === "customization.saveChecked")
+    .map(([command]) => (command.arguments as { document: { appearance: { theme: string } } }).document)
+    .at(-1)!;
+  expect(applied.appearance.theme).toBe("nulis-ember.1.copy");
+  // The built-in keeps its label and stays protected from removal.
+  fireEvent.change(select, { target: { value: "Nulis Ember" } });
+  expect(within(select).getByRole("option", { name: "Nulis Ember" })).toBeInTheDocument();
+  expect(within(dialog).getByRole("button", { name: "Remove Selected" })).toBeDisabled();
+});
+
+test("removing a user theme runs the uninstall only after the dialog confirms", async () => {
+  const dialog = await openAppearance([userTheme(), EMBER_THEME], [EMBER_THEME]);
+  fireEvent.change(within(dialog).getByRole("combobox", { name: "Color theme" }), { target: { value: "test.theme" } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Remove Selected" }));
+  const confirm = within(dialog).getByRole("alertdialog", { name: "Remove this theme?" });
+  expect(within(confirm).getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+  expect(executeCommand).not.toHaveBeenCalledWith(expect.objectContaining({ id: "theme.uninstall" }));
+  fireEvent.click(within(confirm).getByRole("button", { name: "Cancel" }));
+  expect(within(dialog).queryByRole("alertdialog", { name: "Remove this theme?" })).not.toBeInTheDocument();
+  expect(executeCommand).not.toHaveBeenCalledWith(expect.objectContaining({ id: "theme.uninstall" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Remove Selected" }));
+  fireEvent.click(within(within(dialog).getByRole("alertdialog", { name: "Remove this theme?" }))
+    .getByRole("button", { name: "Remove Theme" }));
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(
+    expect.objectContaining({ id: "theme.uninstall", context: { windowId: "main" }, arguments: { id: "test.theme" } }),
+  ));
+});
+
+test("removing the theme in use is refused while it stays the applied theme", async () => {
+  storedCustomization.document.appearance = { ...DEFAULT_EDITOR_PREFERENCES, theme: "test.theme" };
+  const dialog = await openAppearance([userTheme(), EMBER_THEME], [userTheme(), EMBER_THEME]);
+  fireEvent.change(within(dialog).getByRole("combobox", { name: "Color theme" }), { target: { value: "test.theme" } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "Remove Selected" }));
+  fireEvent.click(within(within(dialog).getByRole("alertdialog", { name: "Remove this theme?" }))
+    .getByRole("button", { name: "Remove Theme" }));
+  await settle();
+  expect(executeCommand).not.toHaveBeenCalledWith(expect.objectContaining({ id: "theme.uninstall" }));
+  expect(within(dialog).getByText(/is the theme in use/)).toBeInTheDocument();
 });
 
 test("a customized toolbar choice applies to the icon toolbar with command parity", async () => {
@@ -2467,4 +2637,43 @@ test("approves a language server in Settings", async () => {
   }));
   expect(await within(dialog).findByText("Approved")).toBeInTheDocument();
   expect(within(dialog).getByRole("button", { name: "Revoke" })).toBeInTheDocument();
+});
+
+test("applying theme colors marks the window, repaints it, and re-applies the colors after a restart", async () => {
+  const dialog = await openAppearance([userTheme(), EMBER_THEME]);
+  const apply = within(dialog).getByRole("checkbox", { name: "Apply theme colors" });
+  expect(apply).not.toBeChecked();
+  fireEvent.change(within(dialog).getByRole("combobox", { name: "Color theme" }), { target: { value: "test.theme" } });
+  fireEvent.click(apply);
+  expect(apply).toBeChecked();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Apply" }));
+  await waitFor(() => expect(storedCustomization.document.appearance)
+    .toMatchObject({ theme: "test.theme", applyUiTheme: true }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Close settings" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Settings" })).not.toBeInTheDocument());
+  // The workbench marks the user theme and repaints with the saved colors.
+  await waitFor(() => expect(document.querySelector("main")).toHaveAttribute("data-custom", "true"));
+  const root = window.document.documentElement;
+  const exported = root.style.getPropertyValue("--editor-bg");
+  expect(exported).toMatch(/^#[0-9a-f]{6}$/);
+  // The window root carries the readable colors; the workbench keeps the authored pick.
+  expect(exported).not.toBe("#101820");
+  expect(document.querySelector("main")).toHaveStyle({ "--editor-bg": "#101820" });
+  // A restart reads the switch and the theme back out of storage.
+  expect(JSON.parse(window.localStorage.getItem(PREFERENCES_KEY) ?? "{}"))
+    .toMatchObject({ theme: "test.theme", applyUiTheme: true });
+});
+
+test("a built-in theme repaints its own palette and never marks the window", async () => {
+  const dialog = await openAppearance([userTheme(), EMBER_THEME]);
+  fireEvent.change(within(dialog).getByRole("combobox", { name: "Color theme" }), { target: { value: "Nulis Ember" } });
+  fireEvent.click(within(dialog).getByRole("checkbox", { name: "Apply theme colors" }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Apply" }));
+  await waitFor(() => expect(storedCustomization.document.appearance)
+    .toMatchObject({ theme: "Nulis Ember", applyUiTheme: true }));
+  fireEvent.click(within(dialog).getByRole("button", { name: "Close settings" }));
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "Settings" })).not.toBeInTheDocument());
+  await waitFor(() => expect(document.querySelector("main")?.hasAttribute("data-custom")).toBe(false));
+  // Built-in colors pass the readability floors unchanged.
+  expect(window.document.documentElement.style.getPropertyValue("--editor-bg")).toBe("#232626");
 });

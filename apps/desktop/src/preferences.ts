@@ -1,7 +1,7 @@
 import emberTheme from "../../../themes/nulis-ember-dark.nulis-theme.json";
 import paperTheme from "../../../themes/nulis-paper-light.nulis-theme.json";
 import nvchadCatalog from "../../../themes/nvchad-catalog.json";
-import type { EditorPreferences, ThemeRecord } from "./contracts";
+import type { EditorPreferences, ThemeCustomFloors, ThemeKind, ThemeRecord } from "./contracts";
 
 export type { EditorPreferences } from "./contracts";
 
@@ -11,6 +11,7 @@ export const DEFAULT_EDITOR_PREFERENCES: EditorPreferences = {
   fontSize: 13,
   lineHeight: 1.7,
   fontLigatures: true,
+  applyUiTheme: false,
 };
 
 export const FONT_FAMILIES = [
@@ -31,7 +32,7 @@ export const BUILT_IN_THEMES: ThemeRecord[] = [
     id: theme.id,
     name: theme.name,
     version: theme.version,
-    kind: theme.kind as ThemeRecord["kind"],
+    kind: theme.kind as ThemeKind,
     colors: theme.colors,
     builtIn: true,
   })),
@@ -60,6 +61,7 @@ export function normalizeEditorPreferences(value: unknown, themes: readonly Them
     fontLigatures: typeof candidate.fontLigatures === "boolean"
       ? candidate.fontLigatures
       : DEFAULT_EDITOR_PREFERENCES.fontLigatures,
+    applyUiTheme: candidate.applyUiTheme === true,
   };
 }
 
@@ -201,10 +203,16 @@ export function saveWelcomeOnStartup(enabled: boolean): void {
   }
 }
 
-export function preferenceCssVariables(preferences: EditorPreferences, themes: readonly ThemeRecord[] = BUILT_IN_THEMES): Record<string, string> {
+export function preferenceCssVariables(
+  preferences: EditorPreferences,
+  themes: readonly ThemeRecord[] = BUILT_IN_THEMES,
+  themeColors?: Record<string, Record<string, string>>,
+): Record<string, string> {
   const theme = themes.find((item) => item.id === preferences.theme)
     ?? BUILT_IN_THEMES[0];
-  const colors = theme.colors;
+  // Unsaved drafted colors for the selected theme override its stored record; nothing here persists.
+  const overrides = themeColors?.[preferences.theme];
+  const colors = overrides ? { ...theme.colors, ...overrides } : theme.colors;
   return {
     "--bg": colors["ui.background"],
     "--surface": colors["ui.surface"],
@@ -263,5 +271,105 @@ export function preferenceCssVariables(preferences: EditorPreferences, themes: r
     "--editor-line-height": String(preferences.lineHeight),
     "--editor-font-ligatures": preferences.fontLigatures ? "normal" : "none",
     colorScheme: theme.kind,
+  };
+}
+
+/** The preview-box variables the Appearance panel paints; missing tokens fall back to the page theme. */
+export function previewCssVariables(colors: Record<string, string>): Record<string, string> {
+  return {
+    "--editor-bg": colors["editor.background"],
+    "--editor-fg": colors["editor.foreground"],
+    "--editor-line-number": colors["editor.lineNumber"],
+    "--ui-accent": colors["ui.accent"],
+    "--ui-text": colors["ui.text"],
+  };
+}
+
+/** Readability floors authored with a user theme; mirrors nulis-theme's defaults. */
+export const DEFAULT_THEME_CUSTOM: ThemeCustomFloors = {
+  maxSaturation: 1000, minLuma: 425, maxLuma: 940, minChroma: 70,
+};
+
+/** Clamp a theme's authored floors to 0..1000; built-ins and drafts keep the defaults. */
+export function normalizeThemeCustom(theme: ThemeRecord): ThemeCustomFloors {
+  const custom = theme.custom;
+  if (!custom) return { ...DEFAULT_THEME_CUSTOM };
+  return {
+    maxSaturation: boundedNumber(custom.maxSaturation, DEFAULT_THEME_CUSTOM.maxSaturation, 0, 1000),
+    minLuma: boundedNumber(custom.minLuma, DEFAULT_THEME_CUSTOM.minLuma, 0, 1000),
+    maxLuma: boundedNumber(custom.maxLuma, DEFAULT_THEME_CUSTOM.maxLuma, 0, 1000),
+    minChroma: boundedNumber(custom.minChroma, DEFAULT_THEME_CUSTOM.minChroma, 0, 1000),
+  };
+}
+
+/** One color through the readability floors: clamp luma, cap saturation, lift chroma. */
+function flooredColor(custom: ThemeCustomFloors, color: string): string {
+  const digits = color.trim().replace(/^#/, "");
+  const full = digits.length === 3 ? digits.split("").map((digit) => digit + digit).join("") : digits;
+  if (!/^[0-9a-fA-F]{6}$/.test(full)) return color;
+  const r = parseInt(full.slice(0, 2), 16) / 255;
+  const g = parseInt(full.slice(2, 4), 16) / 255;
+  const b = parseInt(full.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), delta = max - min;
+  let hue = 0;
+  if (delta !== 0) {
+    if (max === r) hue = ((g - b) / delta + (g < b ? 6 : 0)) % 6;
+    else if (max === g) hue = (b - r) / delta + 2;
+    else hue = (r - g) / delta + 4;
+    hue *= 60;
+  }
+  const luma = (max + min) / 2;
+  const clampedLuma = Math.min(custom.maxLuma / 1000, Math.max(custom.minLuma / 1000, luma));
+  const floor = 1 - Math.abs(2 * clampedLuma - 1);
+  const chroma = Math.max(delta, custom.minChroma / 1000);
+  const saturation = Math.min(custom.maxSaturation / 1000, floor <= 0 ? 0 : Math.min(1, chroma / floor));
+  const c = floor * saturation;
+  const segment = hue / 60;
+  const x = c * (1 - Math.abs(segment % 2 - 1));
+  const m = clampedLuma - c / 2;
+  const legs: [number, number, number] = segment < 1 ? [c, x, 0] : segment < 2 ? [x, c, 0]
+    : segment < 3 ? [0, c, x] : segment < 4 ? [0, x, c] : segment < 5 ? [x, 0, c] : [c, 0, x];
+  const channel = (value: number) => Math.round(Math.min(1, Math.max(0, value + m)) * 255)
+    .toString(16).padStart(2, "0");
+  return `#${channel(legs[0])}${channel(legs[1])}${channel(legs[2])}`;
+}
+
+/** The theme's colors after its readability floors are applied. */
+export function readabilityFloors(custom: ThemeCustomFloors, colors: Record<string, string>): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [token, color] of Object.entries(colors)) result[token] = flooredColor(custom, color);
+  return result;
+}
+
+/** The window theme payload: readable colors after floors, floors, UI tokens, apply switch. */
+export interface WindowThemePayload {
+  theme: string;
+  colors: Record<string, string>;
+  kind: ThemeKind;
+  baseTheme: string;
+  customTheme?: ThemeCustomFloors;
+  uiTokens?: string[];
+  applyUiTheme: boolean;
+}
+
+export function preferenceWindowTheme(
+  preferences: EditorPreferences,
+  themes: readonly ThemeRecord[] = BUILT_IN_THEMES,
+  themeColors?: Record<string, Record<string, string>>,
+): WindowThemePayload {
+  const theme = themes.find((item) => item.id === preferences.theme) ?? BUILT_IN_THEMES[0];
+  const overrides = themeColors?.[preferences.theme];
+  const colors = overrides ? { ...theme.colors, ...overrides } : theme.colors;
+  const custom = normalizeThemeCustom(theme);
+  return {
+    theme: theme.id,
+    // Readability floors guard the user's authored picks; built-in themes ship
+    // readable palettes and keep their own appearance, floors included.
+    colors: theme.builtIn ? { ...colors } : readabilityFloors(custom, colors),
+    kind: theme.kind,
+    baseTheme: theme.id,
+    ...(theme.builtIn ? {} : { customTheme: custom }),
+    ...(theme.uiTokens ? { uiTokens: [...theme.uiTokens] } : {}),
+    applyUiTheme: preferences.applyUiTheme === true,
   };
 }
