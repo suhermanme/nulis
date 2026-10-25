@@ -15,11 +15,10 @@ From top to bottom, the window has these parts.
 | Part | What it is for |
 | --- | --- |
 | Title bar | The **Nulis** brand (click it to open the About page), the main toolbar, and the **Commands** button at the far right. |
-| Main toolbar | Icon buttons with a caption under each: New, Open, Save, Close, Undo, Redo, Split Right, Split Down, Sidebar, Automation, Plugins, and Settings. Validate, Beautify, and Minify appear here while a document that has them is focused (JSON, XML, YAML, property lists). Buttons that do not fit move into an overflow menu. |
-| Activity bar | The narrow column on the left: **Files** shows or hides File View in the side bar. Search is in the Find and Replace window (**Ctrl/⌘ F**). |
-| Side bar | File View. Hide or show it with the Sidebar button. Drag its edge to resize it. |
+| Main toolbar | Icon buttons with a caption under each: New, Open, Save, Close, Undo, Redo, Split Right, Split Down, Files, Automation, Plugins, and Settings. Validate, Beautify, and Minify appear here while a document that has them is focused (JSON, XML, YAML, property lists). Buttons that do not fit move into an overflow menu. |
+| Side bar | File View. Show or hide it with the **Files** button in the toolbar, or View ▸ Files Panel. Drag its edge to resize it. |
 | Tab strip | One tab per open file or workspace, the **+** button for a new tab, and on the right the buttons for split view, document comparison, folder comparison, the terminal, and the hexadecimal editor. |
-| Editor toolbar | Tools for the focused document: find, Go To, bookmarks, Transform, encoding, View As, symbols, word wrap, column editing, folding, line change indicators, the document map, the **EDIT** / **READ ONLY** mode button, and the insert/overwrite indicator. |
+| Editor toolbar | Tools for the focused document: find, Go To, bookmarks, Transform, encoding, View As, word wrap, column editing, folding, line change indicators, the document map, the **EDIT** / **READ ONLY** mode button, and the insert/overwrite indicator. |
 | Editor | The text (or hexadecimal) view, with line numbers and the change-indicator lane in the gutter. |
 | Status bar | Messages about the last action on the left. On the right: the **EDIT** / **READ ONLY** mode, the caret's line and column and the code point after it, the document's size and counts, the zoom when it is not 100%, the version, the encoding, and the line endings. See *The status bar* below. |
 
@@ -296,7 +295,7 @@ These are in the **Format** menu and the command palette. Each change is one und
 | Convert to Fixed-Width Columns | Pads delimited text (CSV and similar) so the columns line up. The delimiter is found from the first line that has one: tab, comma, semicolon, or `|`. A delimiter inside double quotes is part of the text. With nothing selected it covers the whole document. |
 | Convert to Delimited Columns | Removes that padding (spaces before each delimiter) again. |
 
-### Bookmarks, folding, and symbols
+### Bookmarks and folding
 
 | Action | How |
 | --- | --- |
@@ -304,7 +303,6 @@ These are in the **Format** menu and the command palette. Each change is one und
 | Next / previous bookmark | **F2** / **Shift F2**. |
 | Remove all bookmarks | The clear-bookmarks button. |
 | Fold or unfold a region | Click the small triangle beside the line number, or use the **Fold** button for the region at the caret. |
-| Jump to a symbol | Choose it from the symbols list in the editor toolbar. Today only JSON fills it (object keys in the visible part of the file); other languages show an empty list. |
 
 Matching brackets are highlighted when the caret is next to one.
 
@@ -410,7 +408,7 @@ The **Search** menu collects Find and Replace with the commands below; each is a
 | --- | --- |
 | Find next / previous without opening the window | **F3** / **Shift F3** repeat the last search; with no earlier search, F3 opens Find. |
 | Go to the matching bracket | **Ctrl/⌘ Shift \**. Next to a bracket, the caret goes to its partner; elsewhere, to the closing bracket around it. |
-| Go back / forward | **Ctrl/⌘ [** / **Ctrl/⌘ ]** return to where the caret was before a jump (Go to Line, find, bookmarks, brackets, symbols, changes). |
+| Go back / forward | **Ctrl/⌘ [** / **Ctrl/⌘ ]** return to where the caret was before a jump (Go to Line, find, bookmarks, brackets, changes). |
 | Next / previous change | **Alt F5** / **Alt Shift F5** move between lines with line change indicators. |
 | List bookmarks | **Search ▸ List Bookmarks…** opens the bookmarked lines in the results window; click one to go there. |
 | Delete bookmarked lines | **Search ▸ Delete Bookmarked Lines** removes every bookmarked line in one undo step and clears the bookmarks. |
@@ -564,7 +562,7 @@ Click the terminal button at the right of the tab strip to open a terminal below
 
 ### File View
 
-Click **Files** in the activity bar. File View has three tabs.
+Click **Files** in the toolbar. File View has three tabs.
 
 | Tab | Shows |
 | --- | --- |

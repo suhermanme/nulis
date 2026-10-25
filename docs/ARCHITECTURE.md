@@ -61,7 +61,7 @@ Alt-Shift drag creates rectangular selections in the desktop. Pointer previews r
 
 Syntax analysis consumes only the current viewport's byte buffer. Input is capped at 256 KiB and 25 ms, tree traversal at 100,000 nodes, highlights at 20,000, folds and symbols at 2,000 each, and bracket pairs at 20,000. A timeout or any exhausted output budget is explicit in the syntax snapshot. No full-document syntax tree is retained, so syntax memory remains independent of document size; the tradeoff is that constructs beginning outside the current window cannot contribute a fold or symbol until their containing window is analyzed.
 
-IPC protocol v6 carries syntax coordinates as decimal strings alongside each bounded viewport. React merges syntax boundaries with selection/caret boundaries without duplicating source text, renders stable theme classes, matches brackets at the primary caret, exposes bounded document symbols and language override controls, and collapses only rows already present in the current snapshot.
+IPC protocol v6 carries syntax coordinates as decimal strings alongside each bounded viewport. React merges syntax boundaries with selection/caret boundaries without duplicating source text, renders stable theme classes, matches brackets at the primary caret, exposes the language override control (the snapshot's bounded document symbols are carried but not shown), and collapses only rows already present in the current snapshot.
 
 ## Hexadecimal editing boundary (M07)
 

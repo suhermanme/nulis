@@ -2446,30 +2446,6 @@ export function EditorViewport({
             {languages.map((language) => <option value={language.id} key={language.id}>{language.displayName}</option>)}
           </select>
         </label>
-        <select
-          aria-label="Document symbols"
-          value=""
-          disabled={syntax.symbols.length === 0}
-          onChange={(event) => {
-            const offset = event.currentTarget.value;
-            event.currentTarget.value = "";
-            if (!offset) return;
-            const selection = { anchorByte: offset, activeByte: offset };
-            rememberPosition();
-            void commitSelections([selection])
-              .then(() => revealSelections([selection]))
-              .catch((error: unknown) => {
-                onStatus(error instanceof Error ? error.message : "Could not reveal symbol");
-              });
-          }}
-        >
-          <option value="">{syntax.symbols.length} symbols</option>
-          {syntax.symbols.map((symbol) => (
-            <option value={symbol.startByte} key={`${symbol.startByte}-${symbol.name}`}>
-              {symbol.name} · line {symbol.line}
-            </option>
-          ))}
-        </select>
         <IconButton icon="wrap" label="Wrap" tooltip="Word wrap" pressed={wordWrap} onClick={toggleWordWrap} />
         <IconButton icon="column" label="Column editing" tooltip="Column editing: drag selects a rectangle (or hold Alt Shift)"
           pressed={columnMode} onClick={() => setColumnMode((enabled) => !enabled)} />

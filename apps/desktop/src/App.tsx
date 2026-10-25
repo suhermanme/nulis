@@ -61,7 +61,7 @@ import { ContextMenu, MenuButton, OverflowToolbar, type MenuItem, type ToolbarIt
 import {
   FIND_EVENTS, FindReplacePanel, ResultsWindow, type FindContext, type FindMessage, type FindTab, type MatchTarget, type ResultList,
 } from "./FindReplacePanel";
-import { Icon, IconButton, iconForCommand, type IconName } from "./icons";
+import { Icon, IconButton, iconForCommand } from "./icons";
 import { EDITOR_ACTIONS, FIND_WINDOW_COMMANDS, LINE_ENDING_LABELS, PALETTE_COMMANDS, shortcutLabel, type EditorActionName } from "./commands";
 import {
   closeWindowAfterSave, configureNativeMenu, executeCommand, getApplicationInfo, getMarkdownPreviewSource, listCommands, openFindWindow, openHelpWindow, openPrintWindow, openResultsWindow, openSettingsWindow, takeLaunchPaths, type HelpTopic,
@@ -118,7 +118,6 @@ import {
 } from "./preferences";
 import { exportWindowTheme } from "./windowTheme";
 
-const NAV_ITEMS = ["Files"] as const;
 const EXPLORER_ENTRY_LIMIT = 500;
 const MAX_LOADED_WORKSPACE_DIRECTORIES = 256;
 const NATIVE_MENU_EVENT = "nulis://menu-command";
@@ -132,7 +131,7 @@ const NAME_ERROR = `A name needs 1 to ${LAYOUT_LIMITS.nameChars} visible charact
 const TOOLBAR_CAPTIONS: Record<string, string> = {
   "file.new": "New", "file.open": "Open", "file.save": "Save", "file.saveAs": "Save As",
   "editor.undo": "Undo", "editor.redo": "Redo", "workspace.open": "Folder", "workspace.close": "Close Folder",
-  "workbench.commandPalette": "Commands", "workbench.toggleSidebar": "Sidebar", "workbench.toggleSplit": "Split",
+  "workbench.commandPalette": "Commands", "workbench.toggleSidebar": "Files", "workbench.toggleSplit": "Split",
   "workbench.splitRight": "Split Right", "workbench.splitDown": "Split Down", "workbench.toggleEditorMode": "Hex",
   "workbench.closeTab": "Close Tab", "workbench.closeFile": "Close", "workbench.openSettings": "Settings", "app.about": "About", "workbench.openHelp": "Help", "editor.toggleReadOnly": "Read Only",
   "view.toggleLineChangeIndicators": "Changes", "view.toggleWordWrap": "Wrap", "view.toggleWhitespace": "Whitespace",
@@ -140,9 +139,6 @@ const TOOLBAR_CAPTIONS: Record<string, string> = {
   "file.saveAll": "Save All", "file.closeAll": "Close All", "file.openRecent": "Recent", "file.rename": "Rename",
   "file.revealInPlaces": "Show", "tools.validate": "Validate", "tools.beautify": "Beautify",
   "tools.minify": "Minify", "workspace.rename": "Rename", "workspace.ungroup": "Ungroup",
-};
-const NAV_ICONS: Record<typeof NAV_ITEMS[number], IconName> = {
-  Files: "files",
 };
 
 /** A dirty-document prompt may be one step of quitting or of closing a tab. */
@@ -627,7 +623,7 @@ export function App() {
   useEffect(() => {
     if (!resizingSidebar) return;
     const onPointerMove = (event: PointerEvent) => setSidebarWidth(
-      Math.min(480, Math.max(180, event.clientX - 68)),
+      Math.min(480, Math.max(180, event.clientX)),
     );
     const onPointerUp = () => setResizingSidebar(false);
     window.addEventListener("pointermove", onPointerMove);
@@ -2305,7 +2301,7 @@ export function App() {
       shortcut: shortcutFor("workbench.splitRight") || undefined, disabled: !activeDocument, onSelect: () => runById("workbench.splitRight") },
     { id: "nulis.splitDown", caption: "Split Down", label: "Split editor down", title: "Split Vertical", icon: "splitVertical",
       shortcut: shortcutFor("workbench.splitDown") || undefined, disabled: !activeDocument, onSelect: () => runById("workbench.splitDown") },
-    { id: "nulis.files", caption: "Sidebar", label: "Toggle Files side bar", title: "Files", icon: "sidebar", pressed: sidebarVisible,
+    { id: "nulis.files", caption: "Files", label: "Toggle the Files panel", title: "Files", icon: "sidebar", pressed: sidebarVisible,
       shortcut: shortcutFor("workbench.toggleSidebar") || undefined, onSelect: () => setSidebarVisible((visible) => !visible) },
     { id: "nulis.automation", caption: "Automation", label: macroOpen ? "Close automation" : "Open automation", title: "Automation", icon: "automation",
       pressed: macroOpen, disabled: !sessionReady, onSelect: () => setMacroOpen((shown) => !shown) },
@@ -2371,7 +2367,7 @@ export function App() {
     { label: "Reset Zoom", shortcut: shortcutLabel("Primary+0"), disabled: viewOptions.zoom === 100, onSelect: () => runById("view.zoomReset") },
     { label: "Always on Top", checked: alwaysOnTop, disabled: !desktopShell, onSelect: () => runById("view.toggleAlwaysOnTop") },
     { kind: "separator" },
-    { label: "Primary Side Bar", checked: sidebarVisible, onSelect: () => setSidebarVisible((visible) => !visible) },
+    { label: "Files Panel", checked: sidebarVisible, onSelect: () => setSidebarVisible((visible) => !visible) },
     { label: "Read-Only Mode", checked: activeDocument?.readOnly === true, disabled: !activeDocument,
       shortcut: shortcutFor("editor.toggleReadOnly"), onSelect: () => runById("editor.toggleReadOnly") },
     { kind: "separator" },
@@ -2561,22 +2557,7 @@ export function App() {
           disabled={!sessionReady} onClick={() => setPaletteOpen(true)} />
       </header>
 
-      <aside className="activitybar" aria-label="Primary navigation">
-        {NAV_ITEMS.map((item) => {
-          const panel = "files" as const;
-          const selected = activePanel === panel && sidebarVisible;
-          return <button
-            className={selected ? "active" : ""} type="button" key={item}
-            disabled={!sessionReady} aria-pressed={selected}
-            onClick={() => {
-              if (activePanel === panel && sidebarVisible) setSidebarVisible(false);
-              else { setActivePanel(panel); setSidebarVisible(true); }
-            }}
-          ><Icon name={NAV_ICONS[item]} /><small>{item}</small></button>;
-        })}
-      </aside>
-
-      <section className="sidebar" aria-label="Explorer">
+      <section className="sidebar" aria-label="Files">
         <FileExplorer tab={explorerTab} onTab={(next) => { setExplorerTab(next); saveExplorerTab(next); }}
           documents={documents} activeDocumentId={activeDocumentId} onShowDocument={showDocument}
           onOpenPath={(path) => void openPath(path)} onStatus={setStatus} onDocumentMenu={openDocumentMenu}

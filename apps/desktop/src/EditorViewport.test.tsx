@@ -1081,7 +1081,7 @@ test("previews and commits a first-class rectangular selection with Alt-Shift dr
   }));
 });
 
-test("renders bounded syntax features, bracket matching, folding, symbols, and language override", async () => {
+test("renders bounded syntax features, bracket matching, folding, and language override", async () => {
   vi.mocked(getViewport).mockResolvedValueOnce({
     documentId: "document-1",
     revision: "0",
@@ -1117,7 +1117,8 @@ test("renders bounded syntax features, bracket matching, folding, symbols, and l
   await screen.findByRole("textbox", { name: "settings.json editor" });
   expect(container.querySelector(".syntax-property")).toHaveTextContent("\"x\"");
   expect(container.querySelectorAll(".bracket-match")).toHaveLength(2);
-  expect(screen.getByRole("combobox", { name: "Document symbols" })).toHaveTextContent("x · line 1");
+  // The Symbols picker left the toolbar; the syntax data itself is untouched.
+  expect(screen.queryByRole("combobox", { name: "Document symbols" })).toBeNull();
 
   const foldToggle = container.querySelector<HTMLButtonElement>(".fold-toggle");
   expect(foldToggle).not.toBeNull();
