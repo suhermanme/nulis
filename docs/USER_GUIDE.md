@@ -616,7 +616,7 @@ Open Settings with **Ctrl/⌘ ,**, the **Settings** toolbar button, or the menu.
 | --- | --- |
 | **General** | Whether the welcome screen is shown at startup; restore all defaults. |
 | **Editor** | Font, font size, line height, ligatures; whether line change indicators are shown by default. |
-| **Appearance & Themes** | The color theme. There are 99 built-in themes, with Nulis's own **Nulis · Ember Night** (dark) and **Nulis · Paper Current** (light) at the top, and you can install your own theme files (Nulis theme JSON, or NvChad Base46 Lua themes). Every theme keeps the text selection, secondary text, and toolbar icons easy to see: where a theme's own colors are too faint, Nulis strengthens them in that theme's hues. The Nulis mark in the title bar and the About window's background follow the theme. |
+| **Appearance & Themes** | The color theme. There are 99 built-in themes, with Nulis's own **Nulis · Ember Night** (dark) and **Nulis · Paper Current** (light) at the top, and you can install your own theme files (Nulis theme JSON, or NvChad Base46 Lua themes). Every theme keeps the text selection, secondary text, and toolbar icons easy to see: where a theme's own colors are too faint, Nulis strengthens them in that theme's hues, and the panel names any color it will paint (see [Theme colors and readability](#theme-colors-and-readability)). The Nulis mark in the title bar and the About window's background follow the theme. |
 | **Languages** | The languages Nulis recognizes, which language features are on for each, file association conflicts, and the language servers you configured. |
 | **Keybindings** | The shortcut for any command. |
 | **Menus & Toolbar** | Which commands are in the File menu and on the main toolbar, and in what order. |
@@ -624,6 +624,16 @@ Open Settings with **Ctrl/⌘ ,**, the **Settings** toolbar button, or the menu.
 | **Extensions & Security** | Installed plugins and their approval state. |
 
 Changes are a draft until you press **Apply**. A dot marks each section with unapplied changes, and **Cancel** throws the draft away. If you close the window with unapplied changes, Nulis asks whether to apply or discard them. Appearance changes are previewed live in the main window while you edit them. Each section has a filter field for finding a setting or command by name.
+
+### Theme colors and readability
+
+Four of a theme's colors are measured against contrast floors, because you have to be able to see them: the **text selection**, **secondary text**, **toolbar icons**, and **disabled icons**. Where a color you pick falls below a floor, the theme file keeps your color and Nulis paints a stronger one — the theme's own accent blended into its background, the weakest blend that reads. Every other color paints exactly as you typed it.
+
+The panel says when this happens. Under the color, it names the color Nulis will paint (**"Nulis paints #43586B — Editor Selection stays readable. Your color is saved as typed."**), and the preview box paints that color too, with a sample selection, so the panel and the editor never disagree.
+
+**Text selection** is the color to know. The highlight has to stand out from the background and from the current line, and the text drawn on it has to stay readable — a bright highlight under light text cannot do all three, so Nulis takes the highlight back toward the theme's own hues. To get a highlight that paints as typed, give the text on it room: darken **`editor.foreground`**, or pick a darker highlight, so the two clear 4.5:1.
+
+Saving always stores what you typed. Nothing here changes a theme you did not pick a color in.
 
 ## Keyboard Shortcuts
 

@@ -41,6 +41,8 @@ Required identity fields are `id`, `name`, integer `version`, and `kind` (`dark`
 
 Every theme, bundled or installed, is checked when it is loaded. Colors below a floor are strengthened toward the theme's own accent or text color (and on toward white or black when that is not enough); colors that already meet the floors are left exactly as written. The theme file on disk is never changed.
 
+Applying the floors also reports what it changed, as `token → new color`, so a caller can say what a theme will actually show. The Appearance panel asks this of an unsaved draft through the read-only `theme.readable` command (`{ theme }` → `{ colors, changes }`), which stores nothing and reads nothing.
+
 | Color | Floor (WCAG contrast ratio) |
 | --- | --- |
 | `editor.selection` against `editor.background` | 1.6:1 |
@@ -58,7 +60,7 @@ User installation accepts an explicitly selected regular `.nulis-theme.json` fil
 
 ## Custom themes
 
-A bundled theme is never edited. **Duplicate Selected** copies it under a new validated id (`<source>.copy<N>`), and the copy becomes an ordinary user theme. The customization panel edits the copy's supported editor, syntax, and chrome colors with a native color picker, a hexadecimal field, and the arrow keys; **Save Colors** sends the edited colors to `theme.save`, which atomically replaces the user file, refuses built-in ids, and re-applies the contrast floors on load, so the file keeps the author's colors and Nulis shows a readable copy. **Revert** discards unsaved edits, and **Remove Selected** uninstalls only user themes, never a built-in and never the active theme.
+A bundled theme is never edited. **Duplicate Selected** copies it under a new validated id (`<source>.copy<N>`), and the copy becomes an ordinary user theme. The customization panel edits the copy's supported editor, syntax, and chrome colors with a native color picker, a hexadecimal field, and the arrow keys; **Save Colors** sends the edited colors to `theme.save`, which atomically replaces the user file, refuses built-in ids, and re-applies the contrast floors on load, so the file keeps the author's colors and Nulis shows a readable copy. A color that will be strengthened is named under its field — **Nulis paints #43586B … Your color is saved as typed** — and the panel's preview box paints the floors-applied colors, with a sample selection, so the preview and the editor agree. **Revert** discards unsaved edits, and **Remove Selected** uninstalls only user themes, never a built-in and never the active theme.
 
 Editing colors previews live in the Appearance panel before any save; leaving the panel restores the committed appearance. The **Apply theme colors** preference (default: off) persists the selected theme's colors across restarts: when it is on, the window chrome is painted from the selected theme's readable colors in every Nulis window, and a user theme is marked with `data-custom="true"` on the window root. Built-in themes keep their own chrome appearance in both states.
 

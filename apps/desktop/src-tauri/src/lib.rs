@@ -115,6 +115,8 @@ const SETTINGS_COMMANDS: &[&str] = &[
     "theme.install",
     "theme.uninstall",
     "theme.save",
+    // Read-only: answers what a draft palette would show, so it mutates nothing.
+    "theme.readable",
     "language.list",
     "language.conflicts",
     "plugin.list",

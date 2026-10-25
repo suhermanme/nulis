@@ -22,7 +22,7 @@ M49 lets the user duplicate a shipped theme, edit its colors, and keep the resul
 - `cargo test --workspace` green: nulis-core 200 passed, nulis-theme 16 passed (added: `saves_creates_then_edits_a_user_theme_across_a_restart`), nulis-desktop-lib 9 passed, nulis-automation 15 passed.
 - New core test: `custom_theme_edits_persist_through_core_commands_and_protect_built_ins` (`crates/nulis-core/src/lib.rs:5656`) — duplicate, edit, save, reopen, list parity, refusal to overwrite a built-in, refusal to remove the applied theme, uninstall.
 - Frontend: vitest, typecheck, lint, `frontend:build` — recorded in `docs/IMPLEMENTATION_TRACKER.md` M49 row.
-- Final gate on `799fbda` (2026-10-25): fmt and clippy `-D warnings` clean; `cargo test --workspace` 46 result lines green, 0 failures; desktop Vitest 23 files / 220 tests; typecheck, lint and `frontend:build` green.
+- Final gate on the M49 commit (2026-10-25): fmt and clippy `-D warnings` clean; `cargo test --workspace` 46 result lines green, 0 failures; desktop Vitest 23 files / 220 tests; typecheck, lint and `frontend:build` green.
 
 ## Try it in the app
 
@@ -39,7 +39,27 @@ M49 lets the user duplicate a shipped theme, edit its colors, and keep the resul
 - Deleting the applied theme is refused in the panel only; core keeps accepting `theme.uninstall`, and a customization pointing at a missing theme falls back to the default appearance as before (`crates/nulis-core/src/lib.rs:1386`).
 - `crates/nulis-syntax/tests/self_hosting.rs` scans every file under the repository root, so a scratch tree inside the repo (a linked worktree, a fuzz corpus) turns it red. Keep scratch outside the repo; the current one is `../nulis-scratch-vbase`.
 
+## Manual acceptance follow-up (2026-10-25) — readability feedback
+
+**What the owner saw.** Changing `editor.selection` saved and did not paint; changing `editor.gutter` painted as typed. Both saves worked. Four tokens — `editor.selection`, `ui.mutedText`, `ui.icon`, `ui.iconDisabled` — are measured against the contrast floors when a theme is loaded, and `editor.gutter` is not one of them. The picked `#ff9300` puts ember's `editor.foreground #c9d1d9` at 1.44:1, far under the 4.5:1 text-on-selection floor, so `readable_selection` took the first background→accent blend that fits: `#43586B`. The file kept `#ff9300` exactly.
+
+**The fix is reporting, not a new rule.** A color that is quietly strengthened reads as a save that failed, so the panel now says what Nulis will paint:
+
+- `Theme::ensure_readable` returns the tokens it changed as `(token, new color)` (`crates/nulis-theme/src/contrast.rs:165`).
+- **`theme.readable`** (additive in IPC 47, like M49's other commands) — `crates/nulis-core/src/lib.rs`: `{ theme }` → `{ colors, changes: [{ token, from, to }] }`. It stores nothing and reads nothing, so it is in the Settings window allowlist and deliberately **not** in `CUSTOMIZATION_MUTATIONS`: it never triggers the other window's reload.
+- `apps/desktop/src/SettingsWindow.tsx` asks it of the unsaved draft (debounced 150 ms) and marks each affected row: **"Nulis paints #43586B — Editor Selection stays readable. Your color is saved as typed."** A pick that already reads well gets no marker.
+- The preview box now paints the floors-applied palette, so preview and editor agree: `previewCssVariables` (`apps/desktop/src/preferences.ts:278`) gained `--editor-selection`, and the preview's sample code shows a selected span (`.settings-preview-selection`, `apps/desktop/src/styles.css`).
+- Help: `docs/USER_GUIDE.md` §Settings and Themes → **"Theme colors and readability"** (the Help window renders this file). `docs/THEME_SPEC.md` §Contrast floors/§Custom themes and `docs/ARCHITECTURE.md` (the Settings allowlist) record the reporting path.
+- The owner's workaround, documented in the guide: give the text on the selection room — darken `editor.foreground`, or pick a darker highlight — so the two clear 4.5:1, and the highlight paints as typed.
+
+**Checks run for the follow-up:** `cargo test -p nulis-theme` (`ensure_readable_reports_the_colors_it_strengthens`), `cargo test -p nulis-core` (`readable_theme_colors_report_the_floors_and_store_nothing`), `npx vitest run src/App.test.tsx -t "theme"` (10 passed, incl. the new panel test "a color the contrast floors strengthen says so in its row, and the preview paints what the editor will"), `commands.test.ts` / `contracts.test.ts` / `preferences.test.ts` green, `npx tsc -b` clean.
+
 ## Next
 
 1. Manual acceptance on the owner's display (Settings ▸ Appearance → Duplicate → picker/hex → Save Colors → relaunch → list and restore → Remove Selected): the flow is proven at the state-file level, the live UI run needs a woken display (`M49-window-reopen-offscreen` covers the off-screen window launch).
 2. Manual Windows and Linux checks (`docs/PLATFORM_MATRIX.md`), and the color picker on each platform.
+3. Manual check of the readability feedback — **the owner reports it working on their display
+   (2026-10-25)**, from the `~/Desktop/Nulis.app` build of 22:56: the panel shows the notice while
+   picking. The rest of M49's manual list (relaunch and restore, Remove Selected, Windows and
+   Linux) is still open.
+4. Full boundary run over the follow-up — `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, desktop Vitest, lint, typecheck, `frontend:build` — recorded in `docs/IMPLEMENTATION_TRACKER.md`.

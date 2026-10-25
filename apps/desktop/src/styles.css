@@ -829,6 +829,14 @@ kbd { padding: 2px 6px; border: 1px solid #373e48; border-radius: 4px; color: #b
 .settings-color input:focus { border-color: var(--focus); }
 .settings-color[data-invalid="true"] input[type="text"] { border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus); }
 .settings-color-actions { grid-column: 1 / -1; display: flex; gap: 7px; }
+.settings-colors > .settings-help { grid-column: 1 / -1; }
+.settings-color-shown { grid-column: 1 / -1; margin: 0; color: var(--muted); font-size: 10px; overflow-wrap: anywhere; }
+.settings-theme-name { grid-column: 1 / -1; display: grid; gap: 6px; color: var(--muted); font-size: 10px; }
+.settings-theme-name input[type="text"] {
+  width: 100%; min-width: 0; height: 28px; padding: 4px 9px; border: 1px solid var(--input-border); border-radius: 5px;
+  outline: 0; color: var(--ui-text); background: var(--input-bg); font: inherit;
+}
+.settings-theme-name input[type="text"]:focus { border-color: var(--focus); }
 
 .settings-preview {
   display: grid; gap: 10px; min-height: 90px; padding: 13px 15px; border: 1px solid var(--border, #2c3340);
@@ -839,6 +847,8 @@ kbd { padding: 2px 6px; border: 1px solid #373e48; border-radius: 4px; color: #b
   font-family: var(--editor-font-family, ui-monospace, SFMono-Regular, monospace); font-size: var(--editor-font-size, 12.5px);
   font-variant-ligatures: var(--editor-font-ligatures, normal); line-height: var(--editor-line-height, 1.6);
 }
+/* A sample selection, so a highlight the floors strengthen reads in the panel as it will in the editor. */
+.settings-preview-selection { background: var(--editor-selection, #39566b); }
 .settings-panel > footer {
   display: flex; justify-content: space-between; gap: 8px; padding: 12px 18px;
   border-top: 1px solid var(--border); background: var(--toolbar);

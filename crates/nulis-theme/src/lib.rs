@@ -1150,6 +1150,61 @@ return M
     }
 
     #[test]
+    fn renaming_a_user_theme_stores_the_new_name_under_one_id_across_a_restart() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let themes = directory.path().join("themes");
+        let catalog = ThemeCatalog::new(themes.clone());
+        let created = catalog
+            .save(&user_theme("example.rename"))
+            .expect("create a custom theme");
+        assert_eq!(created.theme.name, "Ocean");
+
+        let mut renamed = created.theme.clone();
+        renamed.name = "Deep Water".into();
+        let saved = catalog.save(&renamed).expect("rename a custom theme");
+        assert_eq!(saved.theme.id, "example.rename");
+        assert_eq!(saved.theme.name, "Deep Water");
+
+        // The rename rewrites the one file kept for the id: a restart reads the name back.
+        let listed = ThemeCatalog::new(themes.clone()).list().expect("themes");
+        let restored = listed
+            .iter()
+            .find(|record| record.theme.id == "example.rename")
+            .expect("the renamed theme");
+        assert_eq!(restored.theme.name, "Deep Water");
+        assert!(!restored.built_in);
+        assert_eq!(
+            listed
+                .iter()
+                .filter(|record| record.theme.id == "example.rename")
+                .count(),
+            1
+        );
+
+        // Renaming a built-in is refused outright, so its shipped name survives the attempt.
+        let built_in = listed
+            .iter()
+            .find(|record| record.built_in)
+            .expect("a built-in theme")
+            .theme
+            .clone();
+        let mut renamed_builtin = built_in.clone();
+        renamed_builtin.name = "My Theme".into();
+        assert!(matches!(
+            catalog.save(&renamed_builtin),
+            Err(ThemeError::BuiltIn(id)) if id == built_in.id
+        ));
+        let kept = ThemeCatalog::new(themes)
+            .list()
+            .expect("themes")
+            .into_iter()
+            .find(|record| record.theme.id == built_in.id)
+            .expect("the built-in theme")
+            .theme;
+        assert_eq!(kept.name, built_in.name);
+    }
+
+    #[test]
     fn saving_refuses_a_built_in_theme_and_leaves_the_catalog_alone() {
         let directory = tempfile::tempdir().expect("temporary directory");
         let themes = directory.path().join("themes");

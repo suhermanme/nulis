@@ -264,6 +264,9 @@ pub struct AppearanceSettings {
     pub font_size: f64,
     pub line_height: f64,
     pub font_ligatures: bool,
+    /// Whether a user theme also tints the native window chrome.
+    #[serde(default)]
+    pub apply_ui_theme: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -302,6 +305,7 @@ impl Default for CustomizationDocument {
                 font_size: 13.0,
                 line_height: 1.7,
                 font_ligatures: true,
+                apply_ui_theme: true,
             },
             keybindings: vec![
                 Keybinding {
@@ -559,7 +563,9 @@ pub enum CustomizationError {
 
 #[cfg(test)]
 mod tests {
-    use super::{CustomizationDocument, CustomizationStore, SettingsLayer, SettingsStore};
+    use super::{
+        AppearanceSettings, CustomizationDocument, CustomizationStore, SettingsLayer, SettingsStore,
+    };
     use serde_json::{json, Map};
 
     fn object(value: &serde_json::Value) -> Map<String, serde_json::Value> {
@@ -623,8 +629,38 @@ mod tests {
         document.keybindings.push(document.keybindings[0].clone());
         assert!(document.validate().is_err());
     }
-}
 
+    #[test]
+    fn appearance_accepts_the_tint_flag_the_editor_posts() {
+        // The Settings window posts the appearance it edits, `applyUiTheme` included; the
+        // serde contract that rejected it is what made "apply theme colors" fail.
+        let posted: AppearanceSettings = serde_json::from_value(json!({
+            "theme": "example.ocean",
+            "fontFamily": "Mono",
+            "fontSize": 13.0,
+            "lineHeight": 1.7,
+            "fontLigatures": true,
+            "applyUiTheme": true
+        }))
+        .expect("the appearance payload the editor posts");
+        assert!(posted.apply_ui_theme);
+        assert_eq!(
+            serde_json::to_value(&posted).expect("serialize the appearance")["applyUiTheme"],
+            json!(true)
+        );
+
+        // A customization written before the switch exists still loads, with the tint off.
+        let stored: AppearanceSettings = serde_json::from_value(json!({
+            "theme": "dark",
+            "fontFamily": "Mono",
+            "fontSize": 13.0,
+            "lineHeight": 1.7,
+            "fontLigatures": true
+        }))
+        .expect("a customization saved before the tint switch");
+        assert!(!stored.apply_ui_theme);
+    }
+}
 #[cfg(test)]
 mod settings_file_tests {
     use super::{

@@ -6,7 +6,7 @@ import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { emitTo, listen } from "@tauri-apps/api/event";
-import { copiedThemeId } from "./SettingsWindow";
+import { copiedThemeId, copiedThemeName, MAX_THEME_NAME, themeNameIsUsable } from "./SettingsWindow";
 import { App } from "./App";
 import type { CustomizationDocument, ExecuteCommandRequest, WorkbenchSession } from "./contracts";
 import {
@@ -215,7 +215,9 @@ beforeEach(() => {
     // it out, so the refetch after a save shows the theme that was just stored.
     if (request.id === "theme.save") {
       const { theme } = request.arguments as { theme: SavedTheme };
-      savedThemes = [...savedThemes.filter((item) => item.id !== theme.id), theme];
+      const stored = savedThemes.find((item) => item.id === theme.id);
+      // The panel posts only the authored fields, so a save updates the record under its id.
+      savedThemes = [...savedThemes.filter((item) => item.id !== theme.id), { ...stored, ...theme }];
       return true as never;
     }
     if (request.id === "theme.uninstall") {
@@ -223,12 +225,29 @@ beforeEach(() => {
       savedThemes = savedThemes.filter((item) => item.id !== id);
       return true as never;
     }
+    // Read-only, like the core: a drafted palette comes back with the contrast floors applied and
+    // every other token exactly as drafted. The store is never touched. The one floor this suite
+    // exercises is the selection pick under test; everything else paints as typed, as it does in
+    // the real core when it already reads well.
+    if (request.id === "theme.readable") {
+      const { theme } = request.arguments as { theme: { colors: Record<string, string> } };
+      const colors = { ...theme.colors };
+      const changes: { token: string; from: string; to: string }[] = [];
+      const strengthened = colors["editor.selection"]?.toLowerCase() === "#ff9300" ? "#43586B" : null;
+      if (strengthened) {
+        changes.push({ token: "editor.selection", from: colors["editor.selection"], to: strengthened });
+        colors["editor.selection"] = strengthened;
+      }
+      return { colors, changes } as never;
+    }
     const queue = responses[request.id];
     if (!queue?.length) return null as never;
     const reply = queue.shift() as unknown;
     if (request.id === "theme.list" && Array.isArray(reply)) {
       const list = reply as SavedTheme[];
-      return [...list, ...savedThemes.filter((theme) => !list.some((item) => item.id === theme.id))] as never;
+      // A theme the store has is read back as what was last saved under that id.
+      const merged = list.map((item) => savedThemes.find((theme) => theme.id === item.id) ?? item);
+      return [...merged, ...savedThemes.filter((theme) => !list.some((item) => item.id === theme.id))] as never;
     }
     return reply as never;
   });
@@ -1091,6 +1110,17 @@ test("a copied theme id meets the core's id rules", () => {
   expect(copiedThemeId("com.dark.violet", ["com.dark.violet"])).toBe("com.dark.violet.copy");
 });
 
+ test("a theme name is accepted only when it is usable, and a copy names itself apart", () => {
+   expect(themeNameIsUsable("Nulis Ember copy")).toBe(true);
+   // The picker shows the name, so an empty one leaves nothing to select by.
+   expect(themeNameIsUsable("   ")).toBe(false);
+   expect(themeNameIsUsable("a".repeat(MAX_THEME_NAME + 1))).toBe(false);
+   // Built-in names are not ids: the copy is named from the display name, and the second copy
+   // takes the next suffix instead of reusing the first copy's name.
+   expect(copiedThemeName("Nulis Ember", ["Nulis Ember"])).toBe("Nulis Ember copy");
+   expect(copiedThemeName("Nulis Ember", ["Nulis Ember", "Nulis Ember copy"])).toBe("Nulis Ember copy 2");
+ });
+
 test("drafting a user theme color recolors the preview live, Save persists it, and closing reverts", async () => {
   const dialog = await openAppearance([userTheme()], [userTheme()]);
   fireEvent.change(within(dialog).getByRole("combobox", { name: "Color theme" }), { target: { value: "test.theme" } });
@@ -1140,7 +1170,8 @@ test("duplicating a theme stores an independent copy, applies it, and keeps the 
   });
   const swatch = dialog.querySelector<HTMLElement>(".settings-preview")!;
   await waitFor(() => expect(swatch.style.getPropertyValue("--editor-bg")).toBe("#112233"));
-  fireEvent.click(within(dialog).getByRole("button", { name: "Save Colors" }));
+  // A fresh duplicate is stored by the copy's own action, named above the color list.
+  fireEvent.click(within(dialog).getByRole("button", { name: "Save Copy" }));
   await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({ id: "theme.save" })));
   const stored = vi.mocked(executeCommand).mock.calls.find(([request]) => request.id === "theme.save")?.[0] as
     { arguments: { theme: Record<string, unknown> } } | undefined;
@@ -1169,6 +1200,82 @@ test("duplicating a theme stores an independent copy, applies it, and keeps the 
   fireEvent.change(select, { target: { value: "Nulis Ember" } });
   expect(within(select).getByRole("option", { name: "Nulis Ember" })).toBeInTheDocument();
   expect(within(dialog).getByRole("button", { name: "Remove Selected" })).toBeDisabled();
+});
+
+ test("renaming a user theme stores the name under the same id, and a built-in has no name field", async () => {
+   const dialog = await openAppearance(
+     [userTheme(), EMBER_THEME],
+     [userTheme({ name: "Deep Water" }), EMBER_THEME],
+   );
+   const select = within(dialog).getByRole("combobox", { name: "Color theme" });
+   fireEvent.change(select, { target: { value: "test.theme" } });
+   const nameField = within(dialog).getByRole("textbox", { name: "Theme name" });
+   expect(nameField).toHaveValue("Test Theme");
+
+   // A rename is a pending draft on its own: no color was touched, so the store names the rename.
+   fireEvent.change(nameField, { target: { value: "Deep Water" } });
+   await waitFor(() => expect(within(dialog).getByRole("button", { name: "Save Name" })).toBeEnabled());
+   expect(within(dialog).getByText(/"Deep Water" becomes the theme's name in the picker/)).toBeInTheDocument();
+   // The footer says a theme draft is uncommitted: Apply writes the settings document, never the theme.
+   expect(dialog.querySelector(".settings-notice")).toHaveTextContent("Unsaved theme changes");
+   fireEvent.click(within(dialog).getByRole("button", { name: "Save Name" }));
+   await screen.findByText("Saved Deep Water");
+   const stored = vi.mocked(executeCommand).mock.calls.find(([request]) => request.id === "theme.save")?.[0] as
+     { arguments: { theme: Record<string, unknown> } } | undefined;
+   // The id is the reference the customization and Remove Selected use, so a rename keeps it.
+   expect(stored?.arguments.theme).toEqual(expect.objectContaining({ id: "test.theme", name: "Deep Water" }));
+   expect(stored?.arguments.theme).not.toHaveProperty("builtIn");
+   // The reloaded list carries the stored name, which is what a restart reads back.
+   await waitFor(() => expect(within(select).getByRole("option", { name: "Deep Water · User" })).toBeInTheDocument());
+   expect(within(select).queryByRole("option", { name: "Test Theme · User" })).not.toBeInTheDocument();
+
+   // An unusable name blocks the store while leaving the rest of the section usable.
+   fireEvent.change(nameField, { target: { value: "   " } });
+   expect(within(dialog).getByRole("button", { name: "Save Name" })).toBeDisabled();
+   expect(within(dialog).getByRole("button", { name: "Apply" })).toBeEnabled();
+   fireEvent.click(within(dialog).getByRole("button", { name: "Revert" }));
+   expect(nameField).toHaveValue("Deep Water");
+
+   // A built-in theme is never editable: no name field, and Duplicate is the only path.
+   fireEvent.change(select, { target: { value: "Nulis Ember" } });
+   expect(within(dialog).queryByRole("textbox", { name: "Theme name" })).not.toBeInTheDocument();
+   expect(within(dialog).getByText(/"Nulis Ember" is installed. Duplicate it to change its colors and name\./))
+     .toBeInTheDocument();
+ });
+
+test("a color the contrast floors strengthen says so in its row, and the preview paints what the editor will", async () => {
+  // Only the selection, secondary text, and icon colors meet the floors, so a bright highlight
+  // under light text is the case a person hits: it saved fine and still painted something else.
+  const floored = userTheme({
+    colors: {
+      "editor.background": "#101820", "editor.foreground": "#c9d1d9", "ui.accent": "#ff00aa",
+      "syntax.keyword": "#00ff00", "editor.selection": "#43586B",
+    },
+  });
+  const dialog = await openAppearance([floored]);
+  fireEvent.change(within(dialog).getByRole("combobox", { name: "Color theme" }), { target: { value: "test.theme" } });
+  const hex = within(dialog).getByRole("textbox", { name: "editor.selection hex" });
+  expect(hex).toHaveValue("#43586B");
+  // A pick that already reads well is stated as typed: no marker, preview matches.
+  fireEvent.change(hex, { target: { value: "#942192" } });
+  const swatch = dialog.querySelector<HTMLElement>(".settings-preview")!;
+  await waitFor(() => expect(swatch.style.getPropertyValue("--editor-selection")).toBe("#942192"));
+  expect(within(dialog).queryByText(/Nulis paints/)).not.toBeInTheDocument();
+
+  // A pick below the floors is named in the row, so a strengthened color reads as a floor, not a failed save.
+  fireEvent.change(hex, { target: { value: "#FF9300" } });
+  expect(await within(dialog).findByText(/Nulis paints #43586B — Editor Selection stays readable/)).toBeInTheDocument();
+  expect(within(dialog).getByText(/Your color is saved as typed/)).toBeInTheDocument();
+  // The preview agrees with the editor, which is the point of asking the core.
+  await waitFor(() => expect(swatch.style.getPropertyValue("--editor-selection")).toBe("#43586B"));
+  // The store still gets the authored color: the floors belong to the core's read path, not to the file.
+  fireEvent.click(within(dialog).getByRole("button", { name: "Save Colors" }));
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({ id: "theme.save" })));
+  const stored = vi.mocked(executeCommand).mock.calls.find(([request]) => request.id === "theme.save")?.[0] as
+    { arguments: { theme: Record<string, unknown> } } | undefined;
+  expect(stored?.arguments.theme).toEqual(expect.objectContaining({
+    id: "test.theme", colors: expect.objectContaining({ "editor.selection": "#FF9300" }),
+  }));
 });
 
 test("removing a user theme runs the uninstall only after the dialog confirms", async () => {

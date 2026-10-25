@@ -159,8 +159,10 @@ impl Theme {
     /// Strengthens the selection, secondary text, and icon colors where they
     /// fall below the contrast floors in this module, and fills in
     /// `ui.icon` and `ui.iconDisabled` when the theme has none. Colors that
-    /// already meet the floors are left exactly as they are.
-    pub fn ensure_readable(&mut self) {
+    /// already meet the floors are left exactly as they are. Returns the
+    /// tokens it changed as `(token, new color)` in the order they were
+    /// applied, so a caller can say what the theme will actually show.
+    pub fn ensure_readable(&mut self) -> Vec<(String, String)> {
         let get = |colors: &std::collections::BTreeMap<String, String>,
                    token: &str,
                    under: Option<Rgb>| {
@@ -168,7 +170,7 @@ impl Theme {
         };
         let colors = &self.colors;
         let Some(editor) = get(colors, "editor.background", None) else {
-            return;
+            return Vec::new();
         };
         let window = get(colors, "ui.background", None).unwrap_or(editor);
         let parse = |token: &str| get(colors, token, Some(window));
@@ -177,7 +179,7 @@ impl Theme {
             get(colors, "editor.foreground", Some(editor)),
             parse("ui.accent"),
         ) else {
-            return;
+            return Vec::new();
         };
         let line = get(colors, "editor.currentLine", Some(editor)).unwrap_or(editor);
         let selection = get(colors, "editor.selection", Some(editor)).unwrap_or(line);
@@ -222,9 +224,14 @@ impl Theme {
         if parse("ui.iconDisabled") != Some(disabled) {
             changes.push(("ui.iconDisabled", disabled.hex()));
         }
-        for (token, color) in changes {
-            self.colors.insert(token.to_owned(), color);
+        let applied = changes
+            .into_iter()
+            .map(|(token, color)| (token.to_owned(), color))
+            .collect::<Vec<_>>();
+        for (token, color) in &applied {
+            self.colors.insert(token.clone(), color.clone());
         }
+        applied
     }
 }
 
@@ -346,6 +353,43 @@ mod tests {
             .expect("ember");
         assert_eq!(ember.theme.colors["editor.selection"], "#39566B");
         assert_eq!(ember.theme.colors["ui.icon"], "#969DA7");
+    }
+
+    #[test]
+    fn ensure_readable_reports_the_colors_it_strengthens() {
+        let catalog = ThemeCatalog::new(std::env::temp_dir().join("nulis-floor-report"));
+        let ember = catalog
+            .list()
+            .expect("list")
+            .into_iter()
+            .find(|record| record.theme.id == "nulis.ember-dark")
+            .expect("ember")
+            .theme;
+        let mut theme = ember.clone();
+        let gutter = theme.colors["editor.gutter"].clone();
+        // A bright highlight under ember's light text fails the text floor, so it is strengthened.
+        theme.colors.insert("editor.selection".into(), "#FF9300".into());
+        let applied = theme.ensure_readable();
+        let shown = &theme.colors["editor.selection"];
+        assert_ne!(shown, "#FF9300", "the bright pick cannot paint as typed");
+        assert!(
+            applied
+                .iter()
+                .any(|(token, color)| token == "editor.selection" && color == shown),
+            "{applied:?}"
+        );
+        // Tokens the floors never measure are not reported, and not touched.
+        assert!(
+            !applied.iter().any(|(token, _)| token == "editor.gutter"),
+            "{applied:?}"
+        );
+        assert_eq!(&theme.colors["editor.gutter"], &gutter);
+        // A theme that already reads well reports nothing and keeps everything.
+        let mut kept = ember;
+        let shipped = kept.colors["editor.selection"].clone();
+        let unchanged = kept.ensure_readable();
+        assert!(unchanged.is_empty(), "{unchanged:?}");
+        assert_eq!(&kept.colors["editor.selection"], &shipped);
     }
 
     #[test]

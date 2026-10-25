@@ -279,6 +279,9 @@ export function previewCssVariables(colors: Record<string, string>): Record<stri
   return {
     "--editor-bg": colors["editor.background"],
     "--editor-fg": colors["editor.foreground"],
+    // The preview shows a selection: a highlight the contrast floors strengthen is visible
+    // in the panel, where it is picked, rather than only in the editor afterwards.
+    "--editor-selection": colors["editor.selection"],
     "--editor-line-number": colors["editor.lineNumber"],
     "--ui-accent": colors["ui.accent"],
     "--ui-text": colors["ui.text"],

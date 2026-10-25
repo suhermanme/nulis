@@ -351,6 +351,7 @@ impl NulisCore {
             ("theme.install", "Install Theme"),
             ("theme.uninstall", "Uninstall Theme"),
             ("theme.save", "Save Theme"),
+            ("theme.readable", "Readable Theme Colors"),
         ] {
             commands
                 .register(
@@ -672,6 +673,35 @@ impl NulisCore {
                     .map_err(|error| CommandError::Failed(error.to_string()))?;
                 serde_json::to_value(record)
                     .map_err(|error| CommandError::Failed(error.to_string()))
+            }
+            // Answers what the theme would show, without storing or reading anything: the
+            // panel asks this of a draft so it can say which colors Nulis will strengthen.
+            "theme.readable" => {
+                #[derive(Deserialize)]
+                #[serde(deny_unknown_fields)]
+                struct Request {
+                    theme: Theme,
+                }
+                let request: Request = serde_json::from_value(arguments).map_err(|error| {
+                    CommandError::Failed(format!("invalid theme readability request: {error}"))
+                })?;
+                let authored = request.theme.colors.clone();
+                let mut theme = request.theme;
+                theme
+                    .validate()
+                    .map_err(|error| CommandError::Failed(error.to_string()))?;
+                let changes = theme.ensure_readable();
+                Ok(json!({
+                    "colors": theme.colors,
+                    "changes": changes
+                        .iter()
+                        .map(|(token, to)| json!({
+                            "token": token,
+                            "from": authored.get(token).cloned().unwrap_or_default(),
+                            "to": to,
+                        }))
+                        .collect::<Vec<_>>(),
+                }))
             }
             _ => Err(CommandError::Unknown(id.into())),
         }
@@ -5651,6 +5681,62 @@ mod tests {
         assert_eq!(current["appearance"]["fontSize"], 15.0);
     }
 
+    #[test]
+    fn readable_theme_colors_report_the_floors_and_store_nothing() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let core = NulisCore::with_session_root(directory.path().into());
+        let themes = core
+            .execute_command("theme.list", CommandContext::default(), Value::Null)
+            .expect("list themes");
+        let shipped = themes.as_array().expect("theme array").len();
+        let theme_of = |record: &Value| {
+            let mut theme = record.clone();
+            if let Some(object) = theme.as_object_mut() {
+                object.remove("builtIn");
+            }
+            theme
+        };
+        let mut draft = theme_of(&themes.as_array().expect("theme array")[0]);
+        draft["id"] = serde_json::json!("example.floored");
+        draft["name"] = serde_json::json!("Floored Draft");
+        // A bright highlight under the theme's own light text: the floors refuse it, and the
+        // panel needs the answer to say so while the color is being picked.
+        draft["colors"]["editor.selection"] = serde_json::json!("#FF9300");
+        let reply = core
+            .execute_command(
+                "theme.readable",
+                CommandContext::default(),
+                serde_json::json!({ "theme": draft }),
+            )
+            .expect("readable colors for a draft");
+        let shown = reply["colors"]["editor.selection"]
+            .as_str()
+            .expect("shown selection")
+            .to_owned();
+        assert_ne!(shown, "#FF9300", "{reply}");
+        let changes = reply["changes"].as_array().expect("changes");
+        assert!(
+            changes.iter().any(|change| {
+                change["token"] == "editor.selection"
+                    && change["from"] == "#FF9300"
+                    && change["to"] == shown
+            }),
+            "{changes:?}"
+        );
+        // The floors touch four tokens, so a color outside them is reported exactly as authored.
+        assert_eq!(reply["colors"]["editor.gutter"], draft["colors"]["editor.gutter"]);
+        assert!(
+            !changes.iter().any(|change| change["token"] == "editor.gutter"),
+            "{changes:?}"
+        );
+        // Asking stores nothing and changes no answer: the catalog and the draft stand as they were.
+        let listed = core
+            .execute_command("theme.list", CommandContext::default(), Value::Null)
+            .expect("list after asking");
+        assert_eq!(listed.as_array().expect("theme array").len(), shipped);
+        assert_eq!(draft["colors"]["editor.selection"], "#FF9300");
+    }
+
     #[cfg(unix)]
     #[test]
     #[allow(clippy::too_many_lines)] // One end-to-end custom-theme lifecycle check.
@@ -5790,6 +5876,120 @@ mod tests {
             .execute_command("theme.list", CommandContext::default(), Value::Null)
             .expect("list themes");
         assert_eq!(listed.as_array().expect("theme array").len(), shipped);
+    }
+
+    #[test]
+    fn applying_a_custom_theme_accepts_the_appearance_the_editor_posts() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let core = NulisCore::with_session_root(directory.path().into());
+        let themes = core
+            .execute_command("theme.list", CommandContext::default(), Value::Null)
+            .expect("list themes");
+        let mut custom = themes.as_array().expect("theme array")[0].clone();
+        let theme = custom.as_object_mut().expect("theme object");
+        theme.remove("builtIn");
+        theme.insert("id".into(), serde_json::json!("example.applied"));
+        theme.insert("name".into(), serde_json::json!("Applied Theme"));
+        core.execute_command(
+            "theme.save",
+            CommandContext::default(),
+            serde_json::json!({ "theme": custom }),
+        )
+        .expect("author the custom theme");
+
+        // The Settings window applies a theme by posting the appearance it edited, the tint
+        // flag included. Saving that draft is the "apply theme colors" action.
+        let state = core
+            .execute_command(
+                "customization.state",
+                CommandContext::default(),
+                Value::Null,
+            )
+            .expect("state customization");
+        let mut document = state["document"].clone();
+        document["appearance"]["theme"] = serde_json::json!("example.applied");
+        document["appearance"]["applyUiTheme"] = serde_json::json!(true);
+        core.execute_command(
+            "customization.saveChecked",
+            CommandContext::default(),
+            serde_json::json!({
+                "expectedRevision": state["revision"],
+                "document": document
+            }),
+        )
+        .expect("select the custom theme with the tint flag on");
+
+        drop(core);
+        let reopened = NulisCore::with_session_root(directory.path().into());
+        let loaded = reopened
+            .execute_command("customization.get", CommandContext::default(), Value::Null)
+            .expect("reload the customization");
+        assert_eq!(loaded["appearance"]["theme"], "example.applied");
+        assert_eq!(loaded["appearance"]["applyUiTheme"], true);
+    }
+
+    #[test]
+    fn renaming_a_selected_theme_keeps_the_customization_pointing_at_it() {
+        let directory = tempfile::tempdir().expect("temporary directory");
+        let core = NulisCore::with_session_root(directory.path().into());
+        let themes = core
+            .execute_command("theme.list", CommandContext::default(), Value::Null)
+            .expect("list themes");
+        let mut custom = themes.as_array().expect("theme array")[0].clone();
+        let theme = custom.as_object_mut().expect("theme object");
+        theme.remove("builtIn");
+        theme.insert("id".into(), serde_json::json!("example.renamed"));
+        theme.insert("name".into(), serde_json::json!("Before"));
+        core.execute_command(
+            "theme.save",
+            CommandContext::default(),
+            serde_json::json!({ "theme": custom }),
+        )
+        .expect("author the custom theme");
+        let mut customization = core
+            .execute_command("customization.get", CommandContext::default(), Value::Null)
+            .expect("get customization");
+        customization["appearance"]["theme"] = serde_json::json!("example.renamed");
+        core.execute_command(
+            "customization.save",
+            CommandContext::default(),
+            customization.clone(),
+        )
+        .expect("select the custom theme");
+
+        custom["name"] = serde_json::json!("After");
+        let renamed = core
+            .execute_command(
+                "theme.save",
+                CommandContext::default(),
+                serde_json::json!({ "theme": custom }),
+            )
+            .expect("rename the custom theme");
+        assert_eq!(renamed["id"], "example.renamed");
+        assert_eq!(renamed["name"], "After");
+
+        // The customization names the theme by id, so the selection survives the rename.
+        core.execute_command(
+            "customization.save",
+            CommandContext::default(),
+            customization,
+        )
+        .expect("the selection keeps validating against the renamed theme");
+
+        drop(core);
+        let reopened = NulisCore::with_session_root(directory.path().into());
+        let loaded = reopened
+            .execute_command("customization.get", CommandContext::default(), Value::Null)
+            .expect("reload the customization");
+        assert_eq!(loaded["appearance"]["theme"], "example.renamed");
+        let listed = reopened
+            .execute_command("theme.list", CommandContext::default(), Value::Null)
+            .expect("list themes");
+        assert!(listed
+            .as_array()
+            .expect("theme array")
+            .iter()
+            .any(|record| { record["id"] == "example.renamed" && record["name"] == "After" }));
     }
 
     #[cfg(unix)]
