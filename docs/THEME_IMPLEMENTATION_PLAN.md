@@ -2,8 +2,8 @@
 
 **Scope:** user-owned custom themes built from bundled themes.
 
-**Status (2026-10-25): shipped as M49 and merged to `main` at `bcf62f4`; the
-`feat/theme-customization` branch is deleted.** M1–M4 completed as planned, then two
+**Status (2026-10-26): shipped as M49, merged to `main` at `bcf62f4`, and released in
+Nulis 0.5.1; the `feat/theme-customization` branch is deleted.** M1–M4 completed as planned, then two
 manual-acceptance follow-ups amended this plan — the panel's readability reporting, and the
 removal of the "Apply theme colors" switch. The switch removal is one of this plan's own stop
 conditions (`IPC_PROTOCOL_VERSION` touched), so it is recorded as an amendment below under

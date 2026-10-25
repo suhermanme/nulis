@@ -1,6 +1,6 @@
 # Platform test matrix
 
-What has been verified on each operating system, and how. Update it when a check is run by hand; keep entries to what was actually observed. Last updated 2026-10-26 for the M49 custom-theme work merged to `main`; the 0.5.0 entries below are dated 2026-10-24.
+What has been verified on each operating system, and how. Update it when a check is run by hand; keep entries to what was actually observed. Last updated 2026-10-26 for the M49 custom-theme work, released in Nulis 0.5.1; the 0.5.0 entries below are dated 2026-10-24.
 
 ## Automated (every push to `main` and every release tag)
 
