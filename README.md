@@ -116,7 +116,7 @@ Each release also has a `SHA256SUMS.txt` to check the downloads: `sha256sum -c S
 
 ![Six carets on the price column of a CSV file, with the status bar showing their sum](docs/images/screenshots/column-sum.png)
 
-**99 themes, light and dark.** Nulis's own Ember Night and Paper Current, plus the NvChad collection. Every theme recolors the whole application and keeps the selection easy to see.
+**99 themes, light and dark.** Nulis's own Ember Night and Paper Current, plus the NvChad collection. The theme you apply recolors the whole application, and keeps the selection easy to see. Duplicate any theme to get an editable copy of it, pick its colors in the panel with a live preview, and Nulis keeps it as your own theme.
 
 ![The same Rust code in six themes: Ember Night, Paper Current, Tokyonight, Catppuccin Latte, Gruvbox, and Rosepine Dawn](docs/images/screenshots/themes.png)
 
@@ -171,7 +171,7 @@ Each release also has a `SHA256SUMS.txt` to check the downloads: `sha256sum -c S
 ### Customization and extension
 
 - **Settings window** with sections for the editor, appearance, languages, keybindings, menus and toolbar, workspaces, and extensions.
-- **99 built-in color themes**, with Nulis's own Ember Night and Paper Current first, plus user-installed themes. In every theme the selection, secondary text, and toolbar icons are kept clearly visible.
+- **99 built-in color themes**, with Nulis's own Ember Night and Paper Current first, plus user themes: install a theme file, duplicate any theme into your own editable copy, and pick its colors with a live preview. In every theme the selection, secondary text, and toolbar icons are kept clearly visible, and the panel names any color Nulis will paint stronger than you picked it.
 - **Configurable** shortcuts, File menu, and main toolbar.
 - **Macros** (record and replay) and **scripts** that run only after explicit approval of the commands they use.
 - **Plugins** written in JavaScript, each running in an isolated worker process and approved by content digest, or **declarative language plugins** that add highlighting, indentation, completion, and snippets as data and run no code. Every approved plugin and every feature family it contributes can be switched off separately.
@@ -442,7 +442,7 @@ It holds the session (open files and layout), `settings.json` (for example `file
 
 ## Extending Nulis
 
-- **Themes** are declarative JSON files. [docs/THEME_SPEC.md](docs/THEME_SPEC.md) lists every token. Install one from **Settings ▸ Appearance & Themes**.
+- **Themes** are declarative JSON files. [docs/THEME_SPEC.md](docs/THEME_SPEC.md) lists every token. Install one from **Settings ▸ Appearance & Themes**, or duplicate a built-in into your own copy and edit its colors in the panel.
 - **Plugins** are packages with a manifest. API v2 also accepts a **declarative language** package: highlighting, comments, indentation, completion, snippets, associations, and first-line detection as data, with no JavaScript and no process. [docs/PLUGIN_GUIDE.md](docs/PLUGIN_GUIDE.md) is the step-by-step developer guide (also shown in Help as *Building Plugins*), [docs/PLUGIN_API.md](docs/PLUGIN_API.md) is the short contract, and `packages/nulis-plugin-sdk` provides the TypeScript types. Three working examples are tested against the real plugin host: `examples/plugins/hello-nulis` (one command, plain JavaScript), `examples/plugins/nulis-tips` (TypeScript, two commands, startup activation, arguments, results, and a build step), and `examples/plugins/nulis-nim` (a declarative language).
 - **Macros and scripts** are created in the application under **Automation**.
 - **Languages** handled by the table-driven lexer are described by data in `crates/nulis-syntax/src/lexer.rs`: keywords, comment and string syntax, and file names. Adding a language to the application is adding a table entry and a test, or installing a declarative language plugin.

@@ -49,9 +49,11 @@ macOS bundles are ad-hoc signed (`bundle.macOS.signingIdentity` is `"-"` in `tau
 
 `docs/PLATFORM_MATRIX.md` records what CI and people have verified on each operating system. Update it after a check by hand.
 
-## Manual interaction checks (M15–M18)
+## Manual interaction checks (M15–M18, M49)
 
-Automated tests cover the logic; these need a person on each target OS before a milestone in `IMPROVEMENT_SPEC.md` is marked complete:
+Automated tests cover the logic; these need a person on each target OS before a milestone in
+`IMPROVEMENT_SPEC.md` (M15–M18) or the theme plan in `docs/THEME_IMPLEMENTATION_PLAN.md` (M49) is marked
+complete:
 
 - Pointer: double- and triple-click on identifiers, accented text, emoji, tabs, and wrapped lines; drag a selection forward, backward, and across a viewport edge; copy with Option (macOS) or Control; cancel with Escape; confirm a tab drag never starts a text drag.
 - IME: compose text next to a selection and after a drag move.
@@ -59,6 +61,7 @@ Automated tests cover the logic; these need a person on each target OS before a 
 - Workspaces: drag a tab onto each side of the content, split one pane of a workspace, rename it, drag a pane back to the tab strip, resize dividers by pointer and keyboard, restart with one file missing, and use the minimum window size.
 - Settings: open from the application menu, the shortcut, the palette, and the toolbar and confirm one window; close with unapplied changes; apply a toolbar change and check the native menu; move the window to a second display, disconnect it, and reopen.
 - Assistive technology: tab, pane, divider, toolbar, and settings-section names with VoiceOver, NVDA, and Orca.
+- Custom themes (M49): Settings ▸ Appearance ▸ **Duplicate Selected** on a built-in; a color by picker, by typed hex, and by arrow keys, with the panel preview changing and the editor not; the readability notice on a color the floors strengthen, naming the color Nulis will paint; **Save Copy**, then **Save Colors**, **Save Name** and **Save Name & Colors** naming what each writes; **Revert** discarding a draft; **Apply** painting the editor *and* the chrome of every Nulis window (and a built-in painting its own); **Remove Selected** asking first, refusing a built-in, and refusing the theme in use; restart with the copy still listed at the saved colors.
 
 ## Publish
 

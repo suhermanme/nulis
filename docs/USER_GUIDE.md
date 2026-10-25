@@ -616,14 +616,25 @@ Open Settings with **Ctrl/⌘ ,**, the **Settings** toolbar button, or the menu.
 | --- | --- |
 | **General** | Whether the welcome screen is shown at startup; restore all defaults. |
 | **Editor** | Font, font size, line height, ligatures; whether line change indicators are shown by default. |
-| **Appearance & Themes** | The color theme. There are 99 built-in themes, with Nulis's own **Nulis · Ember Night** (dark) and **Nulis · Paper Current** (light) at the top, and you can install your own theme files (Nulis theme JSON, or NvChad Base46 Lua themes). Every theme keeps the text selection, secondary text, and toolbar icons easy to see: where a theme's own colors are too faint, Nulis strengthens them in that theme's hues, and the panel names any color it will paint (see [Theme colors and readability](#theme-colors-and-readability)). The Nulis mark in the title bar and the About window's background follow the theme. |
+| **Appearance & Themes** | The color theme, and your own themes (see [Your own theme colors](#your-own-theme-colors)). There are 99 built-in themes, with Nulis's own **Nulis · Ember Night** (dark) and **Nulis · Paper Current** (light) at the top. The theme you apply paints the editor and every Nulis window. Install a theme file (Nulis theme JSON, or a NvChad Base46 Lua theme), **Duplicate Selected** to make an editable copy of any theme, and **Remove Selected** to uninstall one you installed. Every theme keeps the text selection, secondary text, and toolbar icons easy to see: where a theme's own colors are too faint, Nulis strengthens them in that theme's hues, and the panel names any color it will paint (see [Theme colors and readability](#theme-colors-and-readability)). The Nulis mark in the title bar and the About window's background follow the theme. |
 | **Languages** | The languages Nulis recognizes, which language features are on for each, file association conflicts, and the language servers you configured. |
 | **Keybindings** | The shortcut for any command. |
 | **Menus & Toolbar** | Which commands are in the File menu and on the main toolbar, and in what order. |
 | **Workspace** | Workspace and layout options. |
 | **Extensions & Security** | Installed plugins and their approval state. |
 
-Changes are a draft until you press **Apply**. A dot marks each section with unapplied changes, and **Cancel** throws the draft away. If you close the window with unapplied changes, Nulis asks whether to apply or discard them. Appearance changes are previewed live in the main window while you edit them. Each section has a filter field for finding a setting or command by name.
+Changes are a draft until you press **Apply**. A dot marks each section with unapplied changes, and **Cancel** throws the draft away. If you close the window with unapplied changes, Nulis asks whether to apply or discard them. Appearance changes are previewed live in the main window while you edit them, and the theme you apply paints the editor and every Nulis window — there is no separate switch for that. Each section has a filter field for finding a setting or command by name.
+
+### Your own theme colors
+
+Built-in themes, and themes you installed from a file, are read-only. To change a theme's colors, press **Duplicate Selected**: the panel makes an editable copy named *"<name> copy"* and marks it **· User** in the theme list. A copy is a draft, like everything else in Settings — **Revert** discards it, and the store button says exactly what it will write: **Save Copy** for a new copy, then **Save Colors**, **Save Name**, or **Save Name & Colors** after edits. The preview box paints the copy's colors as you pick them, so you see them before you save, and it paints them the way the editor will.
+
+- **Colors** — each editable color has a native color picker, a hexadecimal field, and the arrow keys. A hex value that is not a color is refused, and the reason is shown. [Theme colors and readability](#theme-colors-and-readability) covers the four colors Nulis keeps readable.
+- **Name** — type over the name field and it becomes the theme's name in the picker. The copy keeps its own id, so your settings, keybindings and shortcuts that point at a theme keep pointing at it.
+- **Remove Selected** uninstalls a theme you installed. Built-ins cannot be removed; the theme Nulis is using cannot be removed until you switch to another; Nulis asks before removing.
+- Copies are numbered `.copy`, then `.copy2`, `.copy3`, and so on. Installed themes (files you install plus your copies) are capped at 64, and a theme file is capped at 256 KiB.
+
+Your themes live beside your settings, under Nulis's application data, and survive a restart. A theme file is declarative data — colors, a name, the theme kind — and cannot contain CSS, scripts, URLs, imports, or remote resources.
 
 ### Theme colors and readability
 

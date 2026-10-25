@@ -4,7 +4,7 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 
 ## Current state
 
-- **Current milestone:** M49 custom themes is complete on `feat/theme-customization` (2026-10-25, the M49 commit at that branch's tip): catalog write path, `theme.save` (IPC 47), Appearance panel, preview scoping, spec and handover. The manual app acceptance on the owner's display is pending, as in M46-M48. M48 complete (2026-10-24); Nulis 0.5.0. Plan 4 is complete on `main`. **To resume plan 4, read the "Plan 4" section below.** Plan 3 is complete and released in Nulis 0.4.0 (2026-10-23).
+- **Current milestone:** M49 custom themes is complete and **merged to `main`** (2026-10-25, fast-forward to `bcf62f4`; `feat/theme-customization` deleted): catalog write path, `theme.save`, Appearance panel, preview scoping, spec and handover, plus the two follow-ups below — readability reporting, and the removal of the **Apply theme colors** switch (IPC protocol **48**, from 47). Not released: the release-notes file, the tag, and the CI/release runs are open, as are the manual checks in `handover/M49_HANDOVER.md` (the owner's macOS check of the readability notice passed on 2026-10-25) and the full boundary run. M48 complete (2026-10-24); Nulis 0.5.0. Plan 4 is complete on `main`. **To resume plan 4, read the "Plan 4" section below.** Plan 3 is complete and released in Nulis 0.4.0 (2026-10-23).
 - **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 5 of 5 milestones completed (M31–M35); plan 3: 5 of 5 completed (M36–M40, in Nulis 0.4.0); plan 4: 8 of 8 (M41–M48); plan 5: 1 of 1 complete (M49, manual app check pending)
 - **Baseline before M19 (commit `66853e1`):** `cargo test -p nulis-core` 86 passed; desktop Vitest 11 files, 115 tests passed.
 
@@ -46,8 +46,14 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 
 Plan: `THEME_IMPLEMENTATION_PLAN.md`. Spec: `THEME_SPEC.md` ("Custom themes"). Statuses: Not Started, In Progress, Blocked, Completed.
 
-1. Read the plan's Findings and Milestones sections, then the "Custom themes" part of the spec. Work on `feat/theme-customization`; stop at the milestone boundary with a handover in `docs/handover/M49_HANDOVER.md` and an update here.
-2. M49 is the whole feature: the catalog write path in `nulis-theme`, the `theme.save` command (IPC 47) in `nulis-core`, the Appearance panel in `SettingsWindow.tsx` (Duplicate, color fields, Save Colors, Revert, Remove Selected), preview scoping in `styles.css`, and the lifecycle tests.
+1. Read the plan's Findings and Milestones sections, then the "Custom themes" part of the spec. The plan is
+   complete, so this resumes nothing: work landed on `feat/theme-customization`, merged fast-forward to
+   `main` at `bcf62f4` (2026-10-25), and the branch is deleted. Further theme changes go on `main`, with an
+   update to `docs/handover/M49_HANDOVER.md` and here.
+2. M49 is the whole feature: the catalog write path in `nulis-theme`, the `theme.save` command (introduced
+   at IPC 47, now 48) in `nulis-core`, the Appearance panel in `SettingsWindow.tsx` (Duplicate, color
+   fields, the store button, Revert, Remove Selected, and the readability marker), preview scoping in
+   `styles.css`, and the lifecycle tests.
 3. Checks at the boundary: `cargo fmt --all -- --check`; `cargo clippy --workspace --all-targets`; `cargo test --workspace`; `npm run test --prefix apps/desktop`; `npm run typecheck --prefix apps/desktop`; `npm run lint --prefix apps/desktop`; `npm run frontend:build --prefix apps/desktop`.
 
 **Boundary checks (2026-10-25, the M49 commit):** `cargo fmt --all -- --check` clean; `cargo clippy --workspace --all-targets -- -D warnings` clean; `cargo test --workspace` green — 46 result lines, 0 failures, among them `nulis-core` 200, `nulis-theme` 16 (incl. `saves_creates_then_edits_a_user_theme_across_a_restart`), `nulis-syntax` `self_hosting` 2, `nulis-desktop-lib` 9, `nulis-automation` 15. Desktop Vitest 23 files / 220 tests passed; `typecheck` and `lint` clean; `frontend:build` built.

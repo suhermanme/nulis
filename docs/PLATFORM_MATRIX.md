@@ -1,6 +1,6 @@
 # Platform test matrix
 
-What has been verified on each operating system, and how. Update it when a check is run by hand; keep entries to what was actually observed. Last updated 2026-10-24, for 0.5.0 on `main`.
+What has been verified on each operating system, and how. Update it when a check is run by hand; keep entries to what was actually observed. Last updated 2026-10-26 for the M49 custom-theme work merged to `main`; the 0.5.0 entries below are dated 2026-10-24.
 
 ## Automated (every push to `main` and every release tag)
 
@@ -28,7 +28,7 @@ Tests that guard platform differences: `contracts.test.ts` (the desktop and core
 | M20–M29 features (keys, Find window, line endings, view options, file commands, column and clipboard tools, Quick Open) | not recorded | not yet | not yet |
 | New icon in the Dock, Finder, taskbar, and Start menu; About background in dark and light themes | not recorded | not yet | not yet |
 | M47 language servers: configure and approve `rust-analyzer`, gutter dot and underline, Problems panel jump, revoke and restart | not yet | not yet | not yet |
-| Custom themes (M49): Duplicate, color editor with live preview, Save Colors, Revert, Delete; built-ins refused; copy survives a restart | not yet | not yet | not yet |
+| Custom themes (M49): Duplicate, color editor with live preview, Save Copy/Save Colors/Save Name, rename, Revert, Remove Selected; the applied theme paints every window; built-ins refused; copy survives a restart | partly, by the user on a local build (2026-10-25): applying a user theme, editing colors, and the panel's readability notice. Relaunch and restore, Remove Selected, and the removed **Apply theme colors** switch are not yet checked | not yet | not yet |
 | 0.5.0: automatic indentation, suggestions, Problems panel and declarative language plugin (`examples/plugins/nulis-nim`) | not yet | not yet | not yet |
 | 0.3.0: Find window fit, regular expressions, Search in column, groups in Replace | yes, debug build driven by hand-written automation (2026-10-20) | not yet | not yet |
 | 0.3.0: readable selection and icons in NvChad themes, the two Nulis themes first | yes, by the user on a release build (2026-10-20) | not yet | not yet |
