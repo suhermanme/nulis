@@ -1,6 +1,10 @@
 # Work state
 
-## Integrated terminal UX (implemented locally 2026-10-26, on `feat/integrated-terminal-ux`)
+## Nulis 0.5.2 — toolbar labels, window cleanup, integrated terminal
+
+Release 0.5.2 (2026-10-26, tag `v0.5.2`) ships the three unplanned sections below: the integrated terminal, the status bar's mode chip, and the toolbar labels with the window cleanup. The user-facing summary is `release-notes/v0.5.2.md`. IPC protocol 48, unchanged. `feat/integrated-terminal-ux` merged fast-forward to `main` and was deleted. Open: the owner's native check of the packaged terminal, and the Windows and Linux checks.
+
+## Integrated terminal UX (2026-10-26, merged to `main`, released in 0.5.2)
 
 The panel below the editor had no way to change its height, drew its text in a face hardcoded inside the panel (`ui-monospace, "SFMono-Regular", Consolas, monospace` at a fixed 12 px, with no Linux face in the stack) rather than the font the app is configured to use, showed no cursor state that said where typing goes, and its toolbar button ended the shell on every hide. All four are fixed on the existing implementation — xterm.js 6 with the fit addon over the core's PTY (`nulis-terminal`) — with no emulator replaced and no new terminal feature added.
 
