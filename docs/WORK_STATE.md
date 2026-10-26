@@ -14,10 +14,10 @@ Tag `v0.5.2`: the integrated terminal (resizable panel, the editor's font, a cur
 - **M51:** Node 24 (from `.nvmrc`) and Node 24 releases of every GitHub action, so CI no longer warns about Node 20. The real Rust minimum is 1.90 (ADR-0026), checked by a CI job. Dependabot is on.
 - **M52:** the Markdown preview asks before fetching images from the web (`markdown.preview.remoteImages`, default `ask`), and never fetches over plain `http:`. IPC protocol **49**.
 - **M53, M54:** the largest core and UI files are split by topic, with code moved only and the public API and test names unchanged.
+- **M55:** finished plans and handovers archived, a shorter README with `docs/INSTALL.md`, `CONTRIBUTING.md` with DCO sign-off, issue forms, private vulnerability reporting, and CI checks for sign-offs and documentation links.
 
 ## Open
 
-- **M55** (this branch, `docs/repo-docs`): docs archive, README, contributor guide, issue templates.
 - **Release 0.5.3** after M55: release notes, version bump, tag, cask.
 - **Owner's checks:** the Windows and Linux checks in [PLATFORM_MATRIX.md](PLATFORM_MATRIX.md), and `brew audit --cask --online nulis`, which needs the tap trusted on the owner's machine.
 
