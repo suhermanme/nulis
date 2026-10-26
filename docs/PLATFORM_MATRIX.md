@@ -1,6 +1,6 @@
 # Platform test matrix
 
-What has been verified on each operating system, and how. Update it when a check is run by hand; keep entries to what was actually observed. Last updated 2026-10-26 for Nulis 0.5.2 (toolbar labels, window cleanup, integrated terminal); the M49 entries are from Nulis 0.5.1; the 0.5.0 entries below are dated 2026-10-24.
+What has been verified on each operating system, and how. Update it when a check is run by hand; keep entries to what was actually observed. Last updated 2026-10-26 for Nulis 0.5.3 (Markdown preview remote images; plan 6); the 0.5.2 entries are for the toolbar labels, window cleanup and integrated terminal; the M49 entries are from Nulis 0.5.1; the 0.5.0 entries below are dated 2026-10-24.
 
 ## Automated (every push to `main` and every release tag)
 
@@ -47,6 +47,7 @@ Tests that guard platform differences: `contracts.test.ts` (the desktop and core
 | 0.3.0: Count All on a 31.8 GB log (no limit, progress, Cancel) | yes, by the user on a release build (2026-10-20) | not yet | not yet |
 | 0.3.0: YAML and plist tools, CSV/TSV and YAML highlighting, binary plist in hex | not recorded | not yet | not yet |
 | Print, Page Setup, and Export to PDF (M36–M39): matching pages, progress and Cancel, 2,460-page log, selection, hex dump, fallback fonts, Markdown, theme colors | yes, by the user on a debug build (2026-10-22; `archive/handover/M38_HANDOVER.md`, `M39_HANDOVER.md`) | yes, Windows 11 test VM, CI build (2026-10-22): print, Markdown print without the browser's header and footer, export, page counts | yes, Ubuntu 26.04 test VM, CI build (2026-10-23): print in portrait and landscape, export, page counts |
+| 0.5.3: Markdown preview remote images: placeholder and **Load remote images**, an `https:` image loading, an unreachable one saying so, `http:` never fetched (checked against a local server's request log), Print following the preview; M54 smoke run (typing, split pane, terminal divider and hide/show, Print, Export to PDF, Rename File) | yes, by the user on a release build (2026-10-26; `handover/M52_HANDOVER.md`, `handover/M54_HANDOVER.md`) | not yet | not yet |
 | Screen readers (VoiceOver, NVDA, Orca) | not yet | not yet | not yet |
 
 The checks still to do by hand are listed in `RELEASE.md` under *Manual interaction checks*, and each milestone's handover in `docs/handover/` notes what it did not try by hand.

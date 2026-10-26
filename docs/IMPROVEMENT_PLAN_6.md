@@ -1,6 +1,6 @@
 # Improvement plan 6: repository health (M50–M55)
 
-**Status:** complete on `main` (2026-10-26, M50–M55); approved the same day with every §5 question answered (answers recorded in §5). Not yet released: planned as 0.5.3.
+**Status:** complete on `main` (2026-10-26, M50–M55); approved the same day with every §5 question answered (answers recorded in §5). Released in Nulis 0.5.3.
 **Date:** 2026-10-26, against commit `9a0d0db` (Nulis 0.5.2), branch `main`.
 **Milestone numbering:** continues `IMPROVEMENT_PLAN_4.md` (M41–M48) and `THEME_IMPLEMENTATION_PLAN.md` (M49, "plan 5" in the tracker).
 **Progress:** M50–M55 complete (§4); M54 stopped short of the remaining EditorViewport blocks on purpose (see its handover). M51 found the true Rust minimum is 1.90 (ADR-0026). Progress lives in `IMPLEMENTATION_TRACKER.md` ("Plan 6"); handovers in `docs/handover/`.

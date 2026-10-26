@@ -124,7 +124,7 @@ brew install --cask nulis
 
 ## Project status
 
-The current release is Nulis 0.5.2, and Nulis is under active development. The features above are implemented and covered by automated tests. On every push, CI builds the macOS, Windows, and Linux packages, installs each one as a user would, and starts it. Tagged releases are built, checked, and published the same way. [docs/PLATFORM_MATRIX.md](docs/PLATFORM_MATRIX.md) records what has been checked on each system.
+The current release is Nulis 0.5.3, and Nulis is under active development. The features above are implemented and covered by automated tests. On every push, CI builds the macOS, Windows, and Linux packages, installs each one as a user would, and starts it. Tagged releases are built, checked, and published the same way. [docs/PLATFORM_MATRIX.md](docs/PLATFORM_MATRIX.md) records what has been checked on each system.
 
 Known limits:
 

@@ -2,11 +2,15 @@
 
 What is true of the repository now. The full history, from M00 to 0.5.2, is in [archive/WORK_STATE_HISTORY.md](archive/WORK_STATE_HISTORY.md); progress by milestone is in [IMPLEMENTATION_TRACKER.md](IMPLEMENTATION_TRACKER.md).
 
-## Released: Nulis 0.5.2 (2026-10-26)
+## Released: Nulis 0.5.3 (2026-10-26)
+
+Tag `v0.5.3`: plan 6, M50–M55, listed below. IPC protocol 49. Release notes: [release-notes/v0.5.3.md](release-notes/v0.5.3.md). The cask moves to 0.5.3 after the release is published.
+
+## Nulis 0.5.2 (2026-10-26)
 
 Tag `v0.5.2`: the integrated terminal (resizable panel, the editor's font, a cursor that shows focus, a shell that survives hiding), the status bar's mode chip as an indicator, and toolbar labels with the **More** overflow menu. IPC protocol 48. Release notes: [release-notes/v0.5.2.md](release-notes/v0.5.2.md). `Casks/nulis.rb` pins the 0.5.2 `.dmg`.
 
-## On `main` since 0.5.2 (not released; planned as 0.5.3)
+## In 0.5.3, since 0.5.2
 
 [Plan 6](IMPROVEMENT_PLAN_6.md), repository health:
 
@@ -18,7 +22,7 @@ Tag `v0.5.2`: the integrated terminal (resizable panel, the editor's font, a cur
 
 ## Open
 
-- **Release 0.5.3** after M55: release notes, version bump, tag, cask.
+- **Release 0.5.3:** the tag, the release run, and the cask update.
 - **Owner's checks:** the Windows and Linux checks in [PLATFORM_MATRIX.md](PLATFORM_MATRIX.md), and `brew audit --cask --online nulis`, which needs the tap trusted on the owner's machine.
 
 ## Verifying a change
