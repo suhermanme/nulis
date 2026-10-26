@@ -16,12 +16,13 @@ export function useShowWhenReady(ready: boolean): void {
   useEffect(() => {
     if (!ready || shown.current) return undefined;
     shown.current = true;
-    // Two frames: the first lays out the themed page, the second paints it.
-    let second = 0;
-    const first = window.requestAnimationFrame(() => {
-      second = window.requestAnimationFrame(() => { void windowReady().catch(() => undefined); });
-    });
-    return () => { window.cancelAnimationFrame(first); window.cancelAnimationFrame(second); };
+    // The themed page is in the DOM now. Animation frames never run while the
+    // window is hidden, so waiting for one only ever hit the shell's fallback
+    // timer. Lay the page out now instead; the first frame drawn when the
+    // window appears is then the finished, themed page.
+    void window.document.documentElement.offsetHeight;
+    void windowReady().catch(() => undefined);
+    return undefined;
   }, [ready]);
 }
 
