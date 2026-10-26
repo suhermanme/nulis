@@ -28,6 +28,15 @@ jobs:
           components: rustfmt
       - run: cargo fmt --all --check
 
+  # Relative links and heading anchors in the Markdown point somewhere real.
+  # Web URLs are not fetched.
+  links:
+    name: Documentation links
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: python3 .github/scripts/check-links.py
+
   # Every commit a pull request adds carries a Developer Certificate of Origin
   # sign-off (CONTRIBUTING.md). Dependabot cannot sign off, so its commits pass.
   sign-off:

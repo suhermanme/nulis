@@ -30,12 +30,12 @@ Last milestone of `docs/IMPROVEMENT_PLAN_6.md`. Branch `docs/repo-docs`, from `m
 - Link check (a script that resolves every relative link and anchor in the tracked Markdown): 0 broken in 82 files. It was first checked on a sample with one broken file and one broken anchor, and found both.
 - Vitest: the same 262 tests with the same names and results (the Help window reads `USER_GUIDE.md`). `cargo test --workspace`: 471 passed. `cargo doc -p nulis-core`: 0 warnings. `ci.yml` and the issue forms parse.
 
-## Open, for the owner
+## Owner's decisions (2026-10-26)
 
-- **Private vulnerability reporting is off on GitHub.** `SECURITY.md`, `CONTRIBUTING.md` and the issue chooser now send reporters to the repository's **Report a vulnerability** form, which works only once it is on (Settings ▸ Code security ▸ Private vulnerability reporting).
-- **README size.** It is 24 KB, not the plan's 12 KB. Reaching 12 KB would mean condensing "What Nulis does" (about 6 KB), which rewrites the project's description rather than moving it.
-- **The sign-off job** runs only on pull requests, so it has not run in CI yet. Merging M55 through a pull request would exercise it.
-- **A link check in CI** (the plan's optional item). The script used here could run as a CI step.
+- **Private vulnerability reporting: on.** Enabled through the API (`PUT /repos/suhermanme/nulis/private-vulnerability-reporting`, which now reads `{"enabled": true}`). The **Report a vulnerability** form that `SECURITY.md`, `CONTRIBUTING.md` and the issue chooser name now works.
+- **README: kept at 24 KB.** "What Nulis does" stays as written. The plan's 12 KB would have meant rewriting the feature list rather than moving text.
+- **Merge through a pull request,** so the new sign-off job runs in CI for real.
+- **Link check in CI: added.** `.github/scripts/check-links.py` (the script used here, which annotates each broken link in CI) runs as the **Documentation links** job. It was checked on a sample with a missing file, where it named it and exited 1.
 
 ## Next
 
