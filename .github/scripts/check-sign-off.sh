@@ -14,7 +14,7 @@ for commit in $(git rev-list --no-merges "$base..$head"); do
   esac
   checked=$((checked + 1))
   if ! git log -1 --format='%B' "$commit" | grep -qE '^Signed-off-by: .+ <[^>]+@[^>]+>$'; then
-    echo "::error::$(git log -1 --format='%h %s' "$commit") has no Signed-off-by line. Add it with 'git rebase --signoff $base' (see CONTRIBUTING.md)."
+    echo "::error::$(git log -1 --format='%h %s' "$commit") has no Signed-off-by line. Add it with 'git rebase --signoff main' (see CONTRIBUTING.md)."
     missing=$((missing + 1))
   fi
 done

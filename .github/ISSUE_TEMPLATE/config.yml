@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security problem privately
+    url: https://github.com/suhermanme/nulis/security/advisories/new
+    about: Do not open a public issue for a vulnerability.
+  - name: User guide
+    url: https://github.com/suhermanme/nulis/blob/main/docs/USER_GUIDE.md
+    about: How to use Nulis. The same guide is in the app under Help (F1).

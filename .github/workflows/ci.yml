@@ -28,6 +28,23 @@ jobs:
           components: rustfmt
       - run: cargo fmt --all --check
 
+  # Every commit a pull request adds carries a Developer Certificate of Origin
+  # sign-off (CONTRIBUTING.md). Dependabot cannot sign off, so its commits pass.
+  sign-off:
+    name: Signed-off commits
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Every commit in the pull request is signed off
+        shell: bash
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: .github/scripts/check-sign-off.sh "$BASE" "$HEAD"
+
   # The workspace promises to build on the Rust it names in rust-version.
   # The version is read from Cargo.toml, so the promise and the check cannot drift.
   msrv:

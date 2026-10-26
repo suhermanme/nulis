@@ -1,0 +1,70 @@
+name: Bug report
+description: Something in Nulis does not work as it should.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting this. For a security problem, do not open an issue: report it privately as docs/SECURITY.md describes.
+  - type: input
+    id: version
+    attributes:
+      label: Nulis version
+      description: Help ▸ About Nulis shows it.
+      placeholder: "0.5.2"
+    validations:
+      required: true
+  - type: dropdown
+    id: system
+    attributes:
+      label: Operating system
+      options:
+        - macOS (Apple silicon)
+        - macOS (Intel)
+        - Windows
+        - Linux
+    validations:
+      required: true
+  - type: input
+    id: system-version
+    attributes:
+      label: System version and, on Linux, the distribution
+      placeholder: "macOS 26.1, Windows 11 24H2, Ubuntu 24.04"
+  - type: dropdown
+    id: install
+    attributes:
+      label: How you installed Nulis
+      options:
+        - Homebrew
+        - Downloaded package (.dmg, installer, .deb or .rpm)
+        - Built from source
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The smallest steps that show the problem, starting from opening Nulis. Attach a sample file if the problem depends on one (without private data).
+      placeholder: |
+        1. Open a file like …
+        2. Choose …
+        3. …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened instead
+      description: Include the exact message from the status bar or a dialog, and a screenshot if it shows the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or other details
+      description: Anything else that helps, such as the file's size and encoding, or terminal output when Nulis is started from a terminal.
+      render: text

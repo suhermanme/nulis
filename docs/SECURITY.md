@@ -59,4 +59,8 @@ The webview has no general window-destroy permission. Its guarded native close c
 
 CI runs locked dependency installs once lockfiles exist, vulnerability/license auditing is required before releases, and production artifacts will be signed where platform credentials exist. Update metadata must be signed and delivered over authenticated transport. Signing/notarization remains deferred until credentials are available.
 
-Security reports should contain reproduction steps without sensitive user data. A private reporting channel must be published before public release.
+## Reporting a vulnerability
+
+Report a security problem privately, not in a public issue: on GitHub, open the repository's **Security** tab and choose **Report a vulnerability** (<https://github.com/suhermanme/nulis/security/advisories/new>). Only the maintainer sees the report.
+
+Include the Nulis version, your operating system, and steps that reproduce the problem, without sensitive data of your own. You will get an answer in the advisory; a fix is released before the details are made public.
