@@ -49,6 +49,10 @@ React runs effects in declaration order. The changes:
 
 On the Desktop build of this branch: type and undo in a document, split a pane, open the terminal and drag its divider, hide and show it (the shell survives), preview a Markdown file, Export to PDF, Print, and rename a file.
 
+## Owner's smoke run (2026-10-26): passed
+
+On `~/Desktop/Nulis.app` built from `2b8cbcb`, the owner checked typing and undo, a split pane, the terminal (divider drag, hide and show with the shell kept), the Markdown preview, Print (the source in Edit mode, the formatted preview in View mode), Export to PDF, and File ▸ Rename File… (name selected without its extension, Rename, Cancel and Esc): all as before. Export to PDF writes the Markdown source in both modes. That is documented behavior (`USER_GUIDE.md`, "Markdown in View mode"), the same in 0.5.2, and the owner chose to keep it.
+
 ## Next
 
 M55: archive the finished plans and handovers, trim the README, add `CONTRIBUTING.md` (with DCO sign-off) and issue templates, and fix the three `cargo doc` link warnings M53 noted.
