@@ -28,7 +28,7 @@ version = "0.5.2"
 edition = "2021"
 license = "GPL-3.0-or-later"
 repository = "https://github.com/suhermanme/nulis"
-rust-version = "1.82"
+rust-version = "1.90"
 
 [workspace.dependencies]
 base64 = "=0.22.1"

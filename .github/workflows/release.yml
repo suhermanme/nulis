@@ -23,7 +23,7 @@ jobs:
     outputs:
       version: ${{ steps.read.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: read
         name: The tag must match the application version
         shell: bash
@@ -42,14 +42,14 @@ jobs:
     needs: version
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin, x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       - name: Build one application for Apple silicon and Intel Macs
@@ -73,7 +73,7 @@ jobs:
           hdiutil verify "$dmg"
           mkdir -p dist
           cp "$dmg" "dist/Nulis_${{ needs.version.outputs.version }}_universal.dmg"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-macos
           path: dist/*
@@ -84,12 +84,12 @@ jobs:
     needs: version
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       - name: Build the installer
@@ -109,7 +109,7 @@ jobs:
           Stop-Process -Id $app.Id -Force
           New-Item -ItemType Directory -Force dist | Out-Null
           Copy-Item $installer.FullName dist/
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-windows
           path: dist/*
@@ -122,16 +122,16 @@ jobs:
     # with an older C library than the newest Ubuntu.
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install build prerequisites
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf rpm
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       - name: Build the packages
@@ -151,7 +151,7 @@ jobs:
             dnf install -y -q /pkg/*.rpm >/dev/null
             if ldd /usr/bin/nulis-desktop | grep "not found"; then exit 1; fi
             echo "The .rpm installs on Fedora with every library resolved."'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-linux
           path: dist/*
@@ -164,8 +164,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           pattern: release-*
           path: dist
@@ -175,7 +175,7 @@ jobs:
         run: |
           sha256sum * > SHA256SUMS.txt
           cat SHA256SUMS.txt
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           name: Nulis ${{ needs.version.outputs.version }}
           body_path: docs/release-notes/v${{ needs.version.outputs.version }}.md

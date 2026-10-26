@@ -34,6 +34,8 @@ fn files(root: &Path) -> Vec<PathBuf> {
 fn plain_by_nature(relative: &str) -> bool {
     let name = relative.rsplit('/').next().unwrap_or(relative);
     name.contains("LICENSE")
+        // A bare version number, such as `24`, for Node version managers.
+        || name == ".nvmrc"
         || Path::new(name).extension().is_some_and(|extension| {
             extension.eq_ignore_ascii_case("txt") || extension.eq_ignore_ascii_case("log")
         })

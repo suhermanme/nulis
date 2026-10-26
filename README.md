@@ -321,9 +321,9 @@ THIRD_PARTY_LICENSES.md  Licenses of dependencies
 
 | Tool | Version |
 | --- | --- |
-| [Rust](https://rustup.rs) | 1.82 or later, with `rustfmt` and `clippy` |
-| [Node.js](https://nodejs.org) | 20 or later |
-| npm | 10 or later |
+| [Rust](https://rustup.rs) | 1.90 or later, with `rustfmt` and `clippy` |
+| [Node.js](https://nodejs.org) | 24 or later (`.nvmrc` names the version CI uses) |
+| npm | 11 or later |
 
 A C compiler is also needed, for the Tree-sitter parsers. It comes with the Xcode Command Line Tools on macOS, `build-essential` on Linux, and the Visual Studio Build Tools that Rust needs on Windows.
 

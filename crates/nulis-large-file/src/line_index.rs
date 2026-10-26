@@ -215,7 +215,7 @@ fn record_line(
     offset: u64,
 ) -> io::Result<()> {
     *line = line.checked_add(1).ok_or_else(line_index_overflow)?;
-    if *line % stride == 0 {
+    if line.is_multiple_of(stride) {
         checkpoints.push(LineCheckpoint {
             line: *line,
             byte_offset: offset,

@@ -22,11 +22,35 @@ jobs:
     name: Rust formatting
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
       - run: cargo fmt --all --check
+
+  # The workspace promises to build on the Rust it names in rust-version.
+  # The version is read from Cargo.toml, so the promise and the check cannot drift.
+  msrv:
+    name: Rust minimum version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Linux desktop prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - id: msrv
+        name: Read rust-version
+        shell: bash
+        run: |
+          version=$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml)
+          test -n "$version" || { echo "::error::rust-version is missing from Cargo.toml"; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace --all-targets --locked
 
   rust:
     name: Rust (${{ matrix.os }})
@@ -36,7 +60,7 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Linux desktop prerequisites
         if: runner.os == 'Linux'
         run: |
@@ -81,10 +105,10 @@ jobs:
     name: Frontend
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       - run: npm run lint
@@ -106,7 +130,7 @@ jobs:
             bundles: nsis
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install Linux desktop prerequisites
         if: runner.os == 'Linux'
         run: |
@@ -114,9 +138,9 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf rpm xvfb
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       - name: Build platform bundle
@@ -248,7 +272,7 @@ jobs:
             echo "::error title=${log}::${lines}"
           done
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: nulis-${{ matrix.os }}
           path: |
@@ -263,7 +287,7 @@ jobs:
     name: Document fuzzing
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
         with:
@@ -276,7 +300,7 @@ jobs:
     name: Large-file smoke benchmark
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release --locked -p nulis-benchmarks
@@ -290,7 +314,7 @@ jobs:
           done
           target/release/nulis-benchmarks generate-sparse "$RUNNER_TEMP/nulis-corpus/sparse-10g.dat" 10GiB
           /usr/bin/time -v target/release/nulis-benchmarks probe "$RUNNER_TEMP/nulis-corpus/sparse-10g.dat" >> "$RUNNER_TEMP/nulis-corpus/results.txt" 2>&1
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: nulis-performance-linux
           path: ${{ runner.temp }}/nulis-corpus/results.txt
@@ -300,11 +324,11 @@ jobs:
     name: Dependency advisories
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       - run: npm audit --audit-level=high
