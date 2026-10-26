@@ -1846,11 +1846,11 @@ fn find_in_files_filters_names_skips_subfolders_and_reports_lines() {
 
 #[test]
 fn wildcards_match_whole_names() {
-    assert!(super::wildcard_match("*.rs", "lib.rs"));
-    assert!(super::wildcard_match("a?c*", "abcdef"));
-    assert!(!super::wildcard_match("*.rs", "lib.rsx"));
-    assert!(super::wildcard_match("*", ""));
-    assert!(!super::wildcard_match("?", ""));
+    assert!(super::types::wildcard_match("*.rs", "lib.rs"));
+    assert!(super::types::wildcard_match("a?c*", "abcdef"));
+    assert!(!super::types::wildcard_match("*.rs", "lib.rsx"));
+    assert!(super::types::wildcard_match("*", ""));
+    assert!(!super::types::wildcard_match("?", ""));
 }
 
 fn document_text(manager: &DocumentManager, id: &super::DocumentId) -> String {
