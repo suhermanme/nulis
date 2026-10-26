@@ -59,11 +59,16 @@ The moves were scripted, not hand-copied:
 
 ## Checks run (macOS, 2026-10-26)
 
+- Frontend: Vitest 262 tests pass, the same as before the moves (after the fix below), with lint and typecheck clean.
 - `cargo fmt --all --check`, `cargo clippy --workspace --all-targets --locked -- -D warnings` clean; `cargo test --workspace --locked` 471 passed, 0 failed (the same as on `main`); `cargo +1.90 check --workspace --all-targets --locked` clean.
 - **Public API.** `cargo doc -p nulis-core` was built from `main` and from this branch:
   - `all.html` lists the same 180 public items;
   - `NulisCore` has the same 60 public methods and `DocumentManager` the same 143.
 - **Doc warnings.** `cargo doc` gives 3 warnings, the same 3 as on `main` (public docs linking to private constants in `count_jobs.rs`, `editor/find_all.rs` and `print_jobs.rs`). They predate this plan and are left for M55.
+
+## Found after the moves: a frontend test reads the Rust source
+
+`apps/desktop/src/commands.test.ts` imports `crates/nulis-core/src/lib.rs?raw` and looks there for the `WORKBENCH_ACTIONS` table and for every command ID the native menus send. After `builtin_commands.rs` took both, two tests failed and a third ("every presentation command has a handler") passed while checking nothing, because it found no table. The Rust checks could not see this. It surfaced in the full Vitest run and in the Frontend job of CI run 40345434639. Fix: the test reads `lib.rs` and `builtin_commands.rs` together, and fails with a message naming both files if the table is missing, so a later move cannot silently empty it. `contracts.test.ts` also reads `lib.rs`, only for `IPC_PROTOCOL_VERSION`, which stays there. `ARCHITECTURE.md` cited `lib.rs:90` for that constant and now names it instead of a line. Verified: Vitest 262/262, lint, typecheck.
 
 ## Not done
 

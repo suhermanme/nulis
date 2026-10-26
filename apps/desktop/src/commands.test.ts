@@ -1,12 +1,18 @@
 import { expect, test } from "vitest";
-import coreSource from "../../../crates/nulis-core/src/lib.rs?raw";
+import coreFacadeSource from "../../../crates/nulis-core/src/lib.rs?raw";
+import builtinCommandsSource from "../../../crates/nulis-core/src/builtin_commands.rs?raw";
 import shellSource from "../src-tauri/src/lib.rs?raw";
 import appSource from "./App.tsx?raw";
 import { EDITOR_ACTIONS, FIND_WINDOW_COMMANDS, WORKBENCH_ACTIONS } from "./commands";
 
+/** The core's command registrations: the façade and the built-in commands it registers. */
+const coreSource = `${coreFacadeSource}\n${builtinCommandsSource}`;
+
 /** Command IDs listed in nulis-core's WORKBENCH_ACTIONS table. */
 function coreWorkbenchActions(): string[] {
   const start = coreSource.indexOf("const WORKBENCH_ACTIONS");
+  // A table that moved would leave nothing to compare, and every check here would pass.
+  expect(start, "WORKBENCH_ACTIONS is in lib.rs or builtin_commands.rs").toBeGreaterThan(-1);
   const table = coreSource.slice(start, coreSource.indexOf("];", start));
   return [...table.matchAll(/\(\s*"([a-zA-Z0-9]+\.[a-zA-Z0-9]+)",/g)].map((match) => match[1]!);
 }
