@@ -580,6 +580,95 @@ mod tests {
         manager.close(&terminal.terminal_id).expect("close");
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_shell_takes_input_after_a_resize_and_stays_the_same_session() {
+        let manager = TerminalManager::default();
+        let terminal = manager
+            .spawn(&TerminalSpawnRequest {
+                program: Some("/bin/sh".into()),
+                arguments: Vec::new(),
+                cwd: None,
+                environment: BTreeMap::new(),
+                size: TerminalSize {
+                    columns: 40,
+                    rows: 10,
+                },
+            })
+            .expect("spawn");
+        // The PTY echoes typed bytes, so a needle that also appears in the command would
+        // be satisfied by the echo; the quotes keep the command text from containing it.
+        let id = terminal.terminal_id.clone();
+        let mut cursor = 0;
+        let mut seen = String::new();
+        let mut running = true;
+        manager
+            .write(&id, b"echo nulis\"\"first\n")
+            .expect("first write");
+        for _ in 0..200 {
+            let page = manager.read(&id, cursor, 1024).expect("read");
+            cursor = page.next_offset;
+            running = page.running;
+            seen.push_str(&String::from_utf8_lossy(&page.bytes));
+            if seen.contains("nulisfirst") {
+                break;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(
+            running,
+            "the shell exited before the resize; output so far: {seen:?}"
+        );
+        assert!(
+            seen.contains("nulisfirst"),
+            "the shell answered no first command; output: {seen:?}"
+        );
+
+        manager
+            .resize(
+                &id,
+                TerminalSize {
+                    columns: 90,
+                    rows: 24,
+                },
+            )
+            .expect("resize");
+        manager
+            .write(&id, b"echo nulis\"\"after\n")
+            .expect("second write");
+        for _ in 0..200 {
+            let page = manager.read(&id, cursor, 1024).expect("read");
+            cursor = page.next_offset;
+            running = page.running;
+            seen.push_str(&String::from_utf8_lossy(&page.bytes));
+            if seen.contains("nulisafter") {
+                break;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(
+            seen.contains("nulisafter"),
+            "the shell took no input after the resize; output: {seen:?}"
+        );
+        assert!(running, "the shell exited on the resize; output: {seen:?}");
+
+        // The resize kept the session: one session, at the size it was given.
+        let sessions = manager.list().expect("list");
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(
+            sessions[0].size,
+            TerminalSize {
+                columns: 90,
+                rows: 24
+            }
+        );
+        assert!(sessions[0].running);
+
+        manager.close(&id).expect("close");
+        let closed = manager.list().expect("closed list");
+        assert_eq!(closed.len(), 0, "closing left the session listed");
+    }
+
     #[test]
     fn invalid_spawn_limits_fail_before_process_creation() {
         let manager = TerminalManager::default();

@@ -345,11 +345,29 @@ kbd { padding: 2px 6px; border: 1px solid #373e48; border-radius: 4px; color: #b
 .document-map-line.quote { color: var(--syntax-string); font-style: italic; }
 .document-map-line.bullet { color: var(--syntax-escape); }
 .document-map-line.comment { color: var(--syntax-comment); }
-.terminal-panel { flex: 0 0 230px; min-height: 120px; border-top: 1px solid var(--border); background: var(--terminal-bg); }
-.terminal-panel > header { display: flex; justify-content: space-between; align-items: center; height: 30px; padding: 0 12px; color: #9ca4ae; background: #151920; font-size: 9px; letter-spacing: .12em; }
+/* Height is inline on the panel, measured against the editor column by the divider.
+   A hidden panel folds out of the column entirely and the editor takes its space. */
+.terminal-panel { display: flex; flex: 0 0 auto; flex-direction: column; min-height: 0; overflow: hidden; border-top: 1px solid var(--border); background: var(--terminal-bg); }
+.terminal-panel[hidden] { display: none; }
+.terminal-panel > header { display: flex; justify-content: space-between; align-items: center; height: 30px; padding: 0 12px; color: var(--muted); background: var(--panel); font-size: 9px; letter-spacing: .12em; }
 .terminal-panel > header button { width: 25px; height: 24px; border: 0; color: var(--muted); background: transparent; font-size: 16px; cursor: pointer; }
-.terminal-host { height: calc(100% - 30px); padding: 6px 8px; overflow: hidden; }
+.terminal-panel > header button:hover { color: var(--ui-text); background: var(--hover); }
+/* The header carries the panel's focus line in the theme's own focus colour, the token
+   the editor's and the hex view's focus rings use, so focus reads as one signal. */
+.terminal-panel.focused > header { color: var(--ui-text); box-shadow: inset 0 1px 0 var(--editor-focus); }
+/* Padding lives on the body, not the host: FitAddon sizes the grid to the host's own
+   box, so padding inside the host steals rows from the terminal that fills it. */
+.terminal-body { flex: 1; min-height: 0; padding: 6px 10px 8px; }
+.terminal-host { height: 100%; }
 .terminal-host .xterm { height: 100%; }
+/* Terminal cells are fixed pitch, so joining glyphs would shift the columns output aligns by. */
+.terminal-host .xterm-rows { font-variant-ligatures: none; }
+/* The divider is the panel's top edge: a 7px band straddling the 1px border, wide
+   enough to catch a pointer without drawing a second bar across the layout. */
+.terminal-resizer { flex: 0 0 7px; margin: -3px 0; position: relative; z-index: 6; cursor: row-resize; touch-action: none; }
+.terminal-resizer:hover, .workbench.resizing-terminal .terminal-resizer { background: color-mix(in srgb, var(--accent) 55%, transparent); }
+.terminal-resizer:focus-visible { outline: 0; background: color-mix(in srgb, var(--accent) 55%, transparent); }
+.workbench.resizing-terminal, .workbench.resizing-terminal * { cursor: row-resize !important; user-select: none !important; }
 .problems-panel {
   display: flex; flex: 0 0 auto; flex-direction: column; min-height: 96px; max-height: 220px;
   border-top: 1px solid var(--border); background: var(--menu);

@@ -555,7 +555,15 @@ The hexadecimal view reads only the bytes on screen, so it works on files of any
 
 ### Terminal
 
-Click the terminal button at the right of the tab strip to open a terminal below the editor. It runs your default shell. Click the button again to close it.
+Click the terminal button at the right of the tab strip to open a terminal below the editor. It runs your default shell.
+
+Click in the terminal to type to the shell. A block cursor marks where your keystrokes go, and it blinks only while the terminal has the keyboard; when another panel has it, the cursor shows as an outline, so you can see which panel is listening.
+
+The bar between the editor and the terminal is a divider: drag it to give one side more room, or focus it and use the arrow keys, the same way as the pane dividers (**Home** and **End** jump to the smallest and the largest size). The terminal never shrinks below a prompt and a few lines of output, and the editor never loses the strip it needs to work in. The height you leave is remembered for the next window.
+
+The toolbar button hides the terminal, it does not quit your shell: history, the prompt, and anything running in the terminal stay as they were, and the button shows the terminal again at the height you left it, ready to type. To end the shell, click **×** in the terminal's header.
+
+The terminal draws in the editor's monospace face from **Settings ▸ Appearance**, and **View ▸ Zoom** enlarges it along with the editor. Its rows stay tight, so a short panel still shows the prompt.
 
 ## File View
 

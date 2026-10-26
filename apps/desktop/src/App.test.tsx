@@ -14,6 +14,9 @@ import {
   setToolsMenu, takeLaunchPaths,
 } from "./ipc";
 import { DEFAULT_EDITOR_PREFERENCES } from "./preferences";
+import {
+  TERMINAL_DEFAULT_HEIGHT, TERMINAL_HEIGHT_CEILING, TERMINAL_HEIGHT_STEP, TERMINAL_MIN_HEIGHT,
+} from "./terminalLayout";
 
 const DEFAULT_SESSION: WorkbenchSession = {
   schemaVersion: 2,
@@ -101,6 +104,25 @@ vi.mock("./EditorViewport", () => ({
 
 vi.mock("./HexViewport", () => ({
   HexViewport: ({ document }: { document: { name: string } }) => <div>{document.name} hexadecimal editor</div>,
+}));
+
+// The panel owns xterm and the PTY session. These tests cover the workbench's side of
+// it: the divider, the visibility rules, and the font the workbench hands it over.
+vi.mock("./TerminalPanel", () => ({
+  TerminalPanel: ({ font, height, hidden, focusSignal, onClose }: {
+    font: { family: string; size: number; lineHeight: number };
+    height: number;
+    hidden: boolean;
+    focusSignal: number;
+    onClose: () => void;
+  }) => (
+    <section className="terminal-panel" aria-label="Integrated terminal" hidden={hidden}
+      style={{ height }} data-font={font.family} data-size={font.size} data-line-height={font.lineHeight}
+      data-focus-signal={focusSignal}>
+      <header><span>TERMINAL</span><button type="button" aria-label="Close terminal" onClick={onClose}>×</button></header>
+      <div className="terminal-body"><div className="terminal-host" /></div>
+    </section>
+  ),
 }));
 
 let responses: Record<string, unknown[]>;
@@ -2802,4 +2824,112 @@ test("a built-in theme repaints its own palette and never marks the window", asy
   await waitFor(() => expect(document.querySelector("main")?.hasAttribute("data-custom")).toBe(false));
   // Built-in colors pass the readability floors unchanged.
   expect(window.document.documentElement.style.getPropertyValue("--editor-bg")).toBe("#232626");
+});
+
+async function openTerminal() {
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  fireEvent.click(screen.getByRole("button", { name: "Show terminal" }));
+  return {
+    panel: () => document.querySelector<HTMLElement>(".terminal-panel")!,
+    divider: () => document.querySelector<HTMLElement>(".terminal-resizer")!,
+  };
+}
+
+/** Drags the divider from one pointer height to the next; releasing is left to the test. */
+function dragTerminalDivider(from: number, to: number) {
+  const divider = document.querySelector(".terminal-resizer")!;
+  fireEvent.pointerDown(divider, { clientY: from, button: 0 });
+  const move = new Event("pointermove") as Event & { clientY: number };
+  Object.defineProperty(move, "clientY", { value: to });
+  window.dispatchEvent(move);
+}
+
+test("the terminal button opens the panel with a divider that reports its size", async () => {
+  const { panel, divider } = await openTerminal();
+
+  expect(panel()).toBeInTheDocument();
+  expect(divider()).toHaveAttribute("role", "separator");
+  expect(divider()).toHaveAttribute("aria-orientation", "horizontal");
+  expect(divider()).toHaveAttribute("aria-valuemin", String(TERMINAL_MIN_HEIGHT));
+  expect(divider()).toHaveAttribute("aria-valuenow", String(TERMINAL_DEFAULT_HEIGHT));
+  expect(divider()).toHaveAttribute("aria-valuetext", `${TERMINAL_DEFAULT_HEIGHT} pixels tall`);
+  expect(screen.getByRole("button", { name: "Hide terminal" })).toHaveAttribute("aria-pressed", "true");
+});
+
+test("the divider moves the panel from its top edge and clamps at the bounds", async () => {
+  const { panel, divider } = await openTerminal();
+
+  dragTerminalDivider(500, 460);
+  // The move arrives from outside React, so the height settles on the next flush.
+  await waitFor(() => expect(divider()).toHaveAttribute("aria-valuenow", "270"));
+  expect(document.querySelector("main")).toHaveClass("resizing-terminal");
+  // The panel itself takes the height, not only the divider's report of it.
+  expect(panel()).toHaveStyle({ height: "270px" });
+
+  fireEvent.pointerUp(window);
+  await waitFor(() => expect(document.querySelector("main")).not.toHaveClass("resizing-terminal"));
+  await waitFor(() => expect(window.localStorage.getItem("nulis.terminalHeight.v1")).toBe("270"));
+
+  // A pointer run past the smallest useful height stops at it.
+  dragTerminalDivider(500, 900);
+  await waitFor(() => expect(divider()).toHaveAttribute("aria-valuenow", String(TERMINAL_MIN_HEIGHT)));
+  fireEvent.pointerUp(window);
+  await waitFor(() => expect(window.localStorage.getItem("nulis.terminalHeight.v1")).toBe(String(TERMINAL_MIN_HEIGHT)));
+});
+
+test("the divider's keys step it by a line at a time", async () => {
+  const { divider } = await openTerminal();
+  // Stepping changes the band's own attributes, not the node under it.
+  const band = divider();
+
+  fireEvent.keyDown(band, { key: "ArrowUp" });
+  expect(band).toHaveAttribute("aria-valuenow", String(TERMINAL_DEFAULT_HEIGHT + TERMINAL_HEIGHT_STEP));
+  fireEvent.keyDown(band, { key: "ArrowDown" });
+  expect(band).toHaveAttribute("aria-valuenow", String(TERMINAL_DEFAULT_HEIGHT));
+  fireEvent.keyDown(band, { key: "Home" });
+  expect(band).toHaveAttribute("aria-valuenow", String(TERMINAL_MIN_HEIGHT));
+  fireEvent.keyDown(band, { key: "End" });
+  expect(band).toHaveAttribute("aria-valuenow", String(TERMINAL_HEIGHT_CEILING));
+});
+
+test("the panel reopens at the height it was left at", async () => {
+  window.localStorage.setItem("nulis.terminalHeight.v1", "350");
+  const { panel, divider } = await openTerminal();
+
+  expect(divider()).toHaveAttribute("aria-valuenow", "350");
+  expect(panel()).toHaveStyle({ height: "350px" });
+});
+
+test("hiding the terminal keeps the panel and the shell behind it", async () => {
+  const { panel, divider } = await openTerminal();
+  expect(panel()).not.toHaveAttribute("hidden");
+  expect(panel()).toHaveAttribute("data-focus-signal", "1");
+
+  fireEvent.click(screen.getByRole("button", { name: "Hide terminal" }));
+  expect(screen.getByRole("button", { name: "Show terminal" })).toBeInTheDocument();
+  expect(panel()).toHaveAttribute("hidden");
+  expect(document.querySelector(".terminal-resizer")).toBeNull();
+
+  // Showing it again returns the same panel and hands the keyboard back to it.
+  fireEvent.click(screen.getByRole("button", { name: "Show terminal" }));
+  expect(panel()).not.toHaveAttribute("hidden");
+  expect(divider()).toBeInTheDocument();
+  expect(panel()).toHaveAttribute("data-focus-signal", "2");
+
+  // Closing is the deliberate act that ends the shell.
+  fireEvent.click(screen.getByRole("button", { name: "Close terminal" }));
+  expect(document.querySelector(".terminal-panel")).toBeNull();
+  expect(screen.getByRole("button", { name: "Show terminal" })).toBeInTheDocument();
+});
+
+test("the panel reads with the editor's face, size and zoom", async () => {
+  window.localStorage.setItem("nulis.viewOptions.v1", JSON.stringify({ zoom: 150 }));
+  const { panel } = await openTerminal();
+
+  expect(panel()).toHaveAttribute("data-font", DEFAULT_EDITOR_PREFERENCES.fontFamily);
+  expect(panel()).toHaveAttribute("data-size", String(DEFAULT_EDITOR_PREFERENCES.fontSize * 1.5));
+  // The workbench hands over the editor's line spacing as it stands; tightening it to
+  // the band a terminal can use is the panel's own rule (see TerminalPanel).
+  expect(panel()).toHaveAttribute("data-line-height", String(DEFAULT_EDITOR_PREFERENCES.lineHeight));
 });

@@ -46,7 +46,7 @@ import { CompareView } from "./CompareView";
 import { FolderCompareView } from "./FolderCompareView";
 import { HelpWindow } from "./HelpWindow";
 import licenseText from "../../../LICENSE?raw";
-import { TerminalPanel } from "./TerminalPanel";
+import { TerminalPanel, type TerminalFont } from "./TerminalPanel";
 import { MacroPanel } from "./MacroPanel";
 import { PluginPanel } from "./PluginPanel";
 import { SECTION_KEY, SettingsWindow, type SettingsMainAction } from "./SettingsWindow";
@@ -116,6 +116,15 @@ import {
   withRecentFile,
   type ViewOptions,
 } from "./preferences";
+import {
+  clampTerminalHeight,
+  loadTerminalHeight,
+  saveTerminalHeight,
+  TERMINAL_HEIGHT_STEP,
+  TERMINAL_MIN_HEIGHT,
+  terminalHeightFromDrag,
+  terminalMaxHeight,
+} from "./terminalLayout";
 import { exportWindowTheme } from "./windowTheme";
 
 const EXPLORER_ENTRY_LIMIT = 500;
@@ -386,6 +395,15 @@ export function App() {
   const [revealTarget, setRevealTarget] = useState<{ documentId: string; byteOffset: string } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
+  // Hiding the panel only folds it away; the shell keeps running behind the fold
+  // and the same session comes back when the panel is shown again.
+  const [terminalAlive, setTerminalAlive] = useState(false);
+  const [terminalHeight, setTerminalHeight] = useState(loadTerminalHeight);
+  const [resizingTerminal, setResizingTerminal] = useState(false);
+  const [terminalFocus, setTerminalFocus] = useState(0);
+  const [editorAreaHeight, setEditorAreaHeight] = useState(0);
+  const editorAreaRef = useRef<HTMLElement>(null);
+  const terminalDragRef = useRef<{ startHeight: number; startY: number; available: number } | null>(null);
   const [macroOpen, setMacroOpen] = useState(false);
   const [pluginOpen, setPluginOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -635,6 +653,51 @@ export function App() {
       window.removeEventListener("pointerup", onPointerUp);
     };
   }, [resizingSidebar]);
+
+  useEffect(() => {
+    saveTerminalHeight(terminalHeight);
+  }, [terminalHeight]);
+
+  useEffect(() => {
+    if (!resizingTerminal) return;
+    // The divider is the panel's top edge, so the panel grows by the height the
+    // pointer gives back on the way up. Bounds come from the column measured when
+    // the drag began, which is the same box the divider moves inside.
+    const onPointerMove = (event: PointerEvent) => {
+      const drag = terminalDragRef.current;
+      if (!drag) return;
+      setTerminalHeight(terminalHeightFromDrag(drag, event.clientY, drag.available));
+    };
+    const onPointerUp = () => {
+      terminalDragRef.current = null;
+      setResizingTerminal(false);
+      // The drag ends with the pointer over the panel, so typing should go there.
+      setTerminalFocus((nonce) => nonce + 1);
+    };
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp, { once: true });
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+    };
+  }, [resizingTerminal]);
+
+  // The panel's bounds belong to the column it sits in: when the window shrinks
+  // below the panel, the panel gives its height back and the editor keeps its strip.
+  useEffect(() => {
+    const area = editorAreaRef.current;
+    if (!area || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver((entries) => {
+      const available = Math.round(entries[0]?.contentRect.height ?? 0);
+      setEditorAreaHeight(available);
+      setTerminalHeight((height) => {
+        const next = clampTerminalHeight(height, available);
+        return next === height ? height : next;
+      });
+    });
+    observer.observe(area);
+    return () => observer.disconnect();
+  }, []);
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
   const activeWorkspace = activeTab ? isWorkspace(activeTab) : false;
@@ -2107,6 +2170,13 @@ export function App() {
   const activeThemeKind = activeTheme.kind;
   // Zoom scales only the editor text; Settings keeps the base size.
   const zoomedFontSize = Math.round(preferences.fontSize * viewOptions.zoom) / 100;
+  // The terminal reads with the editor's face, size, and zoom, so the two panes
+  // stay one typographic system; its own line spacing stays tight (see TerminalPanel).
+  const terminalFont = useMemo<TerminalFont>(() => ({
+    family: preferences.fontFamily,
+    size: zoomedFontSize,
+    lineHeight: preferences.lineHeight,
+  }), [preferences.fontFamily, preferences.lineHeight, zoomedFontSize]);
   const layoutStyle = {
     "--sidebar-width": `${sidebarWidth}px`,
     ...preferenceCssVariables({ ...preferences, fontSize: zoomedFontSize }, themes),
@@ -2543,7 +2613,7 @@ export function App() {
   </div>;
 
   return (
-    <main className={`workbench${sidebarVisible ? "" : " sidebar-hidden"}${resizingSidebar ? " resizing" : ""}`} style={layoutStyle} data-custom={activeTheme.builtIn ? undefined : "true"}>
+    <main className={`workbench${sidebarVisible ? "" : " sidebar-hidden"}${resizingSidebar ? " resizing" : ""}${resizingTerminal ? " resizing-terminal" : ""}`} style={layoutStyle} data-custom={activeTheme.builtIn ? undefined : "true"}>
       {dragOver ? <div className="file-drop-target" aria-hidden="true">Drop files to open</div> : null}
       <header className="titlebar">
         <button className="brand" type="button" title="About Nulis" aria-label="About Nulis" onClick={() => { setLicenseOpen(false); setAboutOpen(true); }}>
@@ -2589,7 +2659,7 @@ export function App() {
           aria-orientation="vertical" onPointerDown={() => setResizingSidebar(true)} />
       </section>
 
-      <section className="editor" aria-label="Editor">
+      <section className="editor" aria-label="Editor" ref={editorAreaRef}>
         <WorkTabs tabs={tabs} activeTabId={activeTab?.id ?? null} documents={documents} renderView={renderView}
           emptyState={welcome} rename={renameRequest}
           content={folderComparison ? <FolderCompareView result={folderComparison} onClose={() => setFolderComparison(null)} />
@@ -2614,8 +2684,18 @@ export function App() {
               setComparing((enabled) => !enabled);
             }} />
           <IconButton icon="folders" label="Compare folders" disabled={!sessionReady} onClick={() => void compareFolders()} />
-          <IconButton icon="terminal" label={terminalOpen ? "Close terminal" : "Open terminal"}
-            pressed={terminalOpen} disabled={!sessionReady} onClick={() => setTerminalOpen((shown) => !shown)} />
+          <IconButton icon="terminal" label={terminalOpen ? "Hide terminal" : "Show terminal"}
+            tooltip={terminalAlive ? "Hiding keeps the shell running" : "Start a shell in the integrated terminal"}
+            pressed={terminalOpen} disabled={!sessionReady}
+            onClick={() => {
+              if (terminalOpen) {
+                setTerminalOpen(false);
+              } else {
+                setTerminalAlive(true);
+                setTerminalOpen(true);
+                setTerminalFocus((nonce) => nonce + 1);
+              }
+            }} />
           {activeDocument ? <IconButton icon={viewModes[activeDocument.documentId] === "hex" ? "editor" : "hex"}
             label={viewModes[activeDocument.documentId] === "hex" ? "Show text editor" : "Show hexadecimal editor"}
             onClick={() => toggleViewMode(activeDocument.documentId)} /> : null}
@@ -2627,8 +2707,33 @@ export function App() {
           onSelect={(problem) => void revealProblem(problem)}
           onClose={() => setProblemsOpen(false)}
           onOpenSettings={() => { setProblemsOpen(false); openSettings(); }} /> : null}
-        {terminalOpen ? <TerminalPanel theme={activeTheme.colors}
-          onClose={() => setTerminalOpen(false)} onStatus={setStatus} /> : null}
+        {terminalAlive ? <>
+          {terminalOpen ? <div className="terminal-resizer" role="separator" tabIndex={0}
+            aria-label="Resize terminal" aria-orientation="horizontal"
+            aria-valuemin={TERMINAL_MIN_HEIGHT} aria-valuemax={terminalMaxHeight(editorAreaHeight)}
+            aria-valuenow={terminalHeight} aria-valuetext={`${terminalHeight} pixels tall`}
+            onPointerDown={(event) => {
+              if (event.button !== 0) return;
+              event.preventDefault();
+              terminalDragRef.current = {
+                startHeight: terminalHeight, startY: event.clientY, available: editorAreaHeight,
+              };
+              setResizingTerminal(true);
+            }}
+            onKeyDown={(event) => {
+              // Arrow keys lengthen the panel upward, the way dragging the divider does.
+              const key = event.key;
+              if (key === "ArrowUp") setTerminalHeight((height) => clampTerminalHeight(height + TERMINAL_HEIGHT_STEP, editorAreaHeight));
+              else if (key === "ArrowDown") setTerminalHeight((height) => clampTerminalHeight(height - TERMINAL_HEIGHT_STEP, editorAreaHeight));
+              else if (key === "Home") setTerminalHeight(TERMINAL_MIN_HEIGHT);
+              else if (key === "End") setTerminalHeight(terminalMaxHeight(editorAreaHeight));
+              else return;
+              event.preventDefault();
+            }} /> : null}
+          <TerminalPanel theme={activeTheme.colors} font={terminalFont} height={terminalHeight} hidden={!terminalOpen}
+            focusSignal={terminalFocus}
+            onClose={() => { setTerminalOpen(false); setTerminalAlive(false); }} onStatus={setStatus} />
+        </> : null}
       </section>
 
       <footer className="statusbar"><span className="status-indicator" aria-hidden="true" />
