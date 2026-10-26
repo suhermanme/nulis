@@ -27,6 +27,10 @@ Before this, `MarkdownPreview.tsx` passed any `http(s):` image straight to an `<
 
 The owner ran the probe on `~/Desktop/Nulis.app` (built from `fd3b5d2`). The preview fetched nothing on open. After **Load remote images**, the test server logged TLS ClientHellos (`\x16\x03\x01…`, `400 Bad request version`) for the `https://127.0.0.1:8765` image only, and nothing for the `http:` one. That is the intended order. But the failed image left an empty gap, which read as "the button does nothing". Fix: a remote `<img>` that fires `error` is replaced by a placeholder, *Remote image from 127.0.0.1:8765 could not be loaded* (the `failedSource` state in `PreviewImage`, keyed by source so a changed URL tries again). The probe now also has a real `https://raw.githubusercontent.com/…/nulis-logo.png` image, to show a successful load.
 
+## Owner's check, second round (2026-10-26): accepted
+
+On `~/Desktop/Nulis.app` built from `8297b51`, the owner confirmed all four probe images: the local image shows from the start, the GitHub-hosted https image loads after **Load remote images**, the `https://127.0.0.1:8765` image says it could not be loaded, and the `http://` image stays blocked.
+
 ## Found, not changed
 
 `react-markdown`'s default URL transform drops `data:` image sources, so inline `data:` images never displayed, before or after this change. The old `data:` branch in `PreviewImage` was dead code, and I kept it. Allowing `data:` would mean a custom `urlTransform`; that is out of scope here, so the test that would have covered it was dropped rather than faked.

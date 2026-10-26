@@ -53,7 +53,7 @@ Plan: `IMPROVEMENT_PLAN_6.md`, from the 2026-10-26 repository review. Owner's an
 | --- | --- |
 | M50 Repository hygiene | Complete, 2026-10-26, branch `chore/repo-health` |
 | M51 Toolchain and dependency maintenance | Complete, 2026-10-26, branch `chore/repo-health` |
-| M52 Markdown preview privacy | Complete, 2026-10-26, branch `chore/repo-health`; owner's native check open |
+| M52 Markdown preview privacy | Complete and accepted on macOS by the owner, 2026-10-26, branch `chore/repo-health` |
 | M53 Split the core's largest files | Not started |
 | M54 Split the largest UI files | Not started |
 | M55 Documentation and contributor on-ramp | Not started |
@@ -74,7 +74,7 @@ Plan: `IMPROVEMENT_PLAN_6.md`, from the 2026-10-26 repository review. Owner's an
 
 **Scope (as delivered):** new setting `markdown.preview.remoteImages` = `block` | `ask` | `allow`, default `ask` (owner, plan §5 Q4). The preview never creates an `<img>` for an `https:` source unless the policy is `allow` or the reader pressed **Load remote images** for that document; it renders a placeholder naming the host instead. Approval is per document ID (IDs are never reused, so it ends with the document) and is shared by every pane showing that document. Plain `http:` images are blocked under every policy, and `http:` left the CSP's `img-src` (a desktop test enforces it). Print Preview and Page Setup follow the editor: `open_print_window`'s Markdown request carries `remoteImages` (`#[serde(default)]`, absent = no) and the print window renders `allow` or `block` with no button. The core rejects any other value in `settings.json`. Settings ▸ Editor ▸ Markdown preview ▸ Remote images; the key is written only when changed. IPC protocol 48 → 49 (the print DTOs). Docs: `USER_GUIDE.md` (Markdown preview, also the Help window), `SECURITY.md`, `settings.schema.json`.
 
-**Result (2026-10-26, macOS):** fmt and clippy `-D warnings` clean; `cargo test --workspace` 471 passed, 0 failed (+2: remote image policies accepted; CSP never loads images over `http:`; the print-content test now also covers `remoteImages`, and malformed-values covers two bad policies); lint and typecheck clean; Vitest desktop 26 files / 261 tests (+8), SDK 2; `frontend:build` green. Not done here: the native check (a Markdown file whose images point at a local listener logs no request before **Load remote images**), and an App-level test of the print request (the decision helper and the print window are tested separately). Details: `handover/M52_HANDOVER.md`.
+**Result (2026-10-26, macOS):** fmt and clippy `-D warnings` clean; `cargo test --workspace` 471 passed, 0 failed (+2: remote image policies accepted; CSP never loads images over `http:`; the print-content test now also covers `remoteImages`, and malformed-values covers two bad policies); lint and typecheck clean; Vitest desktop 26 files / 261 tests (+8), SDK 2; `frontend:build` green. Owner's macOS check passed on the second build (`8297b51`, after a fix: a remote image that fails to load now says so instead of leaving a gap); Windows and Linux not checked. Not done: an App-level test of the print request (the decision helper and the print window are tested separately). Details: `handover/M52_HANDOVER.md`.
 
 ## Plan 5 (M49) — custom themes
 
