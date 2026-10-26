@@ -136,7 +136,7 @@ impl LineTracker {
 }
 
 impl DocumentManager {
-    /// Counts the next slice (at most [`COUNT_SLICE_BYTES`]) of a count over
+    /// Counts the next slice (at most `COUNT_SLICE_BYTES`) of a count over
     /// `start..end` of a document, adding to `progress`. The document must
     /// still be at `revision`, so a count never mixes two versions.
     ///
@@ -197,7 +197,7 @@ impl DocumentManager {
     }
 
     /// The matches that start in `start..end` (the visible lines), at most
-    /// [`MAX_RANGE_MATCHES`]. Uses the same search as Find, so what is
+    /// `MAX_RANGE_MATCHES`. Uses the same search as Find, so what is
     /// painted is what Find Next would select. The cost is proportional to
     /// the range, not the document.
     ///

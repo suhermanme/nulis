@@ -262,7 +262,7 @@ impl DocumentManager {
     /// The first page of the document for the Page Setup preview. It is
     /// quick whatever the document's size: only the first page is laid out,
     /// and `{pages}` shows an estimate. In a document over
-    /// [`PREVIEW_COUNT_BYTES`] the line numbers are not counted, so the
+    /// `PREVIEW_COUNT_BYTES` the line numbers are not counted, so the
     /// gutter is as wide as for ten million lines.
     ///
     /// # Errors
