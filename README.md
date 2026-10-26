@@ -342,12 +342,14 @@ The Tauri [prerequisites page](https://tauri.app/start/prerequisites/) covers ot
 ### Get the dependencies
 
 ```sh
-git clone <repository-url> nulis
+git clone https://github.com/suhermanme/nulis.git nulis
 cd nulis
 npm ci
 ```
 
 Rust dependencies are fetched on the first build.
+
+The Rust build directory, `target/`, grows past 10 GB once debug, release and test builds have all run. `cargo clean` deletes it; the next build recreates it from scratch.
 
 ### Run in development
 

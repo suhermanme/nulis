@@ -27,7 +27,7 @@ members = [
 version = "0.5.2"
 edition = "2021"
 license = "GPL-3.0-or-later"
-repository = "https://example.invalid/nulis"
+repository = "https://github.com/suhermanme/nulis"
 rust-version = "1.82"
 
 [workspace.dependencies]
