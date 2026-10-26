@@ -1,5 +1,55 @@
 # Architecture
 
+## Principles
+
+1. **The document is never one string.** The interface receives only bounded viewport snapshots: the lines on screen, with byte offsets. No operation's cost or memory depends on the size of the file unless it has to (a full search, a save).
+2. **Everything is a command.** Menus, toolbars, shortcuts, the palette, macros, and plugins all run the same commands, identified by stable strings such as `file.save` or `tools.beautify`.
+3. **Positions are 64-bit byte offsets.** Text decoding is a layer above byte storage, so invalid bytes, an encoding override, and the hexadecimal view never lose data.
+4. **Every edit carries the revision it was based on.** A request made against a stale view of the document is refused instead of being applied at the wrong place.
+5. **Every operation is bounded.** Results, listings, regular-expression matches, undo history, plugin resources, and layouts all have explicit limits, and the interface says when one is reached.
+6. **Private types never cross a boundary.** The interface and plugins see only serializable messages and opaque document handles.
+
+## The large-file engine
+
+A document is a **piece table**: an immutable, randomly accessible original file plus an append-only buffer of added bytes, both on disk. A balanced tree (an implicit treap) maps positions in the document to ranges in one of the two. An edit appends its new bytes and replaces the tree root; the original file is not touched until a save.
+
+- **Line numbers** come from sparse checkpoints built by a cancellable background pass, so going to a line in a huge file does not scan from the start.
+- **Undo** records the inverse of each edit under a byte budget.
+- **Recovery** stores the list of ranges, not the bytes: an append-store sync followed by an atomic manifest write. At restart the original file's fingerprint is checked before the document is rebuilt.
+- **Save** streams the pieces to a temporary file in the same directory, syncs and validates it, re-checks the destination, and replaces it atomically.
+
+## Crates
+
+| Crate | Responsibility |
+| --- | --- |
+| `nulis-core` | Command registry, document sessions, editing operations, line change tracking, JSON, XML, YAML, and plist tools, optional language-server management, and orchestration of every other crate. |
+| `nulis-document` | Piece table, 64-bit positions, snapshots, and undo history. |
+| `nulis-large-file` | Random-access byte sources and append stores. |
+| `nulis-search` | Streaming find and replace, linear-time regular expressions with capture-group replacement, column search, and find in files. |
+| `nulis-syntax` | The language catalog (detection, file associations, and content sniffing), Tree-sitter parsers for JSON and Python, a table-driven lexer and JSX scanner for the other languages, folding, symbols, and vocabulary for completion. |
+| `nulis-language` | Language capability contracts (validate, format, preview, indentation, completion), the provider registry, resolution by kind and origin, and isolation of failing providers. |
+| `nulis-lsp` | Language server client: starts an approved command, speaks JSON-RPC over its standard streams on a reader thread, maps positions to the server's encoding, and stops it; no editor state. |
+| `nulis-hex` | Hexadecimal viewports and byte editing. |
+| `nulis-print` | Page layout for Print and PDF, the streaming PDF writer, and fonts. |
+| `nulis-diff` | Text, binary, and folder comparison. |
+| `nulis-filesystem` | Folders, the Places tree, and session persistence. |
+| `nulis-terminal` | Pseudoterminal sessions. |
+| `nulis-platform` | Operating-system specifics. |
+| `nulis-settings` | Layered settings and customization storage. |
+| `nulis-theme` | Theme tokens, built-in themes, user theme validation, and contrast floors applied to every theme. |
+| `nulis-automation` | Macros and the restricted script evaluator. |
+| `nulis-plugin-host` | Plugin packages, approval, declarative language data, and isolated JavaScript workers. |
+| `nulis-desktop` (`apps/desktop/src-tauri`) | The Tauri adapter: windows, native menus, and IPC. |
+| `nulis-benchmarks` | Performance probes. |
+
+Every crate in the workspace forbids `unsafe` code.
+
+## The desktop application
+
+`apps/desktop/src` is a React 18 and TypeScript application. `contracts.ts` mirrors the Rust message types, and the application checks the IPC protocol version at startup and refuses to run against a mismatched core. Settings open in a second window that is allowed to call only the commands it needs.
+
+The sections below describe each boundary in detail, and [DECISIONS.md](DECISIONS.md) records why things are the way they are.
+
 ## Shape
 
 ```text

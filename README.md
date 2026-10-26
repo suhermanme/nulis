@@ -36,75 +36,21 @@ https://github.com/user-attachments/assets/834bbc37-10c6-45fe-882a-8b77acf4d133
 
 ## Installing
 
-Download the file for your system from the [latest release](https://github.com/suhermanme/nulis/releases/latest).
-
-### macOS
-
-**With [Homebrew](https://brew.sh):**
+Download the file for your system from the [latest release](https://github.com/suhermanme/nulis/releases/latest), or on macOS use [Homebrew](https://brew.sh):
 
 ```sh
 brew tap suhermanme/nulis https://github.com/suhermanme/nulis
-brew trust suhermanme/nulis   # let Homebrew load this non-official tap
+brew trust suhermanme/nulis   # only on Homebrew versions that gate non-official taps
 brew install --cask nulis
 ```
 
-`brew trust` is only needed on Homebrew versions that gate non-official taps; if your Homebrew does not have that command yet, skip the line. Without it you get *Refusing to load cask nulis from untrusted tap suhermanme/nulis*.
+| System | Download | First launch |
+| --- | --- | --- |
+| macOS (Apple silicon and Intel) | `Nulis_<version>_universal.dmg` | Not notarized: allow it once in **System Settings ▸ Privacy & Security ▸ Open Anyway**. |
+| Windows | `Nulis_<version>_x64-setup.exe` | Not code-signed: in SmartScreen, **More info ▸ Run anyway**. |
+| Linux | `.deb` (`sudo apt install ./…`) or `.rpm` (`sudo dnf install ./…`) | Nothing to allow. |
 
-`brew upgrade --cask nulis` installs new releases, and `brew uninstall --cask nulis` removes Nulis (add `--zap` to also delete its settings and data). The first time you open Nulis, macOS blocks it; allow it once as described below.
-
-**If Homebrew says the latest version is already installed**, but Nulis is missing, outdated, or fails to upgrade, the tap is stale or an earlier install left broken files behind. Refresh the tap, clear the old install, and install again:
-
-```sh
-brew update                                    # third-party taps only refresh here
-git -C "$(brew --repository)/Library/Taps/suhermanme/homebrew-nulis" pull --ff-only
-brew uninstall --cask --force nulis
-brew install --cask nulis
-```
-
-Homebrew fetches third-party taps only during `brew update`, so a `brew install` run right after a new release can still see the previous version. If an install was interrupted or the app was moved or deleted, `brew upgrade --cask nulis` stops with *It seems the App source '/Applications/Nulis.app' is not there*; the forced uninstall above clears that. Check the result with `brew info --cask nulis`.
-
-**On an Intel Mac**, Homebrew may warn that it no longer builds bottles for `macOS on Intel x86_64` and that you are on a Tier 3 configuration. That warning is about compiled *formulae* and does not affect this cask: Nulis ships a single universal DMG containing both `x86_64` and `arm64`, so it runs on Intel directly:
-
-```sh
-lipo -archs /Applications/Nulis.app/Contents/MacOS/nulis-desktop
-# x86_64 arm64
-```
-
-**Or by hand:**
-
-1. Download `Nulis_<version>_universal.dmg`. It runs on both Apple silicon and Intel Macs.
-2. Open the `.dmg` and drag **Nulis** into **Applications**.
-3. Open Nulis from Applications.
-
-**The first time, macOS blocks it.** You will see a message such as *"Nulis" Not Opened — Apple could not verify "Nulis" is free of malware*. This is expected: Nulis is not notarized by Apple and is not signed with a Developer ID certificate, both of which require a paid Apple Developer membership. The build carries only an ad-hoc signature: it seals the bundle, so macOS reports it as unverified and offers **Open Anyway** rather than calling the app damaged, but it names no developer and cannot prove the app was not altered. You allow it once:
-
-1. In the message, click **Done** (do not choose Move to Trash).
-2. Open **System Settings ▸ Privacy & Security**.
-3. Scroll down to **Security**. Next to *"Nulis" was blocked to protect your Mac*, click **Open Anyway**.
-4. Click **Open Anyway** again in the confirmation and enter your password or use Touch ID.
-
-Nulis opens, and from then on it opens normally like any other app. You only do this once per installed version.
-
-- The **Open Anyway** button appears only after you have tried to open Nulis, and it stays for about an hour. If you do not see it, open Nulis from Applications again and go back to Privacy & Security.
-- On recent macOS versions, right-clicking the app and choosing **Open** no longer offers a way past this message; use **Open Anyway** in System Settings.
-
-### Windows
-
-Download `Nulis_<version>_x64-setup.exe` and run it. It installs for your user account without administrator rights. If Windows SmartScreen shows *Windows protected your PC*, click **More info**, then **Run anyway**: the installer is not signed with a paid code-signing certificate.
-
-### Linux
-
-Download the package for your distribution and install it with your package manager, which also installs the libraries Nulis needs:
-
-```sh
-# Debian, Ubuntu, and derivatives
-sudo apt install ./Nulis_<version>_amd64.deb
-
-# Fedora, RHEL, openSUSE, and derivatives
-sudo dnf install ./Nulis-<version>-1.x86_64.rpm
-```
-
-Each release also has a `SHA256SUMS.txt` to check the downloads: `sha256sum -c SHA256SUMS.txt --ignore-missing` on Linux, or `shasum -a 256 -c SHA256SUMS.txt --ignore-missing` on macOS.
+[docs/INSTALL.md](docs/INSTALL.md) has the steps in full, Homebrew troubleshooting, and how to check the downloads against `SHA256SUMS.txt`.
 
 ## A quick tour
 
@@ -245,55 +191,7 @@ Nulis is a Rust core with a thin desktop shell. The core has no dependency on th
                      nulis-platform
 ```
 
-### Principles
-
-1. **The document is never one string.** The interface receives only bounded viewport snapshots: the lines on screen, with byte offsets. No operation's cost or memory depends on the size of the file unless it has to (a full search, a save).
-2. **Everything is a command.** Menus, toolbars, shortcuts, the palette, macros, and plugins all run the same commands, identified by stable strings such as `file.save` or `tools.beautify`.
-3. **Positions are 64-bit byte offsets.** Text decoding is a layer above byte storage, so invalid bytes, an encoding override, and the hexadecimal view never lose data.
-4. **Every edit carries the revision it was based on.** A request made against a stale view of the document is refused instead of being applied at the wrong place.
-5. **Every operation is bounded.** Results, listings, regular-expression matches, undo history, plugin resources, and layouts all have explicit limits, and the interface says when one is reached.
-6. **Private types never cross a boundary.** The interface and plugins see only serializable messages and opaque document handles.
-
-### The large-file engine
-
-A document is a **piece table**: an immutable, randomly accessible original file plus an append-only buffer of added bytes, both on disk. A balanced tree (an implicit treap) maps positions in the document to ranges in one of the two. An edit appends its new bytes and replaces the tree root; the original file is not touched until a save.
-
-- **Line numbers** come from sparse checkpoints built by a cancellable background pass, so going to a line in a huge file does not scan from the start.
-- **Undo** records the inverse of each edit under a byte budget.
-- **Recovery** stores the list of ranges, not the bytes: an append-store sync followed by an atomic manifest write. At restart the original file's fingerprint is checked before the document is rebuilt.
-- **Save** streams the pieces to a temporary file in the same directory, syncs and validates it, re-checks the destination, and replaces it atomically.
-
-### Crates
-
-| Crate | Responsibility |
-| --- | --- |
-| `nulis-core` | Command registry, document sessions, editing operations, line change tracking, JSON, XML, YAML, and plist tools, optional language-server management, and orchestration of every other crate. |
-| `nulis-document` | Piece table, 64-bit positions, snapshots, and undo history. |
-| `nulis-large-file` | Random-access byte sources and append stores. |
-| `nulis-search` | Streaming find and replace, linear-time regular expressions with capture-group replacement, column search, and find in files. |
-| `nulis-syntax` | The language catalog (detection, file associations, and content sniffing), Tree-sitter parsers for JSON and Python, a table-driven lexer and JSX scanner for the other languages, folding, symbols, and vocabulary for completion. |
-| `nulis-language` | Language capability contracts (validate, format, preview, indentation, completion), the provider registry, resolution by kind and origin, and isolation of failing providers. |
-| `nulis-lsp` | Language server client: starts an approved command, speaks JSON-RPC over its standard streams on a reader thread, maps positions to the server's encoding, and stops it; no editor state. |
-| `nulis-hex` | Hexadecimal viewports and byte editing. |
-| `nulis-print` | Page layout for Print and PDF, the streaming PDF writer, and fonts. |
-| `nulis-diff` | Text, binary, and folder comparison. |
-| `nulis-filesystem` | Folders, the Places tree, and session persistence. |
-| `nulis-terminal` | Pseudoterminal sessions. |
-| `nulis-platform` | Operating-system specifics. |
-| `nulis-settings` | Layered settings and customization storage. |
-| `nulis-theme` | Theme tokens, built-in themes, user theme validation, and contrast floors applied to every theme. |
-| `nulis-automation` | Macros and the restricted script evaluator. |
-| `nulis-plugin-host` | Plugin packages, approval, declarative language data, and isolated JavaScript workers. |
-| `nulis-desktop` (`apps/desktop/src-tauri`) | The Tauri adapter: windows, native menus, and IPC. |
-| `nulis-benchmarks` | Performance probes. |
-
-Every crate in the workspace forbids `unsafe` code.
-
-### The desktop application
-
-`apps/desktop/src` is a React 18 and TypeScript application. `contracts.ts` mirrors the Rust message types, and the application checks the IPC protocol version at startup and refuses to run against a mismatched core. Settings open in a second window that is allowed to call only the commands it needs.
-
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) describes each boundary in detail, and [docs/DECISIONS.md](docs/DECISIONS.md) records why things are the way they are.
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) explains the principles behind it, the large-file engine, what each crate does, and every boundary in detail; [docs/DECISIONS.md](docs/DECISIONS.md) records why things are the way they are.
 
 ## Repository layout
 
@@ -381,66 +279,22 @@ npm run build --workspace @nulis/desktop -- --bundles app
 
 macOS builds are ad-hoc signed; Windows and Linux builds are not signed. [docs/RELEASE.md](docs/RELEASE.md) describes the release process.
 
-### What a shipped build depends on
-
-Users install nothing besides Nulis. The core, the interface, the themes, and the help are all inside the executable. The only outside component is the operating system's web engine:
-
-| Platform | Web engine | For the user |
-| --- | --- | --- |
-| macOS | WebKit, part of macOS | Nothing to install. |
-| Windows 11 | WebView2, preinstalled | Nothing to install. |
-| Windows 10 | WebView2 | The installer downloads it if it is missing. |
-| Linux `.deb` / `.rpm` | WebKitGTK 4.1 | Installed automatically as a package dependency. |
-| Linux AppImage | Bundled | Nothing to install. |
-
-On macOS you can confirm that a build links only to system libraries with `otool -L target/release/nulis-desktop`.
-
-### Signing
-
-macOS builds are ad-hoc signed, which lets users allow a downloaded copy with **Open Anyway** (see [Installing](#macos)); without a signature macOS reports the app as damaged and offers no way to open it. Builds signed with an Apple Developer ID and notarized, and Windows builds signed with a code-signing certificate, avoid the first-launch prompts; see [docs/RELEASE.md](docs/RELEASE.md).
-
-### Build parts separately
-
-```sh
-npm run frontend:build --workspace @nulis/desktop   # interface only, into apps/desktop/dist
-cargo build --workspace --locked                    # all Rust crates
-cargo build --release -p nulis-benchmarks           # the performance probe
-```
-
 ## Testing and quality checks
 
-These are the checks CI runs on every push to `main` and every pull request ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)). All must pass before a change is merged. CI also builds an installable bundle on macOS, Windows, and Linux, runs the document fuzzer for a minute, runs a large-file smoke benchmark, and checks dependencies for known advisories.
+CI runs these on every push to `main` and every pull request, on Linux, macOS and Windows; all must pass before a change is merged:
 
 ```sh
-# Rust
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
-
-# Interface
-npm run lint
-npm run typecheck
-npm run test
+npm run lint && npm run typecheck && npm run test
 ```
 
-- Rust unit tests live beside the code they test. They include files larger than 4 GiB, made as sparse files so they take no real disk space.
-- Interface tests use Vitest and Testing Library against a mocked core.
-- The document model has a fuzz target; see [fuzz/README.md](fuzz/README.md).
-- Performance methodology and the baseline measurements are in [docs/PERFORMANCE.md](docs/PERFORMANCE.md) and [benchmarks/README.md](benchmarks/README.md).
-
-Clippy runs with the pedantic lints as errors.
+[CONTRIBUTING.md](CONTRIBUTING.md) says what else CI checks, how the tests are organized, and how to build parts separately.
 
 ## Where Nulis stores data
 
-Nulis keeps its data in the operating system's application-data directory for the identifier `com.nulis.editor`:
-
-| Platform | Location |
-| --- | --- |
-| macOS | `~/Library/Application Support/com.nulis.editor/` |
-| Windows | `%APPDATA%\com.nulis.editor\` |
-| Linux | `~/.local/share/com.nulis.editor/` |
-
-It holds the session (open files and layout), `settings.json` (for example `files.associations`), customization (appearance, shortcuts, menu, toolbar), installed themes and plugins, recovery checkpoints, and the edit buffers of open documents. A few display preferences are kept in the webview's local storage.
+In the operating system's application-data folder for `com.nulis.editor` (on macOS, `~/Library/Application Support/com.nulis.editor/`). The [user guide](docs/USER_GUIDE.md#where-nulis-stores-data) lists every system and what is kept there.
 
 ## Extending Nulis
 
@@ -464,29 +318,28 @@ It holds the session (open files and layout), `settings.json` (for example `file
 
 | Document | Contents |
 | --- | --- |
+| [docs/INSTALL.md](docs/INSTALL.md) | Installing on each system, the first launch, Homebrew troubleshooting. |
 | [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | How to use the application. Also shown under Help. |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Component boundaries and the large-file engine. |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Design decisions and their reasons. |
 | [docs/PRODUCT_SPEC.md](docs/PRODUCT_SPEC.md) | What the product is meant to be. |
-| [docs/archive/plans/IMPROVEMENT_SPEC.md](docs/archive/plans/IMPROVEMENT_SPEC.md) | Specification of the interaction and layout milestones. |
 | [docs/FEATURE_PARITY.md](docs/FEATURE_PARITY.md) | Status of every capability. |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Milestones. |
-| [docs/WORK_STATE.md](docs/WORK_STATE.md) | What was done most recently and what is next. |
+| [docs/WORK_STATE.md](docs/WORK_STATE.md) | What is released, what is on `main` since, and what is open. |
+| [docs/IMPLEMENTATION_TRACKER.md](docs/IMPLEMENTATION_TRACKER.md) | Progress and verification, milestone by milestone. |
 | [docs/PLUGIN_GUIDE.md](docs/PLUGIN_GUIDE.md) | How to build a plugin, step by step. Also shown under Help. |
 | [docs/PLUGIN_API.md](docs/PLUGIN_API.md) | The plugin API contract. |
 | [docs/THEME_SPEC.md](docs/THEME_SPEC.md) | Theme file format. |
 | [docs/SECURITY.md](docs/SECURITY.md) | Threat model and security rules. |
 | [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | Performance invariants and measurements. |
-| [docs/RELEASE.md](docs/RELEASE.md) | Release process. |
+| [docs/RELEASE.md](docs/RELEASE.md) | Release process, what a shipped build depends on, and signing. |
 | [docs/CLEAN_ROOM.md](docs/CLEAN_ROOM.md) | Rules for keeping the implementation original. |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute: checks, rules for new code, signing off commits. |
+| [docs/archive/](docs/archive/README.md) | Finished plans and milestone handovers, and the full work log. |
 
 ## Contributing
 
-- Run the checks under [Testing and quality checks](#testing-and-quality-checks) before sending a change.
-- New behavior needs a test. A bug fix needs a test that fails without the fix.
-- Keep operations bounded: a new feature must not read, hold, or send a whole document unless its purpose requires it, and then it needs a size limit.
-- Record a new dependency and its license in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md). It must be compatible with GPL version 3.
-- Nulis is an original implementation. It takes ideas about what an editor should do from existing editors but contains no code or assets from them. [docs/CLEAN_ROOM.md](docs/CLEAN_ROOM.md) has the rules.
+Contributions are welcome. [CONTRIBUTING.md](CONTRIBUTING.md) covers building, the checks a change must pass, the rules for new code (bounded operations, tests, licenses, the [clean-room rules](docs/CLEAN_ROOM.md)), and signing off your commits.
 
 ## License
 

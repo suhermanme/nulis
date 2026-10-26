@@ -89,3 +89,21 @@ brew untap nulis/local
 ```
 
 Users who tapped the repository get the new version with `brew upgrade --cask nulis`.
+
+## What a shipped build depends on
+
+Users install nothing besides Nulis. The core, the interface, the themes, and the help are all inside the executable. The only outside component is the operating system's web engine:
+
+| Platform | Web engine | For the user |
+| --- | --- | --- |
+| macOS | WebKit, part of macOS | Nothing to install. |
+| Windows 11 | WebView2, preinstalled | Nothing to install. |
+| Windows 10 | WebView2 | The installer downloads it if it is missing. |
+| Linux `.deb` / `.rpm` | WebKitGTK 4.1 | Installed automatically as a package dependency. |
+| Linux AppImage | Bundled | Nothing to install. |
+
+On macOS you can confirm that a build links only to system libraries with `otool -L target/release/nulis-desktop`.
+
+## Signing
+
+macOS builds are ad-hoc signed, which lets users allow a downloaded copy with **Open Anyway** (see [INSTALL.md](INSTALL.md#macos)); without a signature macOS reports the app as damaged and offers no way to open it. Builds signed with an Apple Developer ID and notarized, and Windows builds signed with a code-signing certificate, avoid the first-launch prompts.

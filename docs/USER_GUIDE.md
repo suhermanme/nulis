@@ -102,6 +102,18 @@ When you quit, Nulis remembers the open files, the tabs and workspaces with thei
 
 While you work, Nulis records unsaved edits of local and untitled documents shortly after you make them. If the application or the computer stops unexpectedly, the next start offers to **recover** each document that had unsaved work, including untitled ones. You can restore or discard each one. A recovered document counts as unsaved until you save it.
 
+### Where Nulis stores data
+
+Nulis keeps its data in the operating system's application-data directory for the identifier `com.nulis.editor`:
+
+| Platform | Location |
+| --- | --- |
+| macOS | `~/Library/Application Support/com.nulis.editor/` |
+| Windows | `%APPDATA%\com.nulis.editor\` |
+| Linux | `~/.local/share/com.nulis.editor/` |
+
+It holds the session (open files and layout), `settings.json` (for example `files.associations`), customization (appearance, shortcuts, menu, toolbar), installed themes and plugins, recovery checkpoints, and the edit buffers of open documents. A few display preferences are kept in the webview's local storage.
+
 ### Very large files
 
 Nulis is built to open files larger than memory, tens of gigabytes included.
@@ -428,7 +440,7 @@ Nulis picks a language from the file name and extension. For names that say noth
 
 To override the choice, use the **View As** list in the editor toolbar. This also switches which tools are offered: choosing JSON, XML, YAML, or Property List turns on that language's tools for a file with any extension. Nulis remembers the choice for files it reopens at the next start.
 
-To always open a kind of file as a certain language, add it to `files.associations` in `settings.json`, in the folder where Nulis keeps its data (see "Where Nulis stores data" in the README). A pattern is `*.ext`, an exact file name, or the start of a name followed by `*` (`Jenkinsfile.*`); letters match either case. Your associations come before Nulis's own. For example:
+To always open a kind of file as a certain language, add it to `files.associations` in `settings.json`, in the folder where Nulis keeps its data (see [Where Nulis stores data](#where-nulis-stores-data)). A pattern is `*.ext`, an exact file name, or the start of a name followed by `*` (`Jenkinsfile.*`); letters match either case. Your associations come before Nulis's own. For example:
 
 ```json
 {
