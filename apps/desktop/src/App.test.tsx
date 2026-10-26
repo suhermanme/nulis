@@ -1706,21 +1706,22 @@ test("the status bar shows the caret position, the size in bytes and characters,
   expect(within(footer).getByText("Ln 1,234, Col 7")).toBeInTheDocument();
   expect(within(footer).getByText("U+00E9")).toHaveAttribute("title", "Character after the caret (Unicode code point)");
 
-  // Mode: the badge names the state and toggles it; the tab gains a lock.
-  const mode = within(footer).getByRole("button", { name: "Edit mode: switch to Read-Only mode" });
-  expect(mode).toHaveTextContent("EDIT");
-  expect(mode).toHaveAttribute("aria-pressed", "false");
-  fireEvent.click(mode);
-  const locked = await within(footer).findByRole("button", { name: "Read-only mode: switch to Edit mode" });
-  expect(locked).toHaveTextContent("READ ONLY");
-  expect(locked).toHaveAttribute("aria-pressed", "true");
+  // Mode: the status bar chip is a state indicator, not a control; the editor toolbar's
+  // button switches the mode and the chip, the tab and the status line follow.
+  const mode = within(footer).getByText("EDIT");
+  expect(mode.tagName).toBe("SPAN");
+  expect(mode.getAttribute("title")).toMatch(/Edit mode — switch it/);
+  expect(within(footer).queryByRole("button", { name: /mode/i })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Editor mode of First: edit" }));
+  const locked = await within(footer).findByText("READ ONLY");
+  expect(locked.tagName).toBe("SPAN");
   expect(within(screen.getByRole("tab", { name: /First/ })).getByRole("img", { name: "read-only" })).toBeInTheDocument();
   expect(screen.getByRole("status")).toHaveTextContent("First is read-only");
-  expect(screen.getByRole("button", { name: "Editor mode of First: read-only" })).toBeInTheDocument();
+  expect(within(footer).queryByRole("button", { name: /mode/i })).toBeNull();
 
   // The editor's own toggle switches back.
   fireEvent.click(screen.getByRole("button", { name: "Editor mode of First: read-only" }));
-  expect(await within(footer).findByRole("button", { name: "Edit mode: switch to Read-Only mode" })).toBeInTheDocument();
+  expect(await within(footer).findByText("EDIT")).toBeInTheDocument();
   expect(screen.getByRole("status")).toHaveTextContent("First can be edited");
 });
 

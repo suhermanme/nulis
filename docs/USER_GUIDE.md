@@ -20,7 +20,7 @@ From top to bottom, the window has these parts.
 | Tab strip | One tab per open file or workspace, the **+** button for a new tab, and on the right the buttons for split view, document comparison, folder comparison, the terminal, and the hexadecimal editor. |
 | Editor toolbar | Tools for the focused document: find, Go To, bookmarks, Transform, encoding, View As, word wrap, column editing, folding, line change indicators, the document map, the **EDIT** / **READ ONLY** mode button, and the insert/overwrite indicator. |
 | Editor | The text (or hexadecimal) view, with line numbers and the change-indicator lane in the gutter. |
-| Status bar | Messages about the last action on the left. On the right: the **EDIT** / **READ ONLY** mode, the caret's line and column and the code point after it, the document's size and counts, the zoom when it is not 100%, the version, the encoding, and the line endings. See *The status bar* below. |
+| Status bar | Messages about the last action on the left. On the right: the **EDIT** / **READ ONLY** mode indicator, the caret's line and column and the code point after it, the document's size and counts, the zoom when it is not 100%, the version, the encoding, and the line endings. See *The status bar* below. |
 
 Every icon button has a tooltip that names its action and its shortcut. Where the word under an icon is shorter than the action itself, the tooltip gives both, such as **Compare Documents — Compare**.
 
@@ -39,7 +39,7 @@ The bar along the bottom of the window describes the focused document.
 | Part | Shows |
 | --- | --- |
 | Message (left) | The result of the last action, or why something did not happen. |
-| **EDIT** / **READ ONLY** | The document's mode. Green **EDIT** means it can be changed; amber **READ ONLY** with a lock means it cannot. Click it to switch. |
+| **EDIT** / **READ ONLY** | The document's mode, shown as an indicator. Green **EDIT** means it can be changed; amber **READ ONLY** with a lock means it cannot. The chip is not a control: switch the mode with the editor toolbar's mode button, **View ▸ Read-Only Mode**, the command palette, or **Ctrl/⌘ Shift L**. |
 | **Ln**, **Col** | The line and column of the caret, updated as it moves. With several carets it adds how many; with a selection it adds how many bytes are selected. It is not shown in the hexadecimal view. |
 | Size | The document's size in bytes and its number of characters, for example `1,234 bytes · 1,200 characters`. The two differ when the text has characters that take more than one byte. |
 | Zoom | The editor zoom, such as `125%`, shown only when it is not 100%. Click it to reset. |
@@ -252,8 +252,7 @@ Every document is in one of two modes, in the spirit of an editor with separate 
 
 Switch modes with any of these:
 
-- the **EDIT** / **READ ONLY** button in the status bar;
-- the same button in the editor toolbar, beside **INS**;
+- the **EDIT** / **READ ONLY** button in the editor toolbar, beside **INS**;
 - **Ctrl/⌘ Shift L**;
 - **View ▸ Read-Only Mode**, or *Toggle Read-Only Mode* in the command palette.
 

@@ -2648,13 +2648,13 @@ export function App() {
             <Icon name="problems" size={12} />{activeProblemCount === 0 ? "No problems" : `${activeProblemCount} ${activeProblemCount === 1 ? "problem" : "problems"}`}
           </button> : null}
         <span className="status-spacer" />
-        {activeDocument ? <button type="button" className={`status-mode${activeDocument.readOnly ? " read-only" : ""}`}
-          aria-pressed={activeDocument.readOnly === true}
-          aria-label={activeDocument.readOnly ? "Read-only mode: switch to Edit mode" : "Edit mode: switch to Read-Only mode"}
-          title={`${activeDocument.readOnly ? "Read-Only mode — click to allow editing" : "Edit mode — click to make this document read-only"}${
-            shortcutFor("editor.toggleReadOnly") ? ` (${shortcutFor("editor.toggleReadOnly")})` : ""}`}
-          onClick={() => void toggleReadOnly(activeDocument.documentId)}>
-          <Icon name={activeDocument.readOnly ? "lock" : "edit"} size={12} />{activeDocument.readOnly ? "READ ONLY" : "EDIT"}</button> : null}
+        {/* The mode chip is a state indicator, like a mode line, not a control: the editor
+           toolbar's mode button, View ▸ Read-Only Mode, the palette and the shortcut all
+           switch the mode, and a second switch in the status bar only asks which one to trust. */}
+        {activeDocument ? <span className={`status-mode${activeDocument.readOnly ? " read-only" : ""}`}
+          title={`${activeDocument.readOnly ? "Read-Only mode" : "Edit mode"} — switch it with the editor toolbar's mode button, View ▸ Read-Only Mode, or the command palette${
+            shortcutFor("editor.toggleReadOnly") ? ` (${shortcutFor("editor.toggleReadOnly")})` : ""}`}>
+          <Icon name={activeDocument.readOnly ? "lock" : "edit"} size={12} />{activeDocument.readOnly ? "READ ONLY" : "EDIT"}</span> : null}
         {activeCaret ? <span title="Caret position: line and column">Ln {groupDigits(activeCaret.line)}, Col {groupDigits(String(activeCaret.column))}{
           activeCaret.carets > 1 ? ` · ${activeCaret.carets} carets` : ""}{
           activeCaret.selectedBytes !== "0" ? ` · ${groupDigits(activeCaret.selectedBytes)} bytes selected` : ""}</span> : null}
