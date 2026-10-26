@@ -4,7 +4,7 @@ What is true of the repository now. The full history, from M00 to 0.5.2, is in [
 
 ## Released: Nulis 0.5.3 (2026-10-26)
 
-Tag `v0.5.3`: plan 6, M50–M55, listed below. IPC protocol 49. Release notes: [release-notes/v0.5.3.md](release-notes/v0.5.3.md). The cask moves to 0.5.3 after the release is published.
+Tag `v0.5.3` on `aebc3ba`: plan 6, M50–M55, listed below. IPC protocol 49. Release notes: [release-notes/v0.5.3.md](release-notes/v0.5.3.md). CI run 40360634929 passed every job; release run 40365326411 built, installed, started and published the universal `.dmg`, the Windows installer, the `.deb`, the `.rpm` and `SHA256SUMS.txt`. `Casks/nulis.rb` pins the published 0.5.3 `.dmg` (`a2526cce…`).
 
 ## Nulis 0.5.2 (2026-10-26)
 
@@ -22,7 +22,6 @@ Tag `v0.5.2`: the integrated terminal (resizable panel, the editor's font, a cur
 
 ## Open
 
-- **Release 0.5.3:** the tag, the release run, and the cask update.
 - **Owner's checks:** the Windows and Linux checks in [PLATFORM_MATRIX.md](PLATFORM_MATRIX.md), and `brew audit --cask --online nulis`, which needs the tap trusted on the owner's machine.
 
 ## Verifying a change
