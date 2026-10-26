@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { Icon, IconButton, type IconName } from "./icons";
 
-// Every control in this toolbar shows its word, so one width covers all of them.
+// 60 px is the budget for one labeled control, used only before the controls are measured:
+// the real widths come from the measuring layer below, and the bar's own column gap counts too.
 const LABELED_ITEM_WIDTH = 60;
 const MORE_LABEL = "More toolbar actions";
 const MORE_CAPTION = "More";
@@ -24,6 +25,22 @@ export interface ToolbarItem {
   onSelect(): void;
 }
 
+interface Measured {
+  /** The bar's own column gap, in px. 0 when the browser reports none (jsdom, first paint). */
+  gap: number;
+  /** Each control's natural width, keyed by id, gap excluded. */
+  item: Record<string, number>;
+  /** The overflow control's natural width, gap excluded. */
+  more: number;
+}
+
+const UNMEASURED: Measured = { gap: 0, item: {}, more: LABELED_ITEM_WIDTH };
+
+const sameMeasured = (a: Measured, b: Measured) =>
+  a.gap === b.gap && a.more === b.more &&
+  Object.keys(a.item).length === Object.keys(b.item).length &&
+  Object.keys(a.item).every((id) => a.item[id] === b.item[id]);
+
 /**
  * Icon toolbar that never deforms its icons: at narrow widths the
  * lowest-priority controls move into an overflow menu instead.
@@ -32,7 +49,9 @@ export function OverflowToolbar({ items, label, className, onCustomize }: {
   items: ToolbarItem[]; label: string; className?: string; onCustomize?(): void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const measureRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
+  const [measured, setMeasured] = useState<Measured>(UNMEASURED);
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
@@ -44,14 +63,43 @@ export function OverflowToolbar({ items, label, className, onCustomize }: {
     return () => observer.disconnect();
   }, []);
 
-  // An unmeasured toolbar (first paint, tests) shows everything.
-  const capacity = width > 0 ? Math.floor(width / LABELED_ITEM_WIDTH) : items.length;
-  let hidden = new Set<string>();
-  if (items.length > capacity) {
-    const room = Math.max(1, capacity - 1);
-    const ranked = [...items.filter((item) => item.essential), ...items.filter((item) => !item.essential)];
-    hidden = new Set(ranked.slice(room).map((item) => item.id));
+  // A hidden twin of the bar's controls, laid out at their natural widths: the fit below
+  // spends the room the controls actually take, gaps included, instead of a guessed budget.
+  useLayoutEffect(() => {
+    const layer = measureRef.current;
+    if (!layer) return;
+    const gap = Number.parseFloat(getComputedStyle(layer).columnGap) || 0;
+    const item: Record<string, number> = {};
+    for (const node of layer.querySelectorAll<HTMLElement>("[data-measure-item]")) {
+      const id = node.dataset.measureItem;
+      if (id) item[id] = node.offsetWidth || LABELED_ITEM_WIDTH;
+    }
+    const next: Measured = {
+      gap,
+      item,
+      more: layer.querySelector<HTMLElement>("[data-measure-more]")?.offsetWidth || LABELED_ITEM_WIDTH,
+    };
+    setMeasured((current) => sameMeasured(current, next) ? current : next);
+  }, [items]);
+
+  const widthOf = (item: ToolbarItem) => measured.item[item.id] || LABELED_ITEM_WIDTH;
+  const gap = measured.gap;
+  // The largest group of controls that fits beside the overflow control, essentials first.
+  const ranked = [...items.filter((item) => item.essential), ...items.filter((item) => !item.essential)];
+  let room = 0;
+  if (width > 0) {
+    let used = 0;
+    for (const item of ranked) {
+      const next = used + widthOf(item) + (room > 0 ? gap : 0);
+      if (next + gap + measured.more > width) break;
+      used = next;
+      room += 1;
+    }
+  } else {
+    // An unmeasured toolbar (first paint, tests without a width) shows everything.
+    room = items.length;
   }
+  const hidden = new Set<string>(room < ranked.length ? ranked.slice(Math.max(1, room)).map((item) => item.id) : []);
   const overflow = items.filter((item) => hidden.has(item.id));
 
   // A row names itself with its short word, and the tooltip carries the full title with it.
@@ -60,35 +108,44 @@ export function OverflowToolbar({ items, label, className, onCustomize }: {
     return item.shortcut ? `${title} (${item.shortcut})` : title;
   };
 
-  return <div className={`icon-toolbar${className ? ` ${className}` : ""}`} role="toolbar" aria-label={label} ref={containerRef}>
-    {items.filter((item) => !hidden.has(item.id)).map((item) => <IconButton key={item.id} icon={item.icon}
-      label={item.label} tooltip={item.title} caption={item.caption ?? item.title} shortcut={item.shortcut}
-      pressed={item.pressed} disabled={item.disabled} onClick={item.onSelect} />)}
-    {overflow.length > 0 ? <div className="toolbar-overflow" onBlur={(event) => {
-      if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
-    }}>
-      <button type="button" className="icon-button captioned" aria-label={MORE_LABEL}
-        title={`${MORE_CAPTION} — Show extra toolbar items`}
-        aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((shown) => !shown)}>
-        <Icon name="chevronRight" /><span className="icon-caption" aria-hidden="true">{MORE_CAPTION}</span>
-      </button>
-      {open ? <div className="file-menu-popover overflow-menu" role="menu" aria-label={MORE_LABEL}>
-        {overflow.map((item) => <button type="button" key={item.id} disabled={item.disabled}
-          role={item.pressed === undefined ? "menuitem" : "menuitemcheckbox"} aria-label={item.label} aria-checked={item.pressed} title={rowTooltip(item)}
-          onClick={() => { setOpen(false); item.onSelect(); }}>
-          <Icon name={item.icon} /><span className="menu-caption">{item.caption ?? item.title}</span>
-          {item.shortcut ? <kbd>{item.shortcut}</kbd> : null}
-        </button>)}
-        {onCustomize ? <>
-          <div className="menu-separator" role="separator" />
-          <button type="button" role="menuitem" aria-label={CUSTOMIZE_LABEL} title={CUSTOMIZE_LABEL}
-            onClick={() => { setOpen(false); onCustomize(); }}>
-            <Icon name="settings" /><span className="menu-caption">{CUSTOMIZE_LABEL}</span>
-          </button>
-        </> : null}
+  return <>
+    <div className={`icon-toolbar${className ? ` ${className}` : ""}`} role="toolbar" aria-label={label} ref={containerRef}>
+      {items.filter((item) => !hidden.has(item.id)).map((item) => <IconButton key={item.id} icon={item.icon}
+        label={item.label} tooltip={item.title} caption={item.caption ?? item.title} shortcut={item.shortcut}
+        pressed={item.pressed} disabled={item.disabled} onClick={item.onSelect} />)}
+      {overflow.length > 0 ? <div className="toolbar-overflow" onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+      }}>
+        <button type="button" className="icon-button captioned" aria-label={MORE_LABEL}
+          title={`${MORE_CAPTION} — Show extra toolbar items`}
+          aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((shown) => !shown)}>
+          <Icon name="chevronRight" /><span className="icon-caption" aria-hidden="true">{MORE_CAPTION}</span>
+        </button>
+        {open ? <div className="file-menu-popover overflow-menu" role="menu" aria-label={MORE_LABEL}>
+          {overflow.map((item) => <button type="button" key={item.id} disabled={item.disabled}
+            role={item.pressed === undefined ? "menuitem" : "menuitemcheckbox"} aria-label={item.label} aria-checked={item.pressed} title={rowTooltip(item)}
+            onClick={() => { setOpen(false); item.onSelect(); }}>
+            <Icon name={item.icon} /><span className="menu-caption">{item.caption ?? item.title}</span>
+            {item.shortcut ? <kbd>{item.shortcut}</kbd> : null}
+          </button>)}
+          {onCustomize ? <>
+            <div className="menu-separator" role="separator" />
+            <button type="button" role="menuitem" aria-label={CUSTOMIZE_LABEL} title={CUSTOMIZE_LABEL}
+              onClick={() => { setOpen(false); onCustomize(); }}>
+              <Icon name="settings" /><span className="menu-caption">{CUSTOMIZE_LABEL}</span>
+            </button>
+          </> : null}
+        </div> : null}
       </div> : null}
-    </div> : null}
-  </div>;
+    </div>
+    {/* Off-screen twin of every control, in the bar's own flex row: hidden from sight,
+        from assistive technology (aria-hidden), and from layout (absolutely positioned). */}
+    <div className="icon-toolbar toolbar-measure" aria-hidden="true" ref={measureRef}>
+      {items.map((item) => <IconButton key={item.id} data-measure-item={item.id} icon={item.icon}
+        label={item.label} caption={item.caption ?? item.title} pressed={item.pressed} disabled={item.disabled} />)}
+      <IconButton data-measure-more icon="chevronRight" label={MORE_LABEL} caption={MORE_CAPTION} />
+    </div>
+  </>;
 }
 
 export type MenuItem = { kind: "separator" } | {

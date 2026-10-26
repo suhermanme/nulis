@@ -50,6 +50,16 @@ export function PluginPanel({ onClose, onCommandsChange, onStatus }: PluginPanel
     return () => { mounted = false; };
   }, []);
 
+  /* Escape closes it. The panel announces itself aria-modal, so a keyboard user
+     needs the dismiss key the app gives every other dialog. */
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
   const install = async () => {
     try {
       const selected = await open({ multiple: false, directory: true });

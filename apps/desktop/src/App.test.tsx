@@ -839,6 +839,27 @@ test("filters centralized commands in the palette and executes a layout command"
   expect(document.querySelector("main")).toHaveClass("sidebar-hidden");
 });
 
+test("keeps a dragged sidebar width whole so the session saves", async () => {
+  render(<App />);
+  await screen.findByText("Nulis 0.1.0");
+  fireEvent.pointerDown(document.querySelector(".sidebar-resizer")!);
+  // A browser's pointermove carries fractional coordinates on a scaled display (jsdom's
+  // MouseEvent truncates them, so the value is set directly). The session's field is a u16.
+  const move = new Event("pointermove") as Event & { clientX: number };
+  Object.defineProperty(move, "clientX", { value: 258.46875 });
+  window.dispatchEvent(move);
+  fireEvent.pointerUp(window);
+  // The save is debounced 150 ms, so the wait has to outlast it.
+  const saved = await waitFor(() => {
+    const last = saveRequests().at(-1);
+    if (!last) throw new Error("the session has not saved yet");
+    expect(last.sidebarWidth).not.toBe(260);
+    return last;
+  });
+  expect(Number.isInteger(saved.sidebarWidth)).toBe(true);
+  expect(saved.sidebarWidth).toBe(258);
+});
+
 
 async function openSettings() {
   render(<App />);

@@ -622,8 +622,10 @@ export function App() {
 
   useEffect(() => {
     if (!resizingSidebar) return;
+    // A scaled display reports fractional pointer positions, and the session stores the
+    // width as a u16, so a raw clientX makes the whole session save fail.
     const onPointerMove = (event: PointerEvent) => setSidebarWidth(
-      Math.min(480, Math.max(180, event.clientX)),
+      Math.round(Math.min(480, Math.max(180, event.clientX))),
     );
     const onPointerUp = () => setResizingSidebar(false);
     window.addEventListener("pointermove", onPointerMove);

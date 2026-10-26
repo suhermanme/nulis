@@ -98,3 +98,16 @@ test("disables a plugin and one declarative capability without revoking it", asy
     arguments: { id: "acme.lang-nim", enabled: false },
   }));
 });
+
+test("closes on Escape, the key every other aria-modal dialog answers", async () => {
+  vi.mocked(executeCommand).mockResolvedValue([] as never);
+  const onClose = vi.fn();
+  render(<PluginPanel onClose={onClose} onCommandsChange={vi.fn()} onStatus={vi.fn()} />);
+  await screen.findByText("No plugins installed.");
+
+  fireEvent.keyDown(window, { key: "Escape" });
+  expect(onClose).toHaveBeenCalledTimes(1);
+
+  fireEvent.keyDown(window, { key: "Enter" });
+  expect(onClose).toHaveBeenCalledTimes(1);
+});

@@ -95,6 +95,34 @@ test("low-priority controls move to an overflow menu while essential actions sta
   expect(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Settings" })).toBeInTheDocument();
 });
 
+test("the fit spends the widths the controls really take, and the measuring layer stays out of the tree", () => {
+  // Two controls measure 78 px, the third 54: 78 + 78 + 54 + the More control's 54 needs 264 px.
+  const widths: Record<string, number> = { wide: 78, wide2: 78, narrow: 54, more: 54 };
+  const measured = vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) {
+    if (this.dataset.measureMore !== undefined) return widths.more;
+    const id = this.dataset.measureItem;
+    return id ? widths[id] ?? 0 : 0;
+  });
+  const items: ToolbarItem[] = [
+    { id: "wide", label: "Split editor right", title: "Split Horizontal", caption: "Split Right", icon: "splitHorizontal", essential: true, onSelect: () => undefined },
+    { id: "wide2", label: "Split editor down", title: "Split Vertical", caption: "Split Down", icon: "splitVertical", essential: true, onSelect: () => undefined },
+    { id: "narrow", label: "Open settings", title: "Settings", caption: "Settings", icon: "settings", essential: true, onSelect: () => undefined },
+  ];
+  render(<OverflowToolbar label="Main" items={items} />);
+  const toolbar = screen.getByRole("toolbar", { name: "Main" });
+  const visible = () => within(toolbar).getAllByRole("button").map((button) => button.getAttribute("aria-label"));
+  expect(visible()).toEqual(["Split editor right", "Split editor down", "Open settings"]);
+  // The twin that carries these widths is aria-hidden, so it never adds a second control of any name.
+  expect(screen.getAllByRole("button", { name: "Split editor right" })).toHaveLength(1);
+
+  // 264 px fits all three; 263 does not, and the last control leaves for the More control.
+  resize?.(264);
+  expect(visible()).toEqual(["Split editor right", "Split editor down", "Open settings"]);
+  resize?.(263);
+  expect(visible()).toEqual(["Split editor right", "Split editor down", "More toolbar actions"]);
+  measured.mockRestore();
+});
+
 test("the overflow control shows its word, and its menu names each control and offers the toolbar editor", () => {
   const onCustomize = vi.fn();
   const items: ToolbarItem[] = [
