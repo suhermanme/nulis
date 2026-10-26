@@ -23,6 +23,12 @@ Nulis 0.5.1 passed every job on all three systems (CI run 40216554644 on `1b929e
 0.5.1 `.dmg` hash and passes `brew style`; the online cask audit has not been run yet, because Homebrew
 refuses to audit a cask from an untrusted tap — trusting the tap is the owner's decision.
 
+Nulis 0.5.2 passed every job on all three systems (CI run 40315778439 on `d39894c`, 2026-10-26), and the release
+run for tag `v0.5.2` (40316439728) installed and started each package before publishing it. One tag push started
+two release runs; the duplicate (40316443328) was cancelled while it waited, before it built anything. The cask pins the
+published 0.5.2 `.dmg` hash (`96c3bfd0…`, checked against a fresh download) and passes `brew style`; the online
+audit is still the owner's, for the same reason.
+
 Tests that guard platform differences: `contracts.test.ts` (the desktop and core protocol versions match), `commands.test.ts` (the core, the desktop, and the native menus list the same commands), and the Windows Rust job, which caught a Rename File check that relied on inode numbers that Windows does not have and a language server that the reader had seen stop before Windows reported the exit.
 
 ## By hand
