@@ -2,7 +2,11 @@
 
 What is true of the repository now. The full history, from M00 to 0.5.2, is in [archive/WORK_STATE_HISTORY.md](archive/WORK_STATE_HISTORY.md); progress by milestone is in [IMPLEMENTATION_TRACKER.md](IMPLEMENTATION_TRACKER.md).
 
-## Released: Nulis 0.5.3 (2026-10-26)
+## Released: Nulis 0.5.4 (2026-10-27)
+
+Tag `v0.5.4`: a fix only. Settings, Find and Replace, Help, Lines Containing and Print Preview opened about 1.5 s late on every system, because their page reported it was ready from inside an animation frame, which a hidden web view never runs; they now report as soon as the themed page is laid out (`667dea1`, CI run 40419841547 green). The owner checked the fix on macOS, Windows and Linux. IPC protocol 49, unchanged. Release notes: [release-notes/v0.5.4.md](release-notes/v0.5.4.md). The cask moves to 0.5.4 after the release is published.
+
+## Nulis 0.5.3 (2026-10-26)
 
 Tag `v0.5.3` on `aebc3ba`: plan 6, M50–M55, listed below. IPC protocol 49. Release notes: [release-notes/v0.5.3.md](release-notes/v0.5.3.md). CI run 40360634929 passed every job; release run 40365326411 built, installed, started and published the universal `.dmg`, the Windows installer, the `.deb`, the `.rpm` and `SHA256SUMS.txt`. `Casks/nulis.rb` pins the published 0.5.3 `.dmg` (`a2526cce…`).
 
