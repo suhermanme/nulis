@@ -26,7 +26,7 @@ refuses to audit a cask from an untrusted tap — trusting the tap is the owner'
 Nulis 0.5.3 passed every job on all three systems (CI run 40360634929 on `aebc3ba`, 2026-10-26), and the release
 run for tag `v0.5.3` (40365326411, 2026-10-27) installed and started each package before publishing it; one tag push
 started one run this time. The cask pins the published 0.5.3 `.dmg` hash (`a2526cce…`, checked against a fresh download
-and `SHA256SUMS.txt`) and passes `brew style`; the online audit is still the owner's, for the reason above.
+and `SHA256SUMS.txt`) and passes `brew style`. The owner ran `brew audit --cask --online suhermanme/nulis/nulis` on 2026-10-27: no offenses, with the downloaded `.dmg` matching the pinned hash. A stale local tap (`nulis/local`, left from an earlier release check) had made the short name ambiguous, and was untapped first.
 
 Nulis 0.5.2 passed every job on all three systems (CI run 40315778439 on `d39894c`, 2026-10-26), and the release
 run for tag `v0.5.2` (40316439728) installed and started each package before publishing it. One tag push started

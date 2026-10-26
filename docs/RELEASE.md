@@ -88,6 +88,8 @@ brew audit --cask --online nulis/local/nulis
 brew untap nulis/local
 ```
 
+Untap it even when the audit fails: a leftover `nulis/local` tap makes the short name `nulis` ambiguous (*Cask nulis exists in multiple taps*). To audit the published cask, name it in full: `brew audit --cask --online suhermanme/nulis/nulis`.
+
 Users who tapped the repository get the new version with `brew upgrade --cask nulis`.
 
 ## What a shipped build depends on

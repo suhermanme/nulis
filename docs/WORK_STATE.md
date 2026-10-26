@@ -22,7 +22,7 @@ Tag `v0.5.2`: the integrated terminal (resizable panel, the editor's font, a cur
 
 ## Open
 
-- **Owner's checks:** the Windows and Linux checks in [PLATFORM_MATRIX.md](PLATFORM_MATRIX.md), and `brew audit --cask --online nulis`, which needs the tap trusted on the owner's machine.
+- **Owner's checks:** the Windows and Linux checks in [PLATFORM_MATRIX.md](PLATFORM_MATRIX.md). (The online cask audit for 0.5.3 passed on 2026-10-27.)
 
 ## Verifying a change
 
