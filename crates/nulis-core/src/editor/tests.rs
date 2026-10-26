@@ -1,10 +1,11 @@
 use super::{
-    byte_at_scalar_column, scalar_count, ApplyCompareRequest, BookmarkDirection, CompareMode,
+    byte_at_scalar_column, scalar_count, ApplyCompareRequest, BookmarkDirection,
     DocumentCompareRequest, DocumentManager, EditorError, HexViewportRequest, LineChange,
     Selection, SparseNavigationIndex, TextEncoding, TextTransform, VerticalDirection,
     ViewportAtRequest, ViewportLineRequest, ViewportRequest, MAX_DOCUMENT_MAP_SAMPLES,
     MAX_NAVIGATION_CHECKPOINTS,
 };
+use nulis_diff::CompareMode;
 use nulis_document::PieceTable;
 use nulis_syntax::{CommentSyntax, LanguageDescriptor, LanguageId, LanguageModule, Vocabulary};
 use std::{
