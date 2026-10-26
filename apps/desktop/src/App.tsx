@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { keepFocusInDialog } from "./dialogFocus";
 import { PageSetupDialog } from "./PageSetupDialog";
+import { RenameDialog } from "./RenameDialog";
+import { codePointLabel, encodingLabel, groupDigits, sizeLabel } from "./statusLabels";
+import { baseName, comparablePath, defaultCustomization, dropDocument, folderName, usableSession } from "./workbenchDefaults";
 import { colorChoice, loadPrintSettings, savePrintSettings, type PrintSettings } from "./printSettings";
 import { isTauri } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
@@ -41,7 +44,7 @@ import type {
 import { DEFAULT_REMOTE_IMAGE_POLICY, DEFAULT_SUGGEST_SETTINGS, remoteImagePolicyOf, suggestSettingsOf } from "./contracts";
 import { remoteImagesAllowed } from "./MarkdownPreview";
 import { EditorViewport } from "./EditorViewport";
-import { Picker, useRestoreFocus, type PickerItem } from "./Picker";
+import { Picker, type PickerItem } from "./Picker";
 import { rankMatches } from "./quickOpen";
 import { HexViewport } from "./HexViewport";
 import { CompareView } from "./CompareView";
@@ -88,7 +91,6 @@ import {
   nextTabId,
   nextWorkspaceName,
   paneDocument,
-  removeDocument,
   replaceDocument,
   resizeActivePane,
   setRatio,
@@ -155,69 +157,12 @@ const TOOLBAR_CAPTIONS: Record<string, string> = {
 /** A dirty-document prompt may be one step of quitting or of closing a tab. */
 type CloseFlow = { kind: "quit" } | { kind: "tabs"; tabIds: string[] } | null;
 
-/** Closes every view of a document, dropping tabs that end up empty. */
-function dropDocument(tabs: WorkTab[], documentId: string): WorkTab[] {
-  return tabs.flatMap((tab) => removeDocument(tab, documentId) ?? []);
-}
-
-function defaultCustomization(): CustomizationDocument {
-  return {
-    schemaVersion: 1,
-    appearance: loadEditorPreferences(),
-    keybindings: [
-      { key: "Primary+N", command: "file.new" }, { key: "Primary+O", command: "file.open" },
-      { key: "Primary+S", command: "file.save" }, { key: "Primary+Shift+S", command: "file.saveAs" },
-      { key: "Primary+W", command: "workbench.closeFile" },
-      { key: "Primary+K", command: "workbench.commandPalette" },
-      { key: "Primary+Shift+L", command: "editor.toggleReadOnly" },
-      { key: "Primary+Z", command: "editor.undo" }, { key: "Primary+Shift+Z", command: "editor.redo" },
-    ],
-    menu: [
-      { kind: "command", command: "file.new" }, { kind: "command", command: "file.open" },
-      { kind: "separator" }, { kind: "command", command: "file.save" },
-      { kind: "command", command: "file.saveAs" },
-      { kind: "separator" }, { kind: "command", command: "workbench.closeFile" },
-    ],
-    toolbar: ["file.new", "file.open", "file.save", "workbench.closeFile", "editor.undo", "editor.redo"],
-  };
-}
-
 function matchesChord(event: KeyboardEvent, chord: string): boolean {
   const parts = chord.split("+");
   const key = parts.at(-1)?.toLowerCase();
   return Boolean(key) && event.key.toLowerCase() === key
     && (event.metaKey || event.ctrlKey) === parts.includes("Primary")
     && event.shiftKey === parts.includes("Shift") && event.altKey === parts.includes("Alt");
-}
-
-function defaultSession(): WorkbenchSession {
-  return {
-    schemaVersion: 2,
-    workspaceRoot: null,
-    documents: [],
-    layouts: [],
-    activeLayout: null,
-    sidebarVisible: true,
-    sidebarWidth: 260,
-    activePanel: "files",
-    viewModes: {},
-  };
-}
-
-/** The core migrates older schemas; anything else falls back to an empty session. */
-function usableSession(value: WorkbenchSession | null | undefined): WorkbenchSession {
-  return value && value.schemaVersion === 2 && Array.isArray(value.layouts)
-    && Array.isArray(value.documents) ? value : defaultSession();
-}
-
-/** The last part of a path. */
-function baseName(path: string): string {
-  return path.split(/[\\/]/).filter(Boolean).at(-1) ?? path;
-}
-
-function folderName(path: string): string {
-  const name = baseName(path);
-  return path.slice(0, Math.max(0, path.length - name.length)).replace(/[\\/]$/, "") || path;
 }
 
 const MAX_CLIPBOARD_HISTORY = 20;
@@ -232,70 +177,8 @@ function clipPreview(text: string): string {
   return preview || "(spaces only)";
 }
 
-function encodingLabel(document: DocumentSummary | undefined): string {
-  return document?.encoding === "windows1252" ? "Windows-1252" : "UTF-8";
-}
-
-/** Groups the digits of a decimal string of any length: 1234567 → 1,234,567. */
-function groupDigits(value: string): string {
-  return /^\d+$/.test(value) ? value.replace(/\B(?=(\d{3})+(?!\d))/g, ",") : value;
-}
-
-/** "1,024 bytes · 1,000 characters · 180 words · 12 lines"; counts are left out when not counted. */
-function sizeLabel(byteLen: string, count?: { characters?: string; words?: string; lines?: string }): string {
-  const part = (value: string | undefined, one: string, many: string) =>
-    value === undefined ? [] : [`${groupDigits(value)} ${value === "1" ? one : many}`];
-  return [
-    `${groupDigits(byteLen)} ${byteLen === "1" ? "byte" : "bytes"}`,
-    ...part(count?.characters, "character", "characters"),
-    ...part(count?.words, "word", "words"),
-    ...part(count?.lines, "line", "lines"),
-  ].join(" · ");
-}
-
-/** "U+00E9" for the status bar. */
-function codePointLabel(codePoint: number): string {
-  return `U+${codePoint.toString(16).toUpperCase().padStart(4, "0")}`;
-}
-
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
-}
-
-function comparablePath(path: string): string {
-  return path.replaceAll("\\", "/").replace(/\/+$/, "");
-}
-
-/** Asks for a file's new name; focus returns to where it was when it closes. */
-function RenameDialog({ name, busy, onSubmit, onCancel }: {
-  name: string; busy: boolean; onSubmit(name: string): void; onCancel(): void;
-}) {
-  useRestoreFocus();
-  return <div className="decision-backdrop">
-    <form className="decision-dialog" role="dialog" aria-modal="true" aria-labelledby="rename-file-title"
-      onSubmit={(event) => {
-        event.preventDefault();
-        const field = event.currentTarget.elements.namedItem("name");
-        if (field instanceof HTMLInputElement) onSubmit(field.value);
-      }}
-      onKeyDown={(event) => {
-        keepFocusInDialog(event);
-        if (event.key === "Escape") onCancel();
-      }}>
-      <h2 id="rename-file-title">Rename {name}</h2>
-      <p>The file is renamed in its folder. Unsaved changes stay unsaved.</p>
-      <input name="name" aria-label="New file name" defaultValue={name} autoFocus spellCheck={false}
-        onFocus={(event) => {
-          // Select the name without its extension, as file managers do.
-          const dot = event.currentTarget.value.lastIndexOf(".");
-          event.currentTarget.setSelectionRange(0, dot > 0 ? dot : event.currentTarget.value.length);
-        }} />
-      <div className="decision-actions">
-        <button type="button" disabled={busy} onClick={onCancel}>Cancel</button>
-        <button className="primary" type="submit" disabled={busy}>Rename</button>
-      </div>
-    </form>
-  </div>;
 }
 
 /** How often a running export is asked for its progress. */
