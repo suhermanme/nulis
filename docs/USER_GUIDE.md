@@ -516,6 +516,10 @@ Problems appear as a coloured dot in the gutter and a wavy underline under the t
 
 A Markdown document has an **Edit / View** switch at the left of the editor toolbar. **View** shows the formatted document, including tables, task lists, and other GitHub-style syntax, and images stored beside the file. Raw HTML inside Markdown is not rendered.
 
+**Images from the web.** An image the document links from a web server, such as `![chart](https://example.com/chart.png)`, is not fetched straight away: fetching it tells that server your address and when you opened the file, which is how tracking pixels work. Instead the preview shows a placeholder naming the server, with a **Load remote images** button. Pressing it loads every web image of that document, in every pane that shows it, until the document is closed. Images stored beside the file always show. Images over plain `http://` are never loaded, because the request and the image travel unencrypted.
+
+To change this, use **Settings ▸ Editor ▸ Markdown preview ▸ Remote images**: **Ask for each document** (the default), **Never load**, or **Always load**. In `settings.json` it is `"markdown": { "preview": { "remoteImages": "ask" } }`, with `"block"` or `"allow"` for the other two. Print and Page Setup show web images only when the preview on screen shows them.
+
 ## Tools
 
 ### JSON, XML, YAML, and plist tools

@@ -84,7 +84,7 @@ test("Print waits until every page is in", async () => {
 
 test("a Markdown document prints its formatted preview on the Page Setup paper", async () => {
   window.localStorage.setItem("nulis.printSettings.v1", JSON.stringify({ setup: { paper: "letter", margins: { top: 20, right: 20, bottom: 20, left: 20 } } }));
-  content = { kind: "markdown", title: "notes.md", source: { documentId: "doc-1", revision: "3", text: "# Title\n\nSome *text* and <b>html</b>." } };
+  content = { kind: "markdown", title: "notes.md", source: { documentId: "doc-1", revision: "3", text: "# Title\n\nSome *text* and <b>html</b>." }, remoteImages: false };
   render(<PrintApp />);
   expect(await screen.findByRole("heading", { name: "Title" })).toBeInTheDocument();
   expect(screen.getByLabelText("Markdown preview")).toHaveClass("print-markdown");
@@ -96,7 +96,7 @@ test("where the engine repeats padding on each page, Markdown margins leave no r
   vi.stubGlobal("CSS", { supports: (property: string, value: string) => property === "box-decoration-break" && value === "clone" });
   try {
     window.localStorage.setItem("nulis.printSettings.v1", JSON.stringify({ setup: { margins: { top: 20, right: 20, bottom: 20, left: 20 } } }));
-    content = { kind: "markdown", title: "notes.md", source: { documentId: "doc-1", revision: "3", text: "# Title" } };
+    content = { kind: "markdown", title: "notes.md", source: { documentId: "doc-1", revision: "3", text: "# Title" }, remoteImages: false };
     const { container } = render(<PrintApp />);
     await screen.findByRole("heading", { name: "Title" });
     const sheet = container.querySelector(".print-markdown-sheet");
@@ -105,6 +105,21 @@ test("where the engine repeats padding on each page, Markdown margins leave no r
   } finally {
     vi.unstubAllGlobals();
   }
+});
+
+test("a printed Markdown preview fetches remote images only when the editor allowed them", async () => {
+  const text = "# Title\n\n![Chart](https://images.example.com/chart.png)";
+  content = { kind: "markdown", title: "notes.md", source: { documentId: "doc-1", revision: "3", text }, remoteImages: false };
+  const { unmount } = render(<PrintApp />);
+  expect(await screen.findByRole("img", { name: "Chart: Remote image from images.example.com, blocked" })).toBeInTheDocument();
+  expect(document.querySelector("img")).toBeNull();
+  // Print has no way to change the decision: it follows the editor's.
+  expect(screen.queryByRole("button", { name: "Load remote images" })).toBeNull();
+  unmount();
+
+  content = { kind: "markdown", title: "notes.md", source: { documentId: "doc-1", revision: "3", text }, remoteImages: true };
+  render(<PrintApp />);
+  expect(await screen.findByRole("img", { name: "Chart" })).toHaveAttribute("src", "https://images.example.com/chart.png");
 });
 
 test("with nothing prepared the window says how to print", async () => {

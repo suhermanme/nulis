@@ -13,6 +13,7 @@ Protect user files, credentials, editor state, host commands, and workspace priv
 - Recovery manifests are versioned and parsed without automatically opening their paths; callers explicitly validate the original fingerprint and trusted session root before restoration.
 - Shell commands use argument arrays, never concatenated shell interpolation.
 - Preview content uses a restricted origin/sandbox, sanitization, no native bridge, and a restrictive content security policy.
+- The Markdown preview makes no network request on its own. Images linked from `https:` load only after the reader asks for that document, or when `markdown.preview.remoteImages` is `"allow"`; the default `"ask"` and `"block"` render a placeholder and create no `<img>`. Plain `http:` images are never fetched, and `img-src` in the content security policy does not allow `http:` (a desktop test enforces this). Print Preview cannot decide for itself: it loads web images only when the editor window says the reader allowed them.
 - Plugin permissions are denied by default, user-visible, and enforced at every host operation.
 - Scripts have capability, time, memory, and cancellation budgets.
 - Themes remain declarative and cannot execute code.

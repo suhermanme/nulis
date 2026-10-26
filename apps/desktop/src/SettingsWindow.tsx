@@ -18,7 +18,7 @@ import type {
 } from "./contracts";
 import { CUSTOMIZABLE_COMMANDS } from "./commands";
 import { Icon, IconButton, type IconName } from "./icons";
-import { suggestSettingsOf } from "./contracts";
+import { remoteImagePolicyOf, suggestSettingsOf, type RemoteImagePolicy } from "./contracts";
 import { executeCommand, getApplicationInfo, listCommands } from "./ipc";
 import { LAYOUT_LIMITS } from "./layout";
 import { exportWindowTheme, useShowWhenReady } from "./windowTheme";
@@ -93,6 +93,8 @@ interface IndentationDraft {
   /** `editor.suggest.auto` and `editor.suggest.acceptOnEnter`. */
   suggestAuto: boolean;
   suggestAcceptOnEnter: boolean;
+  /** `markdown.preview.remoteImages`, saved with the rest of this section. */
+  remoteImages: RemoteImagePolicy;
 }
 
 function indentationOf(state: SettingsState | null): IndentationDraft {
@@ -108,6 +110,7 @@ function indentationOf(state: SettingsState | null): IndentationDraft {
     detectIndentation: values.detectIndentation !== false,
     suggestAuto: suggest.auto,
     suggestAcceptOnEnter: suggest.acceptOnEnter,
+    remoteImages: remoteImagePolicyOf(state?.document.values),
   };
 }
 
@@ -115,11 +118,16 @@ function indentationOf(state: SettingsState | null): IndentationDraft {
 function withIndentation(values: Record<string, unknown>, draft: IndentationDraft): Record<string, unknown> {
   const editor = typeof values.editor === "object" && values.editor !== null ? values.editor as Record<string, unknown> : {};
   const suggest = typeof editor.suggest === "object" && editor.suggest !== null ? editor.suggest as Record<string, unknown> : {};
-  const { suggestAuto, suggestAcceptOnEnter, ...indentation } = draft;
-  return {
+  const { suggestAuto, suggestAcceptOnEnter, remoteImages, ...indentation } = draft;
+  const next = {
     ...values,
     editor: { ...editor, ...indentation, suggest: { ...suggest, auto: suggestAuto, acceptOnEnter: suggestAcceptOnEnter } },
   };
+  // Written only when it changes, so saving other editor values adds no markdown key.
+  if (remoteImages === remoteImagePolicyOf(values)) return next;
+  const markdown = typeof values.markdown === "object" && values.markdown !== null ? values.markdown as Record<string, unknown> : {};
+  const preview = typeof markdown.preview === "object" && markdown.preview !== null ? markdown.preview as Record<string, unknown> : {};
+  return { ...next, markdown: { ...markdown, preview: { ...preview, remoteImages } } };
 }
 
 type FeatureSwitches = Record<string, Partial<Record<CapabilityKind, boolean>>>;
@@ -792,6 +800,18 @@ export function SettingsWindow({
             setIndentDraft((current) => ({ ...current, suggestAcceptOnEnter }));
           }} /><span>Enter accepts a suggestion (Tab always does)</span></label>
         <p className="settings-help">Suggestions come from words in the document, the language's keywords, and snippets. They open by themselves after two letters in languages with keywords, never in Plain Text or Markdown. Show them anywhere with Ctrl+Space (on macOS also Option+Esc).</p>
+      </fieldset>
+      <fieldset className="settings-group"><legend>Markdown preview</legend>
+        <label><span>Remote images</span><select aria-label="Remote images" value={indentDraft.remoteImages}
+          onChange={(event) => {
+            const remoteImages = event.currentTarget.value as RemoteImagePolicy;
+            setIndentDraft((current) => ({ ...current, remoteImages }));
+          }}>
+          <option value="ask">Ask for each document</option>
+          <option value="block">Never load</option>
+          <option value="allow">Always load</option>
+        </select></label>
+        <p className="settings-help">Images a Markdown file links from the web (https://…) are fetched from that server, which then learns your address and when you opened the file. Ask shows a placeholder and a Load remote images button for each document. Images stored beside the file always show. Plain http:// images are never loaded.</p>
       </fieldset>
       <fieldset className="settings-group"><legend>Gutter</legend>
         <label className="settings-check"><input aria-label="Show line change indicators by default" type="checkbox" checked={lineChanges}

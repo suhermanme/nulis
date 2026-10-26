@@ -1,5 +1,5 @@
 /** Versioned JSON-compatible values mirrored from nulis-core's public IPC DTOs. */
-export const IPC_PROTOCOL_VERSION = 48 as const;
+export const IPC_PROTOCOL_VERSION = 49 as const;
 
 export type ThemeKind = "dark" | "light";
 
@@ -493,6 +493,19 @@ export function suggestSettingsOf(values: Record<string, unknown> | undefined): 
     minChars: number(read.minChars, DEFAULT_SUGGEST_SETTINGS.minChars, 1, 10),
     delayMs: number(read.delayMs, DEFAULT_SUGGEST_SETTINGS.delayMs, 0, 2000),
   };
+}
+
+/** `markdown.preview.remoteImages`: whether the preview fetches `https:` images from the web. */
+export type RemoteImagePolicy = "block" | "ask" | "allow";
+export const REMOTE_IMAGE_POLICIES: readonly RemoteImagePolicy[] = ["block", "ask", "allow"];
+export const DEFAULT_REMOTE_IMAGE_POLICY: RemoteImagePolicy = "ask";
+
+/** Reads `markdown.preview.remoteImages` from settings.json values; the default when absent or invalid. */
+export function remoteImagePolicyOf(values: Record<string, unknown> | undefined): RemoteImagePolicy {
+  const markdown = values?.markdown;
+  const preview = typeof markdown === "object" && markdown !== null ? (markdown as { preview?: unknown }).preview : undefined;
+  const value = typeof preview === "object" && preview !== null ? (preview as { remoteImages?: unknown }).remoteImages : undefined;
+  return REMOTE_IMAGE_POLICIES.find((policy) => policy === value) ?? DEFAULT_REMOTE_IMAGE_POLICY;
 }
 
 export interface ValidationReport {

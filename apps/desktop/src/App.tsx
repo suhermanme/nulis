@@ -28,6 +28,7 @@ import type {
   ExternalChange,
   DocumentCapabilities,
   SettingsState,
+  RemoteImagePolicy,
   SuggestSettings,
   ThemeRecord,
   ValidationReport,
@@ -37,7 +38,8 @@ import type {
   WorkspaceFileList,
   WorkspaceSummary,
 } from "./contracts";
-import { DEFAULT_SUGGEST_SETTINGS, suggestSettingsOf } from "./contracts";
+import { DEFAULT_REMOTE_IMAGE_POLICY, DEFAULT_SUGGEST_SETTINGS, remoteImagePolicyOf, suggestSettingsOf } from "./contracts";
+import { remoteImagesAllowed } from "./MarkdownPreview";
 import { EditorViewport } from "./EditorViewport";
 import { Picker, useRestoreFocus, type PickerItem } from "./Picker";
 import { rankMatches } from "./quickOpen";
@@ -322,13 +324,16 @@ export function App() {
   ]);
   const [documents, setDocuments] = useState<DocumentSummary[]>([]);
   const [suggestSettings, setSuggestSettings] = useState<SuggestSettings>(DEFAULT_SUGGEST_SETTINGS);
-  /** Reads `editor.suggest` from settings.json; defaults when it cannot. */
+  const [remoteImagePolicy, setRemoteImagePolicy] = useState<RemoteImagePolicy>(DEFAULT_REMOTE_IMAGE_POLICY);
+  /** Reads `editor.suggest` and `markdown.preview.remoteImages` from settings.json; defaults when it cannot. */
   const loadSuggestSettings = useCallback(async () => {
     try {
       const state = await executeCommand<SettingsState | null>({ id: "settings.state", context: { windowId: "main" }, arguments: {} });
       setSuggestSettings(suggestSettingsOf(state?.document.values));
+      setRemoteImagePolicy(remoteImagePolicyOf(state?.document.values));
     } catch {
       setSuggestSettings(DEFAULT_SUGGEST_SETTINGS);
+      setRemoteImagePolicy(DEFAULT_REMOTE_IMAGE_POLICY);
     }
   }, []);
   useEffect(() => { void loadSuggestSettings(); }, [loadSuggestSettings]);
@@ -1063,7 +1068,10 @@ export function App() {
     if (exportJob) { setStatus(exportJob.kind === "print" ? "Pages are being prepared for printing" : "An export to PDF is already running"); return; }
     try {
       if (markdownViewing === document.documentId && viewModes[document.documentId] !== "hex") {
-        await openPrintWindow({ kind: "markdown", documentId: document.documentId, title: document.name });
+        await openPrintWindow({
+          kind: "markdown", documentId: document.documentId, title: document.name,
+          remoteImages: remoteImagesAllowed(remoteImagePolicy, document.documentId),
+        });
         setStatus(`Print Preview shows ${document.name}`);
         return;
       }
@@ -2570,6 +2578,7 @@ export function App() {
           onClipboardText={rememberClipboard}
           insertRequest={active ? insertRequest : undefined}
           suggest={suggestSettings}
+          remoteImages={remoteImagePolicy}
           problems={problemsByDocument[document.documentId]?.problems}
           onReload={document.sourcePath ? () => requestReload(document) : undefined}
           onOpenFind={active ? openFindPanel : undefined}
@@ -2914,6 +2923,7 @@ export function App() {
       {pageSetupOpen ? <PageSetupDialog initial={printSettings} preview={previewFirstPage}
         loadMarkdown={activeDocument && markdownViewing === activeDocument.documentId && viewModes[activeDocument.documentId] !== "hex"
           ? () => getMarkdownPreviewSource(activeDocument.documentId) : undefined}
+        remoteImages={activeDocument ? remoteImagesAllowed(remoteImagePolicy, activeDocument.documentId) : false}
         onCancel={() => setPageSetupOpen(false)}
         onSave={(settings) => {
           setPrintSettings(settings);

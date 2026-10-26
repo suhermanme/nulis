@@ -1241,6 +1241,10 @@ enum PrintContent {
     Markdown {
         document_id: DocumentId,
         title: String,
+        /// The editor window's decision: may the preview fetch `https:` images?
+        /// Absent means no, so an older request never loads them.
+        #[serde(default)]
+        remote_images: bool,
     },
 }
 
@@ -1283,9 +1287,11 @@ async fn open_print_window(
 enum PrintWindowContent {
     /// Read the pages with `print.pages`.
     Pages,
+    #[serde(rename_all = "camelCase")]
     Markdown {
         title: String,
         source: MarkdownPreviewSource,
+        remote_images: bool,
     },
     Empty,
 }
@@ -1306,8 +1312,13 @@ fn print_window_content(
     Ok(match content {
         None => PrintWindowContent::Empty,
         Some(PrintContent::Pages) => PrintWindowContent::Pages,
-        Some(PrintContent::Markdown { document_id, title }) => PrintWindowContent::Markdown {
+        Some(PrintContent::Markdown {
+            document_id,
             title,
+            remote_images,
+        }) => PrintWindowContent::Markdown {
+            title,
+            remote_images,
             source: core
                 .markdown_preview_source(&document_id)
                 .map_err(|error| error.to_string())?,
@@ -1950,8 +1961,9 @@ mod tests {
     use super::{
         authorize_window_command, fitted_find_height, portable_accelerator, validate_native_menu,
         validate_request, visible_frame, CommandContext, ExecuteCommandRequest, HelpTopic,
-        NativeMenuEntry, PrintContent, PrintPaper, WindowFrame,
+        NativeMenuEntry, PrintContent, PrintPaper, PrintWindowContent, WindowFrame,
     };
+    use nulis_core::{DocumentId, MarkdownPreviewSource};
     use serde_json::{json, Value};
 
     #[test]
@@ -2070,7 +2082,36 @@ mod tests {
             "kind": "markdown", "documentId": "doc-1", "title": "notes.md"
         }))
         .expect("markdown content");
-        assert!(matches!(markdown, PrintContent::Markdown { .. }));
+        // A request that does not say otherwise never loads remote images.
+        assert!(matches!(
+            markdown,
+            PrintContent::Markdown {
+                remote_images: false,
+                ..
+            }
+        ));
+        let allowed: PrintContent = serde_json::from_value(serde_json::json!({
+            "kind": "markdown", "documentId": "doc-1", "title": "notes.md", "remoteImages": true
+        }))
+        .expect("markdown content with remote images");
+        assert!(matches!(
+            allowed,
+            PrintContent::Markdown {
+                remote_images: true,
+                ..
+            }
+        ));
+        let shown = serde_json::to_value(PrintWindowContent::Markdown {
+            title: "notes.md".into(),
+            source: MarkdownPreviewSource {
+                document_id: DocumentId("doc-1".into()),
+                revision: 1,
+                text: String::new(),
+            },
+            remote_images: true,
+        })
+        .expect("serialize");
+        assert_eq!(shown["remoteImages"], true);
         assert!(
             serde_json::from_value::<PrintContent>(serde_json::json!({ "kind": "file" })).is_err()
         );
@@ -2147,5 +2188,27 @@ mod tests {
     #[test]
     fn native_menu_rejects_edge_separators() {
         assert!(validate_native_menu(&[NativeMenuEntry::Separator]).is_err());
+    }
+
+    /// Images in a previewed document may come from `https:` (when the reader allows it),
+    /// never over plain `http:`; only the asset protocol host uses `http://`.
+    #[test]
+    fn the_content_security_policy_never_loads_images_over_plain_http() {
+        let config: Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).expect("tauri.conf.json");
+        let csp = config["app"]["security"]["csp"].as_str().expect("csp");
+        let img = csp
+            .split(';')
+            .map(str::trim)
+            .find(|directive| directive.starts_with("img-src"))
+            .expect("img-src");
+        for source in img.split_whitespace().skip(1) {
+            assert!(
+                source != "http:"
+                    && (!source.starts_with("http://") || source == "http://asset.localhost"),
+                "img-src allows {source}"
+            );
+        }
+        assert!(img.split_whitespace().any(|source| source == "https:"));
     }
 }

@@ -153,7 +153,8 @@ export function openFindWindow(): Promise<void> {
 }
 
 /** What Print Preview shows: the pages laid out by `file.printStart`, or a Markdown preview. */
-export type PrintContent = { kind: "pages" } | { kind: "markdown"; documentId: string; title: string };
+/** `remoteImages`: the editor window allows the preview to fetch `https:` images for this document. */
+export type PrintContent = { kind: "pages" } | { kind: "markdown"; documentId: string; title: string; remoteImages: boolean };
 
 /** Opens the Print Preview window on `content`, or brings it forward and shows `content`. */
 export function openPrintWindow(content: PrintContent): Promise<void> {
@@ -163,7 +164,7 @@ export function openPrintWindow(content: PrintContent): Promise<void> {
 /** What the calling Print Preview window should show. */
 export type PrintWindowContent =
   | { kind: "pages" }
-  | { kind: "markdown"; title: string; source: MarkdownPreviewSource }
+  | { kind: "markdown"; title: string; source: MarkdownPreviewSource; remoteImages: boolean }
   | { kind: "empty" };
 
 export function printWindowContent(): Promise<PrintWindowContent> {

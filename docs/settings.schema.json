@@ -32,6 +32,23 @@
           },
           "additionalProperties": true
         },
+        "markdown": {
+          "type": "object",
+          "properties": {
+            "preview": {
+              "type": "object",
+              "properties": {
+                "remoteImages": {
+                  "description": "Whether the Markdown preview fetches https: images from the web. \"ask\" shows a placeholder with a Load remote images button for each document; \"block\" never fetches them; \"allow\" always does. Plain http: images are never fetched.",
+                  "enum": ["block", "ask", "allow"],
+                  "default": "ask"
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "additionalProperties": true
+        },
         "lsp": {
           "type": "object",
           "properties": {

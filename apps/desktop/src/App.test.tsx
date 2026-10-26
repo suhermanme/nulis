@@ -1039,6 +1039,33 @@ test("indentation settings are saved to settings.json and keep other editor valu
   });
 });
 
+test("the Markdown preview's remote images setting is saved to settings.json beside other Markdown values", async () => {
+  const settingsAtStart = {
+    revision: 1, loadError: null, rejectedAssociations: [],
+    document: { schemaVersion: 1, values: { markdown: { preview: { other: 1 } } } },
+  };
+  responses["settings.state"] = [settingsAtStart, settingsAtStart];
+  responses["language.capabilities"] = [[]];
+  const dialog = await openSettings();
+  fireEvent.click(within(dialog).getByRole("tab", { name: "Editor" }));
+  const select = within(dialog).getByRole("combobox", { name: "Remote images" });
+  await waitFor(() => expect(select).toHaveValue("ask"));
+  fireEvent.change(select, { target: { value: "block" } });
+  expect(within(within(dialog).getByRole("tab", { name: /^Editor/ })).getByRole("img", { name: "unapplied changes" })).toBeInTheDocument();
+  responses["settings.state"] = [{ revision: 2, loadError: null, rejectedAssociations: [], document: { schemaVersion: 1, values: {} } }];
+  responses["language.capabilities"] = [[]];
+  fireEvent.click(within(dialog).getByRole("button", { name: "Apply" }));
+  await waitFor(() => expect(executeCommand).toHaveBeenCalledWith(expect.objectContaining({ id: "settings.saveChecked" })));
+  const saved = vi.mocked(executeCommand).mock.calls.find(([request]) => request.id === "settings.saveChecked")?.[0];
+  expect(saved?.arguments).toEqual({
+    expectedRevision: 1,
+    document: { schemaVersion: 1, values: {
+      editor: { autoIndent: "full", insertSpaces: false, tabSize: 4, detectIndentation: true, suggest: { auto: true, acceptOnEnter: true } },
+      markdown: { preview: { other: 1, remoteImages: "block" } },
+    } },
+  });
+});
+
 test("applies and persists editor appearance settings at the observed revision", async () => {
   const dialog = await openSettings();
   fireEvent.click(within(dialog).getByRole("tab", { name: "Appearance & Themes" }));

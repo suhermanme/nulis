@@ -59,7 +59,7 @@ type Shown =
   | { kind: "loading" }
   | { kind: "empty" }
   | { kind: "pages"; printId: number; title: string; frame: PrintPageFrame; total: number; pages: PrintedPage[] }
-  | { kind: "markdown"; title: string; documentId: string; text: string };
+  | { kind: "markdown"; title: string; documentId: string; text: string; remoteImages: boolean };
 
 function errorText(reason: unknown): string {
   if (reason instanceof Error) return reason.message;
@@ -111,7 +111,7 @@ export function PrintApp() {
     void printWindowContent().then(async (content: PrintWindowContent) => {
       if (stale()) return;
       if (content.kind === "markdown") {
-        setShown({ kind: "markdown", title: content.title, documentId: content.source.documentId, text: content.source.text });
+        setShown({ kind: "markdown", title: content.title, documentId: content.source.documentId, text: content.source.text, remoteImages: content.remoteImages });
       } else if (content.kind === "pages") {
         await readPages((next) => { if (!stale()) setShown(next); }, stale);
       } else {
@@ -190,7 +190,8 @@ export function PrintApp() {
             padding: sheetMargins(markdownSetup.margins),
             ["--sheet-margins" as string]: sheetMargins(markdownSetup.margins),
           }}>
-            <MarkdownPreview documentId={shown.documentId} source={shown.text} loadImage={loadMarkdownImage} className="print-markdown" />
+            <MarkdownPreview documentId={shown.documentId} source={shown.text} loadImage={loadMarkdownImage} className="print-markdown"
+              remoteImages={shown.remoteImages ? "allow" : "block"} />
           </div>
         </main>
       ) : null}

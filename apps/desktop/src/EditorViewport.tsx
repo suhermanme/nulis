@@ -49,6 +49,7 @@ import type {
   ViewportSnapshot,
   CompletionList,
   DocumentProblem,
+  RemoteImagePolicy,
   SuggestSettings,
 } from "./contracts";
 import { DEFAULT_SUGGEST_SETTINGS } from "./contracts";
@@ -444,6 +445,8 @@ interface EditorViewportProps {
   insertRequest?: { id: number; text: string };
   /** When suggestions open and how they are accepted. */
   suggest?: SuggestSettings;
+  /** `markdown.preview.remoteImages`: whether the Markdown preview fetches `https:` images. */
+  remoteImages?: RemoteImagePolicy;
   /** Problems the document's language server reported, drawn in the gutter and underlined. */
   problems?: DocumentProblem[];
 }
@@ -483,6 +486,7 @@ export function EditorViewport({
   onClipboardText,
   insertRequest,
   suggest = DEFAULT_SUGGEST_SETTINGS,
+  remoteImages,
   problems = [],
 }: EditorViewportProps) {
   const rowHeight = Math.max(12, Math.min(100, lineHeight));
@@ -2486,7 +2490,7 @@ export function EditorViewport({
       {isMarkdownView ? previewError
         ? <div className="markdown-preview-message" role="alert">{previewError}</div>
         : currentPreview
-          ? <MarkdownPreview documentId={document.documentId} source={currentPreview.text} />
+          ? <MarkdownPreview documentId={document.documentId} source={currentPreview.text} remoteImages={remoteImages} />
           : <div className="markdown-preview-message" role="status">Rendering Markdown preview…</div>
       : <>
       <div

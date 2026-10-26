@@ -44,7 +44,9 @@ function BandFields({ legend, band, onChange }: { legend: string; band: Band; on
 }
 
 /** The Markdown preview as Print lays it out: on the paper, within the margins, scaled to `widthPx`. */
-function ScaledMarkdownSheet({ source, setup, widthPx }: { source: MarkdownPreviewSource; setup: PrintSettings["setup"]; widthPx: number }) {
+function ScaledMarkdownSheet({ source, setup, widthPx, remoteImages }: {
+  source: MarkdownPreviewSource; setup: PrintSettings["setup"]; widthPx: number; remoteImages: boolean;
+}) {
   const paper = PAPER_SIZES.find(({ id }) => id === setup.paper) ?? PAPER_SIZES[0];
   const landscape = setup.orientation === "landscape";
   const widthMm = landscape ? paper.heightMm : paper.widthMm;
@@ -58,7 +60,8 @@ function ScaledMarkdownSheet({ source, setup, widthPx }: { source: MarkdownPrevi
         transform: `scale(${scale})`, transformOrigin: "top left",
       }}>
         <div className="page-setup-markdown-body">
-          <MarkdownPreview documentId={source.documentId} source={source.text} className="print-markdown" />
+          <MarkdownPreview documentId={source.documentId} source={source.text} className="print-markdown"
+            remoteImages={remoteImages ? "allow" : "block"} />
         </div>
       </div>
     </div>
@@ -70,11 +73,13 @@ function ScaledMarkdownSheet({ source, setup, widthPx }: { source: MarkdownPrevi
  * each page shows, and colors, with a live preview of the first page laid
  * out by the core.
  */
-export function PageSetupDialog({ initial, preview, loadMarkdown, onSave, onCancel }: {
+export function PageSetupDialog({ initial, preview, loadMarkdown, remoteImages = false, onSave, onCancel }: {
   initial: PrintSettings;
   preview: PreviewPage;
   /** Set when Print would print the formatted Markdown preview: the preview then shows that instead. */
   loadMarkdown?: () => Promise<MarkdownPreviewSource>;
+  /** Whether that preview may fetch `https:` images, as the editor shows it. */
+  remoteImages?: boolean;
   onSave(settings: PrintSettings): void;
   onCancel(): void;
 }) {
@@ -193,7 +198,7 @@ export function PageSetupDialog({ initial, preview, loadMarkdown, onSave, onCanc
           </div>
           <div className="page-setup-preview" aria-label="Preview of the first page">
             {readMarkdown
-              ? markdown ? <ScaledMarkdownSheet source={markdown} setup={setup} widthPx={PREVIEW_WIDTH_PX} /> : <div className="page-setup-preview-empty">Preview…</div>
+              ? markdown ? <ScaledMarkdownSheet source={markdown} setup={setup} widthPx={PREVIEW_WIDTH_PX} remoteImages={remoteImages} /> : <div className="page-setup-preview-empty">Preview…</div>
               : shown ? <ScaledPageView page={shown.page} frame={shown.frame} widthPx={PREVIEW_WIDTH_PX} /> : <div className="page-setup-preview-empty">Preview…</div>}
             {readMarkdown ? <p className="page-setup-hint">Markdown in View mode prints this formatted preview. Only paper, orientation, and margins apply to it; the rest is for code and text.</p> : null}
             {problem ? <p role="alert" className="page-setup-problem">{problem}</p> : null}

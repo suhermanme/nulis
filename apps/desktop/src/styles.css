@@ -438,6 +438,12 @@ kbd { padding: 2px 6px; border: 1px solid #373e48; border-radius: 4px; color: #b
 .markdown-preview blockquote > :first-child { margin-top: 0; }
 .markdown-preview blockquote > :last-child { margin-bottom: 0; }
 .markdown-preview img { display: block; max-width: 100%; height: auto; }
+.markdown-remote-image { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; max-width: 100%; padding: 8px 12px; border: 1px dashed var(--border); border-radius: 7px; color: var(--muted); background: var(--raised); font-size: 12px; line-height: 1.4; }
+.markdown-remote-image-alt { color: var(--editor-fg); font-size: 13px; }
+.markdown-remote-image-note { overflow-wrap: anywhere; }
+.markdown-remote-image button { padding: 3px 9px; border: 1px solid var(--border); border-radius: 5px; color: var(--ui-text); background: var(--panel); font: inherit; cursor: pointer; }
+.markdown-remote-image button:hover { border-color: var(--accent); }
+.markdown-remote-image button:focus-visible { outline: 2px solid var(--editor-focus); outline-offset: 1px; }
 .markdown-preview hr { border: 0; border-top: 1px solid var(--border); }
 .markdown-preview table { display: block; width: max-content; max-width: 100%; overflow: auto; border-collapse: collapse; }
 .markdown-preview th, .markdown-preview td { padding: 7px 12px; border: 1px solid var(--border); text-align: left; }

@@ -98,6 +98,18 @@ impl SettingsDocument {
                 )));
             }
         }
+        let remote_images = self
+            .values
+            .get("markdown")
+            .and_then(|markdown| markdown.get("preview"))
+            .and_then(|preview| preview.get("remoteImages"));
+        if let Some(policy) = remote_images {
+            if !matches!(policy.as_str(), Some("block" | "ask" | "allow")) {
+                return Err(SettingsError::Invalid(
+                    "markdown.preview.remoteImages must be \"block\", \"ask\" or \"allow\"".into(),
+                ));
+            }
+        }
         let associations = self
             .values
             .get("files")
@@ -731,6 +743,14 @@ mod settings_file_tests {
                 "must be a language ID",
             ),
             (json!({ "[python]": 4 }), "must hold an object"),
+            (
+                json!({ "markdown": { "preview": { "remoteImages": "always" } } }),
+                "markdown.preview.remoteImages",
+            ),
+            (
+                json!({ "markdown": { "preview": { "remoteImages": true } } }),
+                "markdown.preview.remoteImages",
+            ),
         ];
         for (values, reason) in cases {
             let error = document(values).validate().expect_err("invalid");
@@ -748,6 +768,19 @@ mod settings_file_tests {
         let newer: SettingsDocument =
             serde_json::from_value(json!({ "schemaVersion": 2, "values": {} })).expect("shape");
         assert_eq!(newer.validate(), Err(SettingsError::UnsupportedSchema(2)));
+    }
+
+    #[test]
+    fn every_remote_image_policy_is_accepted() {
+        for policy in ["block", "ask", "allow"] {
+            let values = json!({ "markdown": { "preview": { "remoteImages": policy } } });
+            assert_eq!(document(values).validate(), Ok(()), "{policy}");
+        }
+        // Other Markdown preview values are not this check's business.
+        assert_eq!(
+            document(json!({ "markdown": { "preview": { "other": 1 } } })).validate(),
+            Ok(())
+        );
     }
 
     #[test]
