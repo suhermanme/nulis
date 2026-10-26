@@ -43,11 +43,14 @@ function hostOf(src: string): string {
   }
 }
 
-function RemoteImagePlaceholder({ src, alt, insecure, onLoad }: { src: string; alt?: string; insecure: boolean; onLoad?: () => void }) {
+function RemoteImagePlaceholder({ src, alt, insecure, failed = false, onLoad }: {
+  src: string; alt?: string; insecure: boolean; failed?: boolean; onLoad?: () => void;
+}) {
   const host = hostOf(src);
   const label = insecure
     ? `Insecure remote image from ${host}, blocked`
-    : onLoad ? `Remote image from ${host}` : `Remote image from ${host}, blocked`;
+    : failed ? `Remote image from ${host} could not be loaded`
+      : onLoad ? `Remote image from ${host}` : `Remote image from ${host}, blocked`;
   return <span className="markdown-remote-image" role="img" aria-label={alt ? `${alt}: ${label}` : label} title={src}>
     {alt ? <span className="markdown-remote-image-alt">{alt}</span> : null}
     <span className="markdown-remote-image-note">{label}</span>
@@ -59,6 +62,8 @@ function PreviewImage({ documentId, src, alt, loadImage, policy, approved }: {
   documentId: string; src?: string; alt?: string; loadImage?: ImageLoader; policy: RemoteImagePolicy; approved: boolean;
 }) {
   const [resolvedSource, setResolvedSource] = useState<string | null>(null);
+  // The remote source that failed to load, so a changed source gets a fresh try.
+  const [failedSource, setFailedSource] = useState<string | null>(null);
   const remote = src !== undefined && /^https?:/i.test(src);
 
   useEffect(() => {
@@ -84,7 +89,11 @@ function PreviewImage({ documentId, src, alt, loadImage, policy, approved }: {
   if (src && remote) {
     // Plain http is never fetched: the request and the image travel unencrypted.
     const insecure = /^http:/i.test(src);
-    if (!insecure && (policy === "allow" || approved)) return <img src={src} alt={alt ?? ""} />;
+    if (!insecure && (policy === "allow" || approved)) {
+      // A server that is down, refuses, or sends no image would otherwise leave an empty gap.
+      if (failedSource === src) return <RemoteImagePlaceholder src={src} alt={alt} insecure={false} failed />;
+      return <img src={src} alt={alt ?? ""} onError={() => setFailedSource(src)} />;
+    }
     return <RemoteImagePlaceholder src={src} alt={alt} insecure={insecure}
       onLoad={policy === "ask" ? () => approveRemoteImages(documentId) : undefined} />;
   }

@@ -62,6 +62,14 @@ describe("remote images", () => {
     expect(screen.getByRole("img", { name: "Remote" })).toHaveAttribute("src", remote);
   });
 
+  test("a remote image that fails to load says so instead of leaving a gap", () => {
+    render(<MarkdownPreview documentId="doc-fail" source={`![Chart](${remote})`} remoteImages="allow" />);
+    fireEvent.error(screen.getByRole("img", { name: "Chart" }));
+    expect(screen.getByRole("img", { name: "Chart: Remote image from images.example.com could not be loaded" })).toBeInTheDocument();
+    expect(document.querySelector("img")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Load remote images" })).toBeNull();
+  });
+
   test("plain http images are blocked under every policy", () => {
     for (const policy of ["block", "ask", "allow"] as const) {
       const { unmount } = render(<MarkdownPreview documentId={`doc-http-${policy}`} source="![Old](http://insecure.example.com/x.png)" remoteImages={policy} />);
