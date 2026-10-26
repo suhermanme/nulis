@@ -468,7 +468,7 @@ It holds the session (open files and layout), `settings.json` (for example `file
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Component boundaries and the large-file engine. |
 | [docs/DECISIONS.md](docs/DECISIONS.md) | Design decisions and their reasons. |
 | [docs/PRODUCT_SPEC.md](docs/PRODUCT_SPEC.md) | What the product is meant to be. |
-| [docs/IMPROVEMENT_SPEC.md](docs/IMPROVEMENT_SPEC.md) | Specification of the interaction and layout milestones. |
+| [docs/archive/plans/IMPROVEMENT_SPEC.md](docs/archive/plans/IMPROVEMENT_SPEC.md) | Specification of the interaction and layout milestones. |
 | [docs/FEATURE_PARITY.md](docs/FEATURE_PARITY.md) | Status of every capability. |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Milestones. |
 | [docs/WORK_STATE.md](docs/WORK_STATE.md) | What was done most recently and what is next. |

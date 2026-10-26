@@ -46,7 +46,7 @@ Tests that guard platform differences: `contracts.test.ts` (the desktop and core
 | 0.3.0: readable selection and icons in NvChad themes, the two Nulis themes first | yes, by the user on a release build (2026-10-20) | not yet | not yet |
 | 0.3.0: Count All on a 31.8 GB log (no limit, progress, Cancel) | yes, by the user on a release build (2026-10-20) | not yet | not yet |
 | 0.3.0: YAML and plist tools, CSV/TSV and YAML highlighting, binary plist in hex | not recorded | not yet | not yet |
-| Print, Page Setup, and Export to PDF (M36–M39): matching pages, progress and Cancel, 2,460-page log, selection, hex dump, fallback fonts, Markdown, theme colors | yes, by the user on a debug build (2026-10-22; `handover/M38_HANDOVER.md`, `M39_HANDOVER.md`) | yes, Windows 11 test VM, CI build (2026-10-22): print, Markdown print without the browser's header and footer, export, page counts | yes, Ubuntu 26.04 test VM, CI build (2026-10-23): print in portrait and landscape, export, page counts |
+| Print, Page Setup, and Export to PDF (M36–M39): matching pages, progress and Cancel, 2,460-page log, selection, hex dump, fallback fonts, Markdown, theme colors | yes, by the user on a debug build (2026-10-22; `archive/handover/M38_HANDOVER.md`, `M39_HANDOVER.md`) | yes, Windows 11 test VM, CI build (2026-10-22): print, Markdown print without the browser's header and footer, export, page counts | yes, Ubuntu 26.04 test VM, CI build (2026-10-23): print in portrait and landscape, export, page counts |
 | Screen readers (VoiceOver, NVDA, Orca) | not yet | not yet | not yet |
 
 The checks still to do by hand are listed in `RELEASE.md` under *Manual interaction checks*, and each milestone's handover in `docs/handover/` notes what it did not try by hand.

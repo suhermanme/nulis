@@ -4,7 +4,7 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 
 ## Current state
 
-- **Current milestone:** M49 custom themes is complete and **released in Nulis 0.5.1** (2026-10-26, tag `v0.5.1`; the work merged to `main` on 2026-10-25 at `bcf62f4`, `feat/theme-customization` deleted): catalog write path, `theme.save`, Appearance panel, preview scoping, spec and handover, plus the two follow-ups below — readability reporting, and the removal of the **Apply theme colors** switch (IPC protocol **48**, from 47). The full boundary run over the follow-ups is CI's on this release, recorded in the Plan 5 section. Open: the manual checks in `handover/M49_HANDOVER.md` (the owner's macOS check of the readability notice passed on 2026-10-25), Windows and Linux, and `brew audit --cask --online` on the bumped cask (the cask itself is at 0.5.1 with the published `.dmg` hash, `brew style` clean; the audit needs the local tap trusted, which is the owner's call on their machine). M48 complete (2026-10-24); Nulis 0.5.0. Plan 4 is complete on `main`. **To resume plan 4, read the "Plan 4" section below.** Plan 3 is complete and released in Nulis 0.4.0 (2026-10-23).
+- **Current milestone:** M49 custom themes is complete and **released in Nulis 0.5.1** (2026-10-26, tag `v0.5.1`; the work merged to `main` on 2026-10-25 at `bcf62f4`, `feat/theme-customization` deleted): catalog write path, `theme.save`, Appearance panel, preview scoping, spec and handover, plus the two follow-ups below — readability reporting, and the removal of the **Apply theme colors** switch (IPC protocol **48**, from 47). The full boundary run over the follow-ups is CI's on this release, recorded in the Plan 5 section. Open: the manual checks in `archive/handover/M49_HANDOVER.md` (the owner's macOS check of the readability notice passed on 2026-10-25), Windows and Linux, and `brew audit --cask --online` on the bumped cask (the cask itself is at 0.5.1 with the published `.dmg` hash, `brew style` clean; the audit needs the local tap trusted, which is the owner's call on their machine). M48 complete (2026-10-24); Nulis 0.5.0. Plan 4 is complete on `main`. **To resume plan 4, read the "Plan 4" section below.** Plan 3 is complete and released in Nulis 0.4.0 (2026-10-23).
 - **Plan 6 (M50–M55, repository health):** approved 2026-10-26. M50–M52 complete, merged fast-forward to `main` on 2026-10-26 (CI run 40337132995 green on `8297b51`, all 12 jobs); not yet released (planned as 0.5.3). IPC protocol **49**. M53 complete, merged fast-forward to `main` on 2026-10-26 (CI run 40347009648 green on `bc82ceb`, all 12 jobs): `editor.rs` 8,504 → 2,406 lines and `lib.rs` 6,298 → 1,560, code moves only, public API identical. M54 complete, merged fast-forward to `main` on 2026-10-26 (CI run 40351693489 green on `2b8cbcb`, all 12 jobs after GitHub's macOS runner shortage cancelled one and it was re-run): `App.tsx` 3,025 → 2,589 and `EditorViewport.tsx` 2,978 → 2,790 lines, 262 tests unchanged; the owner's smoke run passed (Export to PDF keeps writing the Markdown source, by the owner's choice). Next: M55 documentation. Details: the Plan 6 section below.
 - **Overall:** M19–M30 complete (M19–M29 in Nulis 0.2.0, M30 after it); plan 2: 5 of 5 milestones completed (M31–M35); plan 3: 5 of 5 completed (M36–M40, in Nulis 0.4.0); plan 4: 8 of 8 (M41–M48); plan 5: 1 of 1 complete (M49, manual app check pending)
 - **Unplanned UI cleanup (2026-10-26):** branch `chore/flat-window-layout`, merged to `main` on 2026-10-26, released in Nulis 0.5.2 (2026-10-26, tag `v0.5.2`). Dropping the activity bar and the editor toolbar's symbols picker is committed at `fcae0e5`; and the same cleanup's toolbar labels (a word under every control, the **More** overflow control, and its **Customize Toolbar…** link into the Settings toolbar editor) are committed on top of it. Automated checks pass (typecheck, lint, Vitest 23 files and 227 tests, `frontend:build`); the macOS walkthrough ran on 2026-10-26 against the rebuilt `~/Desktop/Nulis.app` and passed all five scenarios, with two defects found and fixed (the **More** menu under the plugins panel, and the plugins panel ignoring Escape) — per-scenario results in `docs/WORK_STATE.md`. On the same branch, the footer's **EDIT** / **READ ONLY** chip is now a state indicator, not a second toggle (the editor toolbar's mode button, **View ▸ Read-Only Mode**, the command palette, and **Ctrl/⌘ Shift L** remain the ways to switch); automated checks pass, and the owner's macOS manual acceptance on the rebuilt `~/Desktop/Nulis.app` passed on 2026-10-26. Open: the Windows and Linux checks. Details: the section below and `docs/WORK_STATE.md`.
@@ -13,37 +13,37 @@ Authoritative progress and handover record for `IMPROVEMENT_PLAN.md` (M19–M30)
 
 | Milestone | Status | Handover |
 | --- | --- | --- |
-| M19 Audit and foundation (+ Windows Settings window bug) | Completed (Windows/Linux runtime check pending) | `handover/M19_HANDOVER.md` |
-| M20 Core editing keys, line operations, editor context menu | Completed (manual and Windows/Linux checks pending) | `handover/M20_HANDOVER.md` |
-| M21 Find and Replace window | Completed (manual and Windows/Linux checks pending) | `handover/M21_HANDOVER.md` |
-| M22 Replace in Files | Completed (manual and Windows/Linux checks pending) | `handover/M22_HANDOVER.md` |
-| M23 External changes and Reload (user request) | Completed (manual and Windows/Linux checks pending) | `handover/M23_HANDOVER.md` |
-| M24 New application icon (user request) | Completed | `handover/M24_HANDOVER.md` |
-| M25 Format and transforms | Completed (manual and Windows/Linux checks pending) | `handover/M25_HANDOVER.md` |
-| M26 Search and navigation | Completed (manual and Windows/Linux checks pending) | `handover/M26_HANDOVER.md` |
-| M27 View features (split from "View and file") | Completed (manual and Windows/Linux checks pending) | `handover/M27_HANDOVER.md` |
-| M28 File conveniences (split from "View and file") | Completed (manual and Windows/Linux checks pending) | `handover/M28_HANDOVER.md` |
-| M29 Column and clipboard tools | Completed (manual and Windows/Linux checks pending) | `handover/M29_HANDOVER.md` |
-| M30 Integration and quality | Completed (manual screen-reader and Linux checks pending) | `handover/M30_HANDOVER.md` |
-| M31 Find window fits its content | Completed (checked on macOS; Windows/Linux pending) | `handover/M31_M32_HANDOVER.md` |
-| M32 Regular expressions and column search | Completed (checked on macOS; Windows/Linux pending) | `handover/M31_M32_HANDOVER.md` |
+| M19 Audit and foundation (+ Windows Settings window bug) | Completed (Windows/Linux runtime check pending) | `archive/handover/M19_HANDOVER.md` |
+| M20 Core editing keys, line operations, editor context menu | Completed (manual and Windows/Linux checks pending) | `archive/handover/M20_HANDOVER.md` |
+| M21 Find and Replace window | Completed (manual and Windows/Linux checks pending) | `archive/handover/M21_HANDOVER.md` |
+| M22 Replace in Files | Completed (manual and Windows/Linux checks pending) | `archive/handover/M22_HANDOVER.md` |
+| M23 External changes and Reload (user request) | Completed (manual and Windows/Linux checks pending) | `archive/handover/M23_HANDOVER.md` |
+| M24 New application icon (user request) | Completed | `archive/handover/M24_HANDOVER.md` |
+| M25 Format and transforms | Completed (manual and Windows/Linux checks pending) | `archive/handover/M25_HANDOVER.md` |
+| M26 Search and navigation | Completed (manual and Windows/Linux checks pending) | `archive/handover/M26_HANDOVER.md` |
+| M27 View features (split from "View and file") | Completed (manual and Windows/Linux checks pending) | `archive/handover/M27_HANDOVER.md` |
+| M28 File conveniences (split from "View and file") | Completed (manual and Windows/Linux checks pending) | `archive/handover/M28_HANDOVER.md` |
+| M29 Column and clipboard tools | Completed (manual and Windows/Linux checks pending) | `archive/handover/M29_HANDOVER.md` |
+| M30 Integration and quality | Completed (manual screen-reader and Linux checks pending) | `archive/handover/M30_HANDOVER.md` |
+| M31 Find window fits its content | Completed (checked on macOS; Windows/Linux pending) | `archive/handover/M31_M32_HANDOVER.md` |
+| M32 Regular expressions and column search | Completed (checked on macOS; Windows/Linux pending) | `archive/handover/M31_M32_HANDOVER.md` |
 | M33 Theme contrast | Completed (verified by the user on macOS; Windows/Linux pending) | this tracker, M33 section |
 | M34 YAML and plist Validate | Completed (awaiting the user's check on macOS; Windows/Linux pending) | this tracker, M34 section |
 | M35 CSV/TSV, YAML and plist highlighting | Completed (awaiting the user's check on macOS; Windows/Linux pending) | this tracker, M35 section |
-| M36 Print spike and commands | Completed (print check passed on macOS; Windows/Linux pending) | `handover/M36_HANDOVER.md` |
-| M37 `nulis-print` layout and PDF export | Completed (checked in the app on macOS; Windows/Linux pending) | `handover/M37_HANDOVER.md` |
-| M38 Scope, large files, other views | Done; checked in the app on macOS 2026-10-22 | `handover/M38_HANDOVER.md` |
-| M39 Print window and Page Setup dialog | Complete (macOS checked 2026-10-22; Windows/Linux pending) | `handover/M39_HANDOVER.md` |
-| M40 Docs and release | Complete 2026-10-22 | `handover/M40_HANDOVER.md` |
+| M36 Print spike and commands | Completed (print check passed on macOS; Windows/Linux pending) | `archive/handover/M36_HANDOVER.md` |
+| M37 `nulis-print` layout and PDF export | Completed (checked in the app on macOS; Windows/Linux pending) | `archive/handover/M37_HANDOVER.md` |
+| M38 Scope, large files, other views | Done; checked in the app on macOS 2026-10-22 | `archive/handover/M38_HANDOVER.md` |
+| M39 Print window and Page Setup dialog | Complete (macOS checked 2026-10-22; Windows/Linux pending) | `archive/handover/M39_HANDOVER.md` |
+| M40 Docs and release | Complete 2026-10-22 | `archive/handover/M40_HANDOVER.md` |
 | M41 Language capabilities: audit and design | Completed 2026-10-23 (approved) | this tracker, "Plan 4" section |
-| M42 Language catalog and capability contracts | Completed 2026-10-23 (checked in the app on macOS) | `handover/M42_HANDOVER.md` |
-| M43 First-party migration (tools, Markdown preview) | Completed 2026-10-23 (checked in the app on macOS) | `handover/M43_HANDOVER.md` |
-| M44 Core auto-indentation | Completed 2026-10-23 (checked in the app on macOS) | `handover/M44_HANDOVER.md` |
-| M45 Shared autocomplete | Completed 2026-10-23 (checked in the app on macOS) | `handover/M45_HANDOVER.md` |
-| M46 Expand bundled coverage | Completed 2026-10-23 (app check pending) | `handover/M46_HANDOVER.md` |
-| M47 Optional LSP | Completed 2026-10-24 (manual rust-analyzer check pending) | `handover/M47_HANDOVER.md` |
-| M48 External plugin readiness | Completed 2026-10-24 (manual app check pending) | `handover/M48_HANDOVER.md` |
-| M49 Custom themes | Completed 2026-10-25; released in Nulis 0.5.1 (2026-10-26) — manual app checks pending | `handover/M49_HANDOVER.md` |
+| M42 Language catalog and capability contracts | Completed 2026-10-23 (checked in the app on macOS) | `archive/handover/M42_HANDOVER.md` |
+| M43 First-party migration (tools, Markdown preview) | Completed 2026-10-23 (checked in the app on macOS) | `archive/handover/M43_HANDOVER.md` |
+| M44 Core auto-indentation | Completed 2026-10-23 (checked in the app on macOS) | `archive/handover/M44_HANDOVER.md` |
+| M45 Shared autocomplete | Completed 2026-10-23 (checked in the app on macOS) | `archive/handover/M45_HANDOVER.md` |
+| M46 Expand bundled coverage | Completed 2026-10-23 (app check pending) | `archive/handover/M46_HANDOVER.md` |
+| M47 Optional LSP | Completed 2026-10-24 (manual rust-analyzer check pending) | `archive/handover/M47_HANDOVER.md` |
+| M48 External plugin readiness | Completed 2026-10-24 (manual app check pending) | `archive/handover/M48_HANDOVER.md` |
+| M49 Custom themes | Completed 2026-10-25; released in Nulis 0.5.1 (2026-10-26) — manual app checks pending | `archive/handover/M49_HANDOVER.md` |
 
 ## Plan 6 (M50–M55) — repository health
 
@@ -83,7 +83,7 @@ Plan: `THEME_IMPLEMENTATION_PLAN.md`. Spec: `THEME_SPEC.md` ("Custom themes"). S
 1. Read the plan's Findings and Milestones sections, then the "Custom themes" part of the spec. The plan is
    complete, so this resumes nothing: work landed on `feat/theme-customization`, merged fast-forward to
    `main` at `bcf62f4` (2026-10-25), and the branch is deleted. Further theme changes go on `main`, with an
-   update to `docs/handover/M49_HANDOVER.md` and here.
+   update to `docs/archive/handover/M49_HANDOVER.md` and here.
 2. M49 is the whole feature: the catalog write path in `nulis-theme`, the `theme.save` command (introduced
    at IPC 47, now 48) in `nulis-core`, the Appearance panel in `SettingsWindow.tsx` (Duplicate, color
    fields, the store button, Revert, Remove Selected, and the readability marker), preview scoping in
@@ -92,7 +92,7 @@ Plan: `THEME_IMPLEMENTATION_PLAN.md`. Spec: `THEME_SPEC.md` ("Custom themes"). S
 
 **Boundary checks (2026-10-25, the M49 commit):** `cargo fmt --all -- --check` clean; `cargo clippy --workspace --all-targets -- -D warnings` clean; `cargo test --workspace` green — 46 result lines, 0 failures, among them `nulis-core` 200, `nulis-theme` 16 (incl. `saves_creates_then_edits_a_user_theme_across_a_restart`), `nulis-syntax` `self_hosting` 2, `nulis-desktop-lib` 9, `nulis-automation` 15. Desktop Vitest 23 files / 220 tests passed; `typecheck` and `lint` clean; `frontend:build` built.
 
-**Follow-up (2026-10-25) — readability feedback.** Manual acceptance found a color that saved and did not paint: the four floored tokens (`editor.selection`, `ui.mutedText`, `ui.icon`, `ui.iconDisabled`) are strengthened on load, and a pick below a floor gave no sign of it. The reporting path is now: `ensure_readable` returns what it changed (`crates/nulis-theme/src/contrast.rs:165`), the read-only `theme.readable` (IPC 47, additive, Settings-allowed, not a mutation) answers for an unsaved draft, the Appearance panel marks each color it will paint and previews the floors-applied palette with a sample selection, and `docs/USER_GUIDE.md` has a "Theme colors and readability" section the Help window renders. Checks run: `cargo test -p nulis-theme` and `-p nulis-core` (one new test each), `npx vitest run src/App.test.tsx -t "theme"` (10 passed), `commands`/`contracts`/`preferences` parity tests, `tsc -b` clean. Manual check on the owner's display passed the same day from the `~/Desktop/Nulis.app` build (22:56): the panel shows the notice while picking. The full boundary run (fmt, clippy `-D warnings`, workspace tests, desktop Vitest, lint, `frontend:build`) ran as CI on `1b929ef` and is green; see the boundary-run paragraph below and `handover/M49_HANDOVER.md`.
+**Follow-up (2026-10-25) — readability feedback.** Manual acceptance found a color that saved and did not paint: the four floored tokens (`editor.selection`, `ui.mutedText`, `ui.icon`, `ui.iconDisabled`) are strengthened on load, and a pick below a floor gave no sign of it. The reporting path is now: `ensure_readable` returns what it changed (`crates/nulis-theme/src/contrast.rs:165`), the read-only `theme.readable` (IPC 47, additive, Settings-allowed, not a mutation) answers for an unsaved draft, the Appearance panel marks each color it will paint and previews the floors-applied palette with a sample selection, and `docs/USER_GUIDE.md` has a "Theme colors and readability" section the Help window renders. Checks run: `cargo test -p nulis-theme` and `-p nulis-core` (one new test each), `npx vitest run src/App.test.tsx -t "theme"` (10 passed), `commands`/`contracts`/`preferences` parity tests, `tsc -b` clean. Manual check on the owner's display passed the same day from the `~/Desktop/Nulis.app` build (22:56): the panel shows the notice while picking. The full boundary run (fmt, clippy `-D warnings`, workspace tests, desktop Vitest, lint, `frontend:build`) ran as CI on `1b929ef` and is green; see the boundary-run paragraph below and `archive/handover/M49_HANDOVER.md`.
 
 **Boundary run (CI, 2026-10-26) — green, closed.** The sweep the two follow-ups deferred ran as CI on
 `main`. Run 40215756053 on `d5f851e` failed exactly two jobs and passed everything else: Rust formatting
@@ -144,7 +144,7 @@ Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language 
 2. Work on branch `feat/language-capabilities` (or a branch per milestone from it). One milestone at a time; stop at each boundary with a handover in `docs/handover/M4x_HANDOVER.md` and an update here.
 3. Commit golden tests **before** any migration (detection table in M42, tool messages in M43), so the refactor shows no change.
 4. Run the full check before marking anything Completed: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, and in `apps/desktop` `npm run lint`, `npm run typecheck`, `npx vitest run`. Record counts here.
-5. Running a desktop build uses the user's real data (`docs/handover/PLAN3_RESUME.md`, "Running a test build safely"): ask first and back up.
+5. Running a desktop build uses the user's real data (`docs/archive/handover/PLAN3_RESUME.md`, "Running a test build safely"): ask first and back up.
 6. Bump `IPC_PROTOCOL_VERSION` in `crates/nulis-core/src/lib.rs` and `apps/desktop/src/contracts.ts` together whenever a DTO changes.
 
 ### M41 — Audit and design
@@ -162,7 +162,7 @@ Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language 
 
 **Baseline (commit `1494931`, macOS, 2026-10-23):** `cargo test --workspace` passed, 345 tests (nulis-core 165, nulis-syntax 15, nulis-plugin-host 9 unit, nulis-settings 4, nulis-desktop 9); Vitest 22 files, 191 tests passed. fmt, clippy, lint and typecheck not re-run (no code changed; CI passed on `1494931`).
 
-**Files changed:** `docs/IMPROVEMENT_PLAN_4.md`, `docs/LANGUAGE_CAPABILITIES.md`, `docs/LANGUAGE_MATRIX.md` (new); `docs/IMPLEMENTATION_TRACKER.md`, `docs/DECISIONS.md`, `docs/ROADMAP.md` (updated).
+**Files changed:** `docs/archive/plans/IMPROVEMENT_PLAN_4.md`, `docs/LANGUAGE_CAPABILITIES.md`, `docs/LANGUAGE_MATRIX.md` (new); `docs/IMPLEMENTATION_TRACKER.md`, `docs/DECISIONS.md`, `docs/ROADMAP.md` (updated).
 
 **Decisions:** documents follow the repository's names (`IMPROVEMENT_PLAN_4.md` plays the role of the requested `IMPLEMENTATION_PLAN.md`; this tracker is the requested `IMPLEMENTATION_TRACKER.md`); milestone numbers continue at M41.
 
@@ -170,7 +170,7 @@ Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language 
 
 ### M42 — Language catalog and capability contracts
 
-**Status:** Completed 2026-10-23; checked in the app on macOS by the owner the same day. Handover: `handover/M42_HANDOVER.md`.
+**Status:** Completed 2026-10-23; checked in the app on macOS by the owner the same day. Handover: `archive/handover/M42_HANDOVER.md`.
 
 | Task | Status |
 | --- | --- |
@@ -200,7 +200,7 @@ Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language 
 
 ### M43 — First-party migration
 
-**Status:** Completed 2026-10-23 (automated checks on macOS; checked in the app on macOS by the owner). Handover: `handover/M43_HANDOVER.md`. **App check (macOS release build of `9c86d84`, 2026-10-23, by the owner):** auto-indent, closing-bracket outdent, YAML/Makefile units, suggestions and snippets, keyword case, View As tools, and the Settings pages worked as expected. User data was backed up before and restored after.
+**Status:** Completed 2026-10-23 (automated checks on macOS; checked in the app on macOS by the owner). Handover: `archive/handover/M43_HANDOVER.md`. **App check (macOS release build of `9c86d84`, 2026-10-23, by the owner):** auto-indent, closing-bracket outdent, YAML/Makefile units, suggestions and snippets, keyword case, View As tools, and the Settings pages worked as expected. User data was backed up before and restored after.
 
 | Task | Status |
 | --- | --- |
@@ -230,7 +230,7 @@ Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language 
 
 ### M44 — Core auto-indentation
 
-**Status:** Completed 2026-10-23 (automated checks on macOS; checked in the app on macOS by the owner). Handover: `handover/M44_HANDOVER.md`. **App check (macOS release build of `9c86d84`, 2026-10-23, by the owner):** auto-indent, closing-bracket outdent, YAML/Makefile units, suggestions and snippets, keyword case, View As tools, and the Settings pages worked as expected. User data was backed up before and restored after.
+**Status:** Completed 2026-10-23 (automated checks on macOS; checked in the app on macOS by the owner). Handover: `archive/handover/M44_HANDOVER.md`. **App check (macOS release build of `9c86d84`, 2026-10-23, by the owner):** auto-indent, closing-bracket outdent, YAML/Makefile units, suggestions and snippets, keyword case, View As tools, and the Settings pages worked as expected. User data was backed up before and restored after.
 
 | Task | Status |
 | --- | --- |
@@ -259,7 +259,7 @@ Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language 
 
 ### M45 — Shared autocomplete
 
-**Status:** Completed 2026-10-23 (automated checks on macOS; checked in the app on macOS by the owner). Handover: `handover/M45_HANDOVER.md`. **App check (macOS release build of `9c86d84`, 2026-10-23, by the owner):** auto-indent, closing-bracket outdent, YAML/Makefile units, suggestions and snippets, keyword case, View As tools, and the Settings pages worked as expected. User data was backed up before and restored after.
+**Status:** Completed 2026-10-23 (automated checks on macOS; checked in the app on macOS by the owner). Handover: `archive/handover/M45_HANDOVER.md`. **App check (macOS release build of `9c86d84`, 2026-10-23, by the owner):** auto-indent, closing-bracket outdent, YAML/Makefile units, suggestions and snippets, keyword case, View As tools, and the Settings pages worked as expected. User data was backed up before and restored after.
 
 | Task | Status |
 | --- | --- |
@@ -286,7 +286,7 @@ Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language 
 
 ### M46 — Expand bundled coverage
 
-**Status:** Completed 2026-10-23 (automated checks on macOS; not yet tried in the running app). Handover: `handover/M46_HANDOVER.md`.
+**Status:** Completed 2026-10-23 (automated checks on macOS; not yet tried in the running app). Handover: `archive/handover/M46_HANDOVER.md`.
 
 | Task | Status |
 | --- | --- |
@@ -314,7 +314,7 @@ Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language 
 
 ### M47 — Optional LSP
 
-**Status:** Completed 2026-10-24 (automated checks on macOS; manual rust-analyzer checks on the three platforms pending). Handover: `handover/M47_HANDOVER.md`. **Depends on:** M43 (diagnostics contract), M45 (done).
+**Status:** Completed 2026-10-24 (automated checks on macOS; manual rust-analyzer checks on the three platforms pending). Handover: `archive/handover/M47_HANDOVER.md`. **Depends on:** M43 (diagnostics contract), M45 (done).
 
 | Task | Status |
 | --- | --- |
@@ -326,7 +326,7 @@ Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language 
 
 ### M48 — External plugin readiness
 
-**Status:** Completed 2026-10-24 (automated checks on macOS; manual app check pending). Handover: `handover/M48_HANDOVER.md`. **Depends on:** M42–M46 (done).
+**Status:** Completed 2026-10-24 (automated checks on macOS; manual app check pending). Handover: `archive/handover/M48_HANDOVER.md`. **Depends on:** M42–M46 (done).
 
 | Task | Status |
 | --- | --- |
@@ -341,7 +341,7 @@ Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language 
 
 ## M19 — Audit and foundation
 
-**Deliverables:** `IMPROVEMENT_PLAN.md`, this tracker, `handover/M19_HANDOVER.md`; baseline test run.
+**Deliverables:** `IMPROVEMENT_PLAN.md`, this tracker, `archive/handover/M19_HANDOVER.md`; baseline test run.
 
 **User-reported bug fixed in M19:** on Windows the Settings window opened blank, and on Windows and Linux Settings showed the application menu bar.
 
@@ -379,7 +379,7 @@ Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language 
 
 **Risks / rollback:** IPC version bump to 27; revert the M20 commit to roll back (no persisted data changes).
 
-**Result (completed 2026-10-20):** all acceptance criteria met by automated tests on macOS. Palette entries (scope item 6) moved to M29 because the palette only runs zero-argument commands. Verification: `cargo test --workspace` passed (nulis-core 96, was 86); clippy and fmt clean; lint and typecheck clean; Vitest 118 passed (was 115). Not yet tried by hand in the running app. Details: `handover/M20_HANDOVER.md`.
+**Result (completed 2026-10-20):** all acceptance criteria met by automated tests on macOS. Palette entries (scope item 6) moved to M29 because the palette only runs zero-argument commands. Verification: `cargo test --workspace` passed (nulis-core 96, was 86); clippy and fmt clean; lint and typecheck clean; Vitest 118 passed (was 115). Not yet tried by hand in the running app. Details: `archive/handover/M20_HANDOVER.md`.
 
 ## M21 — Find and Replace window
 
@@ -408,7 +408,7 @@ Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language 
 - The panel can be dragged, keeps its tab and options while open, closes with Escape or its close button, and all controls are keyboard reachable with labels.
 - All suites green.
 
-**Result (completed 2026-10-20):** scope items 1–7 implemented. Verification on macOS: `cargo fmt --check` and `cargo clippy --workspace --all-targets -D warnings` clean; `cargo test --workspace` all passed (nulis-core 101, nulis-search 8); `npm run lint`, `npm run typecheck` clean; Vitest 11 files / 120 tests passed. Tests that used the removed find bar and Search side panel were rewritten for the new window. Not yet tried by hand in the running app. Details and known limits: `handover/M21_HANDOVER.md`.
+**Result (completed 2026-10-20):** scope items 1–7 implemented. Verification on macOS: `cargo fmt --check` and `cargo clippy --workspace --all-targets -D warnings` clean; `cargo test --workspace` all passed (nulis-core 101, nulis-search 8); `npm run lint`, `npm run typecheck` clean; Vitest 11 files / 120 tests passed. Tests that used the removed find bar and Search side panel were rewritten for the new window. Not yet tried by hand in the running app. Details and known limits: `archive/handover/M21_HANDOVER.md`.
 
 **Risks / rollback:** existing tests that use the inline find bar or Search side panel must be rewritten; large documents: lists are capped (10,000 matches / 5,000 lines) and say when truncated. Revert the M21 commit to roll back.
 
@@ -417,7 +417,7 @@ Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language 
 **Scope:** a Replace in Files tab with the Find in Files fields plus Replace with; a preview list of files and match counts before anything changes; explicit confirmation; open documents changed in memory (one undo step each, left dirty); closed files saved with the existing atomic save after a fingerprint check; a per-file success/failure report; size and file-count limits.
 **Acceptance:** nothing is written before confirmation; a file changed on disk after the preview is skipped and reported; read-only documents are skipped; results agree with Find in Files.
 
-**Result (completed 2026-10-20, on `main`):** all acceptance criteria covered by tests. Verification on macOS: `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings` clean; `cargo test --workspace` all passed (nulis-core 104, nulis-desktop 7); lint and typecheck clean; Vitest 11 files / 122 tests passed. Details: `handover/M22_HANDOVER.md`.
+**Result (completed 2026-10-20, on `main`):** all acceptance criteria covered by tests. Verification on macOS: `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings` clean; `cargo test --workspace` all passed (nulis-core 104, nulis-desktop 7); lint and typecheck clean; Vitest 11 files / 122 tests passed. Details: `archive/handover/M22_HANDOVER.md`.
 
 ## M23 — External changes and Reload
 
@@ -433,13 +433,13 @@ Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language 
 
 **Acceptance:** an outside edit is reported once; Reload shows the new text in every view of the document and keeps the tab; Keep Mine stops the prompt and a later Save succeeds; a deleted file is reported; Reload with unsaved edits needs confirmation; nothing is read from disk by the check itself.
 
-**Result (completed 2026-10-20, on `main`):** all criteria covered by tests. Verification on macOS: fmt and clippy clean; `cargo test --workspace` passed (nulis-core 108, nulis-desktop 7); lint and typecheck clean; Vitest 124 passed. Details: `handover/M23_HANDOVER.md`.
+**Result (completed 2026-10-20, on `main`):** all criteria covered by tests. Verification on macOS: fmt and clippy clean; `cargo test --workspace` passed (nulis-core 108, nulis-desktop 7); lint and typecheck clean; Vitest 124 passed. Details: `archive/handover/M23_HANDOVER.md`.
 
 ## M30 — Integration and quality
 
 **Delivered:** `commands.test.ts` checks that the core, the desktop, and the native menus list the same commands and that every presentation command has a handler (it found none missing from M20–M29); fixed a double undo and redo (the window's shortcuts re-ran keys the editor had handled); Ctrl Y redo on Windows and Linux; dialogs keep Tab inside (fields included) and pickers and the Rename dialog return focus when closed; the user guide, `FEATURE_PARITY.md`, and the new `PLATFORM_MATRIX.md` brought up to date. Also during M30 (user requests): the new icon, the batik About window, release 0.2.0, and the Homebrew cask.
 
-**Result (completed 2026-10-20, on `main`):** fmt and clippy clean; `cargo test --workspace` passed (nulis-core 137); lint and typecheck clean; Vitest 15 files, 155 passed. Details: `handover/M30_HANDOVER.md`.
+**Result (completed 2026-10-20, on `main`):** fmt and clippy clean; `cargo test --workspace` passed (nulis-core 137); lint and typecheck clean; Vitest 15 files, 155 passed. Details: `archive/handover/M30_HANDOVER.md`.
 
 ## M31 — Find window fits its content
 
@@ -451,7 +451,7 @@ Plan: `IMPROVEMENT_PLAN_4.md`. Design: `LANGUAGE_CAPABILITIES.md`. Per-language 
 
 **Delivered:** one regex style on the linear-time `regex` engine; unbounded patterns (`\w+`, `a.*b`) allowed with a 1 MiB match cap that is reported, never cut; matches across chunk edges found once; capture groups in Replace (`$1`, `${name}`, `$0`/`$&`, `\1`, `\n`, `\t`), checked before anything changes, for Replace, Replace All and Replace in Files (`search.replaceMatch` checks the range is still a match); Search in column (From/To, status-bar columns, `^`/`$` at the column edges) for every single-document action and highlighting; "Highlight all" painted from core matches of the visible lines (`search.matchesInRange`) and kept in step with the query and options; one-sentence pattern errors with a position (`search.validatePattern`), shown in the status line above the buttons; options remembered between sessions; a "Regex help" button that opens Nulis Help at the new Regular expressions section (`open_help_window` takes a topic). Also fixed: every command failure reached the UI as a generic message because the core's `{ kind, detail }` was never turned into an `Error`; `executeCommand` now does that. IPC protocol 36.
 
-**Result (completed 2026-10-20, on `main`, not committed):** fmt and clippy clean; `cargo test --workspace` passed (nulis-core 140, nulis-search 22, nulis-desktop 9); lint and typecheck clean; Vitest 19 files, 170 passed. Checked in a debug build on macOS: window fit per tab, `id=\d+` with highlights, column 1–4 search, `$2:$1` Replace All and one-step undo, lookbehind message. Details: `handover/M31_M32_HANDOVER.md`.
+**Result (completed 2026-10-20, on `main`, not committed):** fmt and clippy clean; `cargo test --workspace` passed (nulis-core 140, nulis-search 22, nulis-desktop 9); lint and typecheck clean; Vitest 19 files, 170 passed. Checked in a debug build on macOS: window fit per tab, `id=\d+` with highlights, column 1–4 search, `$2:$1` Replace All and one-step undo, lookbehind message. Details: `archive/handover/M31_M32_HANDOVER.md`.
 
 ## M33 — Theme contrast
 
@@ -510,31 +510,31 @@ The user asked for a modern, clean icon suited to macOS without the batik ribbon
 
 **Fix found during M29:** M28 raised the core IPC protocol to 34 but left the desktop constant at 33, so the M28 build would have refused to start. Both are 35 now, and `contracts.test.ts` compares them.
 
-**Result (completed 2026-10-20, on `main`):** fmt and clippy clean; `cargo test --workspace` passed (nulis-core 135, nulis-filesystem 21); lint and typecheck clean; Vitest 14 files, 147 passed. IPC 35. Details: `handover/M29_HANDOVER.md`.
+**Result (completed 2026-10-20, on `main`):** fmt and clippy clean; `cargo test --workspace` passed (nulis-core 135, nulis-filesystem 21); lint and typecheck clean; Vitest 14 files, 147 passed. IPC 35. Details: `archive/handover/M29_HANDOVER.md`.
 
 ## M28 — File conveniences
 
 **Delivered:** Save All (untitled files ask for a destination), Close All Files (the existing per-file save prompts), Open Recent (last 20 local files, searchable picker, missing files dropped, Clear Recent Files), Rename File (core `file.renameTo`, same folder, unsaved edits kept), Show in Places (expands the folders above the file and highlights it). File menu entries are always offered after the customizable part.
 
-**Result (completed 2026-10-20, on `main`):** fmt and clippy clean; `cargo test --workspace` passed (nulis-core 127); lint and typecheck clean; Vitest 12 files, 141 passed. IPC 34. Details: `handover/M28_HANDOVER.md`.
+**Result (completed 2026-10-20, on `main`):** fmt and clippy clean; `cargo test --workspace` passed (nulis-core 127); lint and typecheck clean; Vitest 12 files, 141 passed. IPC 34. Details: `archive/handover/M28_HANDOVER.md`.
 
 ## M27 — View features
 
 **Delivered:** line-ending detection (status bar **LF / CRLF / CR / Mixed**, from the character-count pass, or the first 1 MiB above 64 MiB); conversion to LF, CRLF, or CR as one undo step from the status bar or the Format menu; Enter inserts the caret line's ending; word wrap remembered and in the View menu (Alt Z); editor zoom 50–300% (Ctrl/⌘ = - 0) with a status badge; show whitespace; show line endings; line-number toggle; column marker at 80; Always on Top. View options are saved per computer (`nulis.viewOptions.v1`). Also fixed an unhandled error in an M26 desktop test (a mock returned a document summary as selections).
 
-**Result (completed 2026-10-20, on `main`):** fmt and clippy clean; `cargo test --workspace` passed (nulis-core 124); lint and typecheck clean; Vitest 12 files, 138 passed, no unhandled errors. IPC 33. Details: `handover/M27_HANDOVER.md`.
+**Result (completed 2026-10-20, on `main`):** fmt and clippy clean; `cargo test --workspace` passed (nulis-core 124); lint and typecheck clean; Vitest 12 files, 138 passed, no unhandled errors. IPC 33. Details: `archive/handover/M27_HANDOVER.md`.
 
 ## M26 — Search and navigation
 
 **Delivered:** F3/Shift+F3 find next/previous (opens Find when there is no search), Go to Matching Bracket (Ctrl/⌘ Shift \), Go to line:column, Go Back/Forward (Ctrl/⌘ [ / ]) over jumps, Next/Previous Change (Alt F5 / Alt Shift F5), List Bookmarks (results window), Delete Bookmarked Lines, word and line counts, code point at the caret, native Search menu, and palette entries. Not done from the plan: incremental search, character names.
 
-**Result (completed 2026-10-20, on `main`):** fmt and clippy clean; `cargo test --workspace` passed (nulis-core 116); lint and typecheck clean; Vitest 130 passed. IPC 32. Details: `handover/M26_HANDOVER.md`.
+**Result (completed 2026-10-20, on `main`):** fmt and clippy clean; `cargo test --workspace` passed (nulis-core 116); lint and typecheck clean; Vitest 130 passed. IPC 32. Details: `archive/handover/M26_HANDOVER.md`.
 
 ## M25 — Format and transforms
 
 **Scope (as delivered):** invert case, capitalize words, Base64 encode/decode (new `TextTransform`s); indent, outdent, toggle comment, trim trailing spaces, tabs→spaces, leading spaces→tabs, sort ascending/descending/unique (new `LineOperation`s with `LineFormatOptions`); insert date/time; Format menu (native), Edit-menu line commands, toolbar Format list, palette entries for all of these and for the M20 line commands; Tab/Shift+Tab and Ctrl/⌘ /. Also: theme-colored status badges (user request).
 
-**Result (completed 2026-10-20, on `main`):** fmt and clippy clean; `cargo test --workspace` passed (nulis-core 113, nulis-syntax 13); lint and typecheck clean; Vitest 128 passed. IPC 31. Details: `handover/M25_HANDOVER.md`.
+**Result (completed 2026-10-20, on `main`):** fmt and clippy clean; `cargo test --workspace` passed (nulis-core 113, nulis-syntax 13); lint and typecheck clean; Vitest 128 passed. IPC 31. Details: `archive/handover/M25_HANDOVER.md`.
 
 ## User requests queued during M21
 

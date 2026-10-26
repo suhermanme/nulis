@@ -52,7 +52,7 @@ macOS bundles are ad-hoc signed (`bundle.macOS.signingIdentity` is `"-"` in `tau
 ## Manual interaction checks (M15–M18, M49)
 
 Automated tests cover the logic; these need a person on each target OS before a milestone in
-`IMPROVEMENT_SPEC.md` (M15–M18) or the theme plan in `docs/THEME_IMPLEMENTATION_PLAN.md` (M49) is marked
+`IMPROVEMENT_SPEC.md` (M15–M18) or the theme plan in `docs/archive/plans/THEME_IMPLEMENTATION_PLAN.md` (M49) is marked
 complete:
 
 - Pointer: double- and triple-click on identifiers, accented text, emoji, tabs, and wrapped lines; drag a selection forward, backward, and across a viewport edge; copy with Option (macOS) or Control; cancel with Escape; confirm a tab drag never starts a text drag.

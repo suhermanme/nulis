@@ -1,6 +1,6 @@
 # Language capability matrix
 
-**As of:** 2026-10-24, `main` (0.5.0). Part of [IMPROVEMENT_PLAN_4.md](IMPROVEMENT_PLAN_4.md); contracts in [LANGUAGE_CAPABILITIES.md](LANGUAGE_CAPABILITIES.md).
+**As of:** 2026-10-24, `main` (0.5.0). Part of [IMPROVEMENT_PLAN_4.md](archive/plans/IMPROVEMENT_PLAN_4.md); contracts in [LANGUAGE_CAPABILITIES.md](LANGUAGE_CAPABILITIES.md).
 
 Table 1 lists what ships today and is **verified**: read from the code and confirmed by tests (comments, brackets, folds, detection), and by calling `LanguageRegistry` directly on 2026-10-23. Table 2 records the per-language plan and marks the columns implemented so far. Update both as milestones land; move a cell from Table 2 to Table 1 only when its tests pass.
 
