@@ -4,7 +4,7 @@ What is true of the repository now. The full history, from M00 to 0.5.2, is in [
 
 ## Released: Nulis 0.5.4 (2026-10-27)
 
-Tag `v0.5.4`: a fix only. Settings, Find and Replace, Help, Lines Containing and Print Preview opened about 1.5 s late on every system, because their page reported it was ready from inside an animation frame, which a hidden web view never runs; they now report as soon as the themed page is laid out (`667dea1`, CI run 40419841547 green). The owner checked the fix on macOS, Windows and Linux. IPC protocol 49, unchanged. Release notes: [release-notes/v0.5.4.md](release-notes/v0.5.4.md). The cask moves to 0.5.4 after the release is published.
+Tag `v0.5.4`: a fix only. Settings, Find and Replace, Help, Lines Containing and Print Preview opened about 1.5 s late on every system, because their page reported it was ready from inside an animation frame, which a hidden web view never runs; they now report as soon as the themed page is laid out (`667dea1`, CI run 40419841547 green). The owner checked the fix on macOS, Windows and Linux. IPC protocol 49, unchanged. Release notes: [release-notes/v0.5.4.md](release-notes/v0.5.4.md). Tag `v0.5.4` on `822a1dc`: CI run 40421043868 passed every job; release run 40421050772 built, installed, started and published the universal `.dmg`, the Windows installer, the `.deb`, the `.rpm` and `SHA256SUMS.txt`. `Casks/nulis.rb` pins the published 0.5.4 `.dmg` (`a6624baa…`); `brew style` and the online audit from a local tap found no offenses.
 
 ## Nulis 0.5.3 (2026-10-26)
 
