@@ -2062,3 +2062,84 @@ test("shows no dots when there are no problems", async () => {
   expect(container.querySelector(".problem-dot")).not.toBeInTheDocument();
   expect(container.querySelector(".diagnostic")).not.toBeInTheDocument();
 });
+
+function pointIntoText(container: HTMLElement, text: string, offset: number) {
+  const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node.textContent?.includes(text)) {
+      const range = document.createRange();
+      range.setStart(node, node.textContent.indexOf(text) + offset);
+      return range;
+    }
+  }
+  throw new Error(`no text node holds ${text}`);
+}
+
+test("places the caret on the wrapped row under the pointer", async () => {
+  const { container } = render(
+    <EditorViewport
+      document={{ documentId: "document-1", name: "Untitled", byteLen: "7", revision: "0", encoding: "utf8" }}
+      onDocumentChange={() => undefined}
+      onStatus={() => undefined}
+      wordWrap
+    />,
+  );
+  await screen.findByRole("textbox", { name: "Untitled editor" });
+  const line = container.querySelector<HTMLElement>(".editor-line")!;
+  const code = line.querySelector("code")!;
+  code.getBoundingClientRect = () => ({ left: 64, right: 200, top: 0, bottom: 44, width: 136, height: 44 }) as DOMRect;
+  // The browser's layout says the second row, far left, is the "e" of "one".
+  const caretRangeFromPoint = vi.fn(() => pointIntoText(code, "one", 2));
+  Object.assign(document, { caretRangeFromPoint });
+
+  try {
+    fireEvent.pointerDown(line, { button: 0, pointerId: 11, clientX: 66, clientY: 33 });
+    fireEvent.pointerUp(window, { pointerId: 11 });
+
+    expect(caretRangeFromPoint).toHaveBeenCalledWith(66, 33);
+    await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
+      id: "editor.setSelections",
+      context: { windowId: "main", documentId: "document-1" },
+      arguments: { selections: [{ anchorByte: "2", activeByte: "2" }] },
+    }));
+  } finally {
+    delete (document as { caretRangeFromPoint?: unknown }).caretRangeFromPoint;
+  }
+});
+
+test("moves Down one wrapped row instead of one logical line", async () => {
+  const { container } = render(
+    <EditorViewport
+      document={{ documentId: "document-1", name: "Untitled", byteLen: "7", revision: "0", encoding: "utf8" }}
+      onDocumentChange={() => undefined}
+      onStatus={() => undefined}
+      wordWrap
+    />,
+  );
+  const editor = await screen.findByRole("textbox", { name: "Untitled editor" });
+  const surface = container.querySelector<HTMLElement>(".editor-surface")!;
+  surface.getBoundingClientRect = () => ({ left: 0, right: 400, top: 0, bottom: 400, width: 400, height: 400 }) as DOMRect;
+  const line = container.querySelector<HTMLElement>(".editor-line")!;
+  const code = line.querySelector("code")!;
+  code.getBoundingClientRect = () => ({ left: 64, right: 200, top: 0, bottom: 44, width: 136, height: 44 }) as DOMRect;
+  container.querySelector<HTMLElement>(".caret")!.getBoundingClientRect =
+    () => ({ left: 70, right: 71, top: 2, bottom: 19, width: 1, height: 17 }) as DOMRect;
+  const elementFromPoint = vi.fn<(x: number, y: number) => Element>(() => code);
+  const caretRangeFromPoint = vi.fn(() => pointIntoText(code, "one", 1));
+  Object.assign(document, { elementFromPoint, caretRangeFromPoint });
+
+  try {
+    fireEvent.keyDown(editor, { key: "ArrowDown" });
+
+    await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
+      id: "editor.setSelections",
+      context: { windowId: "main", documentId: "document-1" },
+      arguments: { selections: [{ anchorByte: "1", activeByte: "1" }] },
+    }));
+    expect(elementFromPoint.mock.calls[0]?.[1]).toBeGreaterThan(19);
+    expect(executeCommand).not.toHaveBeenCalledWith(expect.objectContaining({ id: "editor.moveVertical" }));
+  } finally {
+    delete (document as { elementFromPoint?: unknown }).elementFromPoint;
+    delete (document as { caretRangeFromPoint?: unknown }).caretRangeFromPoint;
+  }
+});

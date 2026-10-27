@@ -540,14 +540,16 @@ kbd { padding: 2px 6px; border: 1px solid #373e48; border-radius: 4px; color: #b
 .bracket-match { border-bottom: 1px solid var(--accent-strong); background: #e8897426; }
 .fold-placeholder { color: var(--muted); font-style: italic; }
 .selection.line-ending { display: inline-block; width: .65ch; height: 17px; vertical-align: -4px; }
-.caret {
-  display: inline-block; width: 1px; height: 17px; margin-right: -1px; vertical-align: -4px;
-  opacity: .55; background: var(--editor-caret);
+/* Carets are empty inline markers that draw their bar out of flow. An
+   inline-block would give wrapped text a break point at the caret, so the
+   word under it would jump to the next row. */
+.caret, .drop-caret { position: relative; }
+.caret { opacity: .55; }
+.caret::after, .drop-caret::after {
+  content: ""; position: absolute; left: 0; top: 50%; pointer-events: none;
 }
-.drop-caret {
-  display: inline-block; width: 2px; height: 19px; margin-right: -2px;
-  vertical-align: -5px; background: var(--accent-strong);
-}
+.caret::after { width: 1px; height: 17px; margin-top: -8.5px; background: var(--editor-caret); }
+.drop-caret::after { width: 2px; height: 19px; margin-top: -9.5px; background: var(--accent-strong); }
 .editor-surface:focus-within .caret { opacity: 1; animation: caret-blink 1.05s step-end infinite; }
 .viewport-navigation {
   position: absolute; right: 18px; bottom: 16px; z-index: 5; display: flex; gap: 8px;
@@ -690,7 +692,8 @@ kbd { padding: 2px 6px; border: 1px solid #373e48; border-radius: 4px; color: #b
 .editor-mode.access-mode.read-only { border-color: var(--warning); color: var(--editor-bg); background: var(--warning); }
 .editor-mode.access-mode .icon { color: inherit; }
 .editor-stage.read-only .editor-toolbar { box-shadow: inset 0 -2px 0 var(--warning); }
-.editor-stage.read-only .caret { width: 1ch; background: color-mix(in srgb, var(--warning) 45%, transparent); animation: none; }
+.editor-stage.read-only .caret { animation: none; }
+.editor-stage.read-only .caret::after { width: 1ch; background: color-mix(in srgb, var(--warning) 45%, transparent); }
 
 .palette-backdrop {
   position: fixed; z-index: 100; inset: 0; display: flex; justify-content: center; align-items: flex-start;
@@ -1139,8 +1142,8 @@ kbd,
 }
 
 @media (forced-colors: active) {
-  .caret { background: CanvasText; }
-  .drop-caret { background: Highlight; }
+  .caret::after { background: CanvasText; }
+  .drop-caret::after { background: Highlight; }
   .line-change.unsaved { background: Mark; }
   .line-change { width: 4px; }
   .line-change.saved { box-sizing: border-box; border: 1px solid CanvasText; background: transparent; }

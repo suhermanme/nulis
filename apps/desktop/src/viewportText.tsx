@@ -83,6 +83,41 @@ export function byteOffsetForClientX(
   return sourceBytes;
 }
 
+/**
+ * UTF-16 index in a rendered line's text under a window point, using the
+ * browser's own layout so wrapped rows hit the right character. The point is
+ * clamped into the line's box. Returns null when the browser cannot tell.
+ */
+export function utf16IndexAtPoint(
+  textLength: number,
+  clientX: number,
+  clientY: number,
+  element: HTMLElement,
+): number | null {
+  const bounds = element.getBoundingClientRect();
+  if (bounds.width <= 0 || bounds.height <= 0) return null;
+  const x = Math.min(Math.max(clientX, bounds.left + 1), bounds.right - 1);
+  const y = Math.min(Math.max(clientY, bounds.top + 1), bounds.bottom - 1);
+  const owner = element.ownerDocument as Document & {
+    caretPositionFromPoint?(x: number, y: number): { offsetNode: Node; offset: number } | null;
+    caretRangeFromPoint?(x: number, y: number): Range | null;
+  };
+  let node: Node | null = null;
+  let offset = 0;
+  if (typeof owner.caretPositionFromPoint === "function") {
+    const position = owner.caretPositionFromPoint(x, y);
+    if (position) ({ offsetNode: node, offset } = position);
+  } else if (typeof owner.caretRangeFromPoint === "function") {
+    const range = owner.caretRangeFromPoint(x, y);
+    if (range) ({ startContainer: node, startOffset: offset } = range);
+  }
+  if (!node || !element.contains(node)) return null;
+  const before = element.ownerDocument.createRange();
+  before.setStart(element, 0);
+  before.setEnd(node, offset);
+  return Math.min(textLength, before.toString().length);
+}
+
 export function scalarColumnForClientX(text: string, clientX: number, element: HTMLElement): string {
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d");

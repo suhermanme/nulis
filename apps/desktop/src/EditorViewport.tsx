@@ -61,7 +61,7 @@ import {
 import { MarkdownPreview } from "./MarkdownPreview";
 import {
   byteOffsetForClientX, byteOffsetForUtf16, lineHighlights, renderLineText, scalarColumnForByte, scalarColumnForClientX,
-  utf16IndexForByte, utf16IndexForScalarColumn, viewportContainsByte,
+  utf16IndexAtPoint, utf16IndexForByte, utf16IndexForScalarColumn, viewportContainsByte,
 } from "./viewportText";
 
 const VIEWPORT_BYTES = 32 * 1024;
@@ -980,8 +980,50 @@ export function EditorViewport({
     [document.documentId, revealSelections],
   );
 
+  // The x position Up and Down aim for, kept while the caret only moves vertically.
+  const verticalGoalRef = useRef<{ byte: string; x: number } | null>(null);
+
+  /** With word wrap on, the selections one visual row up or down, or null when the core should move. */
+  const wrappedRowMove = useCallback(
+    (direction: "up" | "down", extend: boolean): Selection[] | null => {
+      const surface = surfaceRef.current;
+      const selection = snapshot?.selections[0];
+      if (!wordWrap || !surface || !snapshot || !selection
+        || snapshot.selections.length !== 1 || snapshot.rectangularSelection) return null;
+      const caret = surface.querySelector<HTMLElement>(".editor-line .caret");
+      const caretBounds = caret?.getBoundingClientRect();
+      const code = caret?.closest("code");
+      if (!caretBounds || !code) return null;
+      const goal = verticalGoalRef.current;
+      const x = goal?.byte === selection.activeByte ? goal.x : caretBounds.left;
+      const step = parseFloat(getComputedStyle(code).lineHeight) || rowHeight;
+      const y = caretBounds.top + caretBounds.height / 2 + (direction === "up" ? -step : step);
+      const surfaceBounds = surface.getBoundingClientRect();
+      if (y < surfaceBounds.top || y > surfaceBounds.bottom) return null;
+      const row = surface.ownerDocument.elementFromPoint(x, y)?.closest<HTMLElement>(".editor-line");
+      const target = row && surface.contains(row)
+        ? snapshot.lines.find((line) => line.startByte === row.dataset.lineStart) : undefined;
+      const targetCode = row?.querySelector("code");
+      if (!target || !targetCode) return null;
+      const index = utf16IndexAtPoint(target.text.length, x, y, targetCode);
+      if (index === null) return null;
+      const activeByte = (BigInt(target.startByte)
+        + BigInt(byteOffsetForUtf16(target.text, target.sourceByteWidths, index))).toString();
+      if (activeByte === selection.activeByte) return null;
+      verticalGoalRef.current = { byte: activeByte, x };
+      return [{ anchorByte: extend ? selection.anchorByte : activeByte, activeByte }];
+    },
+    [rowHeight, snapshot, wordWrap],
+  );
+
   const moveVertical = useCallback(
     async (direction: "up" | "down", extend: boolean) => {
+      const wrapped = wrappedRowMove(direction, extend);
+      if (wrapped) {
+        await commitSelections(wrapped);
+        await revealSelections(wrapped);
+        return;
+      }
       const selections = await executeCommand<Selection[]>({
         id: "editor.moveVertical",
         context: { windowId: "main", documentId: document.documentId },
@@ -989,7 +1031,7 @@ export function EditorViewport({
       });
       await revealSelections(selections);
     },
-    [document.documentId, revealSelections],
+    [commitSelections, document.documentId, revealSelections, wrappedRowMove],
   );
 
   const transformSelections = useCallback(
@@ -2145,10 +2187,15 @@ export function EditorViewport({
   ): string => {
     const line = snapshot.lines[lineIndex];
     const code = event.currentTarget.querySelector("code");
-    const relative = line && code
+    if (!line || !code) return line?.startByte ?? "0";
+    // A wrapped line spans several rows, so the row under the pointer matters too.
+    const wrappedIndex = wordWrap
+      ? utf16IndexAtPoint(line.text.length, event.clientX, event.clientY, code)
+      : null;
+    const relative = wrappedIndex === null
       ? byteOffsetForClientX(line.text, line.sourceByteWidths, event.clientX, code)
-      : 0;
-    return (BigInt(line?.startByte ?? "0") + BigInt(relative)).toString();
+      : byteOffsetForUtf16(line.text, line.sourceByteWidths, wrappedIndex);
+    return (BigInt(line.startByte) + BigInt(relative)).toString();
   };
 
   return (
