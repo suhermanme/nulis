@@ -980,6 +980,7 @@ fn show_settings_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     .visible(false)
     .build()?;
     detach_application_menu(&window)?;
+    hold_min_size(&window, SETTINGS_MIN_SIZE)?;
     show_when_ready(&window);
     let monitors = window
         .available_monitors()?
@@ -1119,8 +1120,59 @@ fn show_help_window(app: &tauri::AppHandle, topic: Option<&HelpTopic>) -> tauri:
     .visible(false)
     .build()?;
     detach_application_menu(&window)?;
+    hold_min_size(&window, HELP_MIN_SIZE)?;
     show_when_ready(&window);
     Ok(())
+}
+
+/// GNOME on Wayland counts the window's invisible shadow in the minimum size
+/// from `min_inner_size`, so the visible window can shrink about 50 px below
+/// it and the page is clipped on the right. A size request on the window's
+/// content box is a minimum GTK itself keeps, whatever the compositor does.
+///
+/// GTK may only be touched on the main thread, and secondary windows are
+/// built off it, so the change goes through `with_webview`, which runs there.
+#[cfg(target_os = "linux")]
+fn hold_min_size(window: &tauri::WebviewWindow, (width, height): (u32, u32)) -> tauri::Result<()> {
+    let to_i32 = |value: u32| i32::try_from(value).unwrap_or(i32::MAX);
+    let (width, height) = (to_i32(width), to_i32(height));
+    window.with_webview(move |webview| {
+        use gtk::prelude::{Cast, WidgetExt};
+        let view = webview.inner();
+        // The box that holds the web view (and the menu bar, if any).
+        let content = view
+            .parent()
+            .unwrap_or_else(|| view.clone().upcast::<gtk::Widget>());
+        content.set_size_request(width, height);
+    })
+}
+
+#[cfg(not(target_os = "linux"))]
+#[allow(clippy::unnecessary_wraps)] // Same signature as the Linux version.
+const fn hold_min_size(_window: &tauri::WebviewWindow, _size: (u32, u32)) -> tauri::Result<()> {
+    Ok(())
+}
+
+/// Holds the editor window to the minimum size `tauri.conf.json` gives it.
+fn hold_main_window_min_size(app: &tauri::App) -> tauri::Result<()> {
+    let Some(window) = app.get_webview_window(MAIN_WINDOW_LABEL) else {
+        return Ok(());
+    };
+    let Some(config) = app
+        .config()
+        .app
+        .windows
+        .iter()
+        .find(|config| config.label == MAIN_WINDOW_LABEL)
+    else {
+        return Ok(());
+    };
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)] // Small, positive sizes.
+    let size = (
+        config.min_width.unwrap_or(0.0).round() as u32,
+        config.min_height.unwrap_or(0.0).round() as u32,
+    );
+    hold_min_size(&window, size)
 }
 
 /// On Windows and Linux an application-wide menu would be drawn inside every
@@ -1161,6 +1213,7 @@ fn show_aux_window(
     .visible(false)
     .build()?;
     detach_application_menu(&window)?;
+    hold_min_size(&window, min_size)?;
     show_when_ready(&window);
     Ok(())
 }
@@ -1916,6 +1969,7 @@ pub fn run() {
             app.manage(ToolsMenu::default());
             #[cfg(desktop)]
             install_native_menu(app.handle(), &default_native_menu())?;
+            hold_main_window_min_size(app)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
