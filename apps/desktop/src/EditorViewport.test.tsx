@@ -2169,3 +2169,48 @@ test("pressing outside the selection keeps the text pointer", async () => {
   expect(document.documentElement.dataset.textDrag).toBeUndefined();
   fireEvent.pointerUp(window, { pointerId: 4 });
 });
+
+test("a bookmark at the start of a line marks that line only, and one at the end of the last line marks it", async () => {
+  vi.mocked(getViewport).mockResolvedValueOnce({
+    documentId: "document-1", revision: "0", documentByteLen: "7", encoding: "utf8",
+    lines: [
+      { line: "1", startByte: "0", endByte: "4", text: "one", sourceByteWidths: [1, 1, 1], continuation: false, truncated: false },
+      { line: "2", startByte: "4", endByte: "7", text: "two", sourceByteWidths: [1, 1, 1], continuation: false, truncated: false },
+    ],
+    selections: [{ anchorByte: "4", activeByte: "4" }],
+    // Byte 4 is both just past line 1's ending and the start of line 2.
+    bookmarks: ["4"],
+  });
+  const { container, unmount } = render(
+    <EditorViewport
+      document={{ documentId: "document-1", name: "Untitled", byteLen: "7", revision: "0", encoding: "utf8" }}
+      onDocumentChange={() => undefined}
+      onStatus={() => undefined}
+    />,
+  );
+  await screen.findByRole("textbox", { name: "Untitled editor" });
+  const marked = () => [...container.querySelectorAll(".line-number.bookmarked .line-number-text")]
+    .map((node) => node.textContent);
+  expect(marked()).toEqual(["2"]);
+  unmount();
+
+  vi.mocked(getViewport).mockResolvedValueOnce({
+    documentId: "document-1", revision: "0", documentByteLen: "7", encoding: "utf8",
+    lines: [
+      { line: "1", startByte: "0", endByte: "4", text: "one", sourceByteWidths: [1, 1, 1], continuation: false, truncated: false },
+      { line: "2", startByte: "4", endByte: "7", text: "two", sourceByteWidths: [1, 1, 1], continuation: false, truncated: false },
+    ],
+    selections: [{ anchorByte: "7", activeByte: "7" }],
+    bookmarks: ["7"],
+  });
+  const second = render(
+    <EditorViewport
+      document={{ documentId: "document-1", name: "Untitled", byteLen: "7", revision: "0", encoding: "utf8" }}
+      onDocumentChange={() => undefined}
+      onStatus={() => undefined}
+    />,
+  );
+  await screen.findByRole("textbox", { name: "Untitled editor" });
+  expect([...second.container.querySelectorAll(".line-number.bookmarked .line-number-text")]
+    .map((node) => node.textContent)).toEqual(["2"]);
+});

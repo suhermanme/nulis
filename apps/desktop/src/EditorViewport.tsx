@@ -2594,7 +2594,10 @@ export function EditorViewport({
                 });
               const hasBookmark = snapshot.bookmarks.some((bookmark) => {
                 const offset = BigInt(bookmark);
-                return offset >= lineStartByte && offset <= lineEndByte;
+                // The byte after a line ending starts the next line, so only a
+                // line without an ending (the last) owns its end offset.
+                return offset >= lineStartByte
+                  && (offset < lineEndByte || (lineEndByte === textEndByte && offset <= textEndByte));
               });
               return (
                 <div
