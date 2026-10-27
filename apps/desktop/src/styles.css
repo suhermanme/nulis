@@ -474,7 +474,12 @@ kbd { padding: 2px 6px; border: 1px solid #373e48; border-radius: 4px; color: #b
   background: var(--editor-gutter); text-align: right; user-select: none;
 }
 .editor-line.current .line-number { color: var(--editor-fg); background: var(--editor-current-line); }
-.line-number.bookmarked::before { content: "◆"; margin-right: 6px; color: var(--accent); font-size: 8px; }
+/* A bookmark ribbon in its own lane at the gutter's left edge, clear of the
+   fold arrow and problem dot that sit beside the line number. */
+.line-number.bookmarked::before {
+  content: ""; position: absolute; top: 50%; left: 4px; width: 8px; height: 12px; margin-top: -6px;
+  background: var(--accent); clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 72%, 0 100%);
+}
 .fold-toggle {
   width: 14px; margin: 0 2px 0 -16px; padding: 0; border: 0; color: #8b939e;
   background: transparent; font: 10px/1 ui-monospace, monospace; cursor: pointer;
@@ -1151,6 +1156,7 @@ kbd,
 @media (forced-colors: active) {
   .caret::after { background: CanvasText; }
   .drop-caret::after { background: Highlight; }
+  .line-number.bookmarked::before { background: Highlight; }
   .line-change.unsaved { background: Mark; }
   .line-change { width: 4px; }
   .line-change.saved { box-sizing: border-box; border: 1px solid CanvasText; background: transparent; }
