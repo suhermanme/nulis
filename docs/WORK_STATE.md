@@ -2,7 +2,11 @@
 
 What is true of the repository now. The full history, from M00 to 0.5.2, is in [archive/WORK_STATE_HISTORY.md](archive/WORK_STATE_HISTORY.md); progress by milestone is in [IMPLEMENTATION_TRACKER.md](IMPLEMENTATION_TRACKER.md).
 
-## Released: Nulis 0.5.4 (2026-10-27)
+## Released: Nulis 0.6.0 (2026-10-27)
+
+Tag `v0.6.0`: the terminal's right-click menu (Copy, Paste, Select All, Clear) and a grab pointer while selected text is dragged (branch `feat/drag-pointer-terminal-menu`, merged fast-forward to `main` through pull request #12 and deleted), with fixes since 0.5.4: light themes reach the toolbar controls, panels, title bar and terminal selection; caret placement and Up/Down on wrapped rows; a full-height caret on empty lines; bookmarks on one line only, drawn as a ribbon clear of the fold arrow; no view jump when the editor takes focus back; minimum window sizes on GNOME Wayland; tree-sitter 0.27 parse deadline and the Dependabot updates. IPC protocol 49, unchanged. Release notes: [release-notes/v0.6.0.md](release-notes/v0.6.0.md). Manual checks of these changes on each system are not yet recorded in [PLATFORM_MATRIX.md](PLATFORM_MATRIX.md).
+
+## Nulis 0.5.4 (2026-10-27)
 
 Tag `v0.5.4`: a fix only. Settings, Find and Replace, Help, Lines Containing and Print Preview opened about 1.5 s late on every system, because their page reported it was ready from inside an animation frame, which a hidden web view never runs; they now report as soon as the themed page is laid out (`667dea1`, CI run 40419841547 green). The owner checked the fix on macOS, Windows and Linux. IPC protocol 49, unchanged. Release notes: [release-notes/v0.5.4.md](release-notes/v0.5.4.md). Tag `v0.5.4` on `822a1dc`: CI run 40421043868 passed every job; release run 40421050772 built, installed, started and published the universal `.dmg`, the Windows installer, the `.deb`, the `.rpm` and `SHA256SUMS.txt`. `Casks/nulis.rb` pins the published 0.5.4 `.dmg` (`a6624baa…`); `brew style` and the online audit from a local tap found no offenses.
 
