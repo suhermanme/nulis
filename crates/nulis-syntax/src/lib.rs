@@ -5,9 +5,15 @@ mod lexer;
 
 use regex::{Regex, RegexBuilder};
 use serde::Serialize;
-use std::{collections::BTreeMap, path::Path, sync::Arc, time::Duration};
+use std::{
+    collections::BTreeMap,
+    ops::ControlFlow,
+    path::Path,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 use thiserror::Error;
-use tree_sitter::{Language, Node, Parser};
+use tree_sitter::{Language, Node, ParseOptions, ParseState, Parser};
 
 pub const MAX_SYNTAX_BYTES: usize = 256 * 1024;
 pub const MAX_SYNTAX_NODES: usize = 100_000;
@@ -890,9 +896,14 @@ impl LanguageRegistry {
             Scanner::Lexer(spec) => Ok(lexer::analyze(
                 spec, window, base_byte, base_line, truncated,
             )),
-            Scanner::Grammar => {
-                analyze_tree_sitter(module, window, base_byte, base_line, truncated)
-            }
+            Scanner::Grammar => analyze_tree_sitter(
+                module,
+                window,
+                base_byte,
+                base_line,
+                truncated,
+                MAX_PARSE_TIME,
+            ),
         }
     }
 }
@@ -1261,16 +1272,29 @@ fn analyze_tree_sitter(
     base_byte: u64,
     base_line: u64,
     input_truncated: bool,
+    time_limit: Duration,
 ) -> Result<SyntaxAnalysis, SyntaxError> {
     let mut parser = Parser::new();
     let grammar = module.grammar.as_ref().ok_or(SyntaxError::MissingGrammar)?;
     parser
         .set_language(grammar)
         .map_err(|error| SyntaxError::Parser(error.to_string()))?;
-    parser.set_timeout_micros(
-        u64::try_from(MAX_PARSE_TIME.as_micros()).map_err(|_| SyntaxError::OffsetOverflow)?,
-    );
-    let Some(tree) = parser.parse(source, None) else {
+    // tree-sitter checks this callback as it parses; past the deadline the
+    // parse stops and returns no tree, which counts as a time-out below.
+    let deadline = Instant::now() + time_limit;
+    let mut stop_after_deadline = |_: &ParseState| {
+        if Instant::now() >= deadline {
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
+        }
+    };
+    let options = ParseOptions::new().progress_callback(&mut stop_after_deadline);
+    let Some(tree) = parser.parse_with_options(
+        &mut |offset, _| source.get(offset..).unwrap_or_default(),
+        None,
+        Some(options),
+    ) else {
         return Ok(SyntaxAnalysis {
             language_id: module.descriptor.id.clone(),
             parsed_bytes: source.len(),
@@ -1608,6 +1632,37 @@ mod tests {
         assert_eq!(analysis.bracket_pairs[0].open_byte, 100);
         assert_eq!(analysis.bracket_pairs[0].close_byte, 168);
         assert!(!analysis.timed_out);
+    }
+
+    #[test]
+    fn a_parse_past_its_time_limit_stops_and_reports_a_time_out() {
+        let registry = LanguageRegistry::default();
+        let module = &registry
+            .modules
+            .get(&LanguageId::new("json").expect("ID"))
+            .expect("json")
+            .module;
+        let source = format!("[{}0]", "{\"key\": [1, 2, 3]},".repeat(20_000));
+        let stopped = super::analyze_tree_sitter(
+            module,
+            source.as_bytes(),
+            0,
+            0,
+            false,
+            std::time::Duration::ZERO,
+        )
+        .expect("analysis");
+        assert!(stopped.timed_out);
+        let finished = super::analyze_tree_sitter(
+            module,
+            source.as_bytes(),
+            0,
+            0,
+            false,
+            std::time::Duration::from_secs(60),
+        )
+        .expect("analysis");
+        assert!(!finished.timed_out);
     }
 
     #[test]
