@@ -9,6 +9,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeSet,
+    fmt::Write as _,
     fs,
     io::Write,
     path::{Component, Path, PathBuf},
@@ -498,7 +499,13 @@ impl PluginPackage {
         hasher.update(&manifest_bytes);
         hasher.update([0]);
         hasher.update(&source_bytes);
-        let digest = format!("{:x}", hasher.finalize());
+        let digest = hasher
+            .finalize()
+            .iter()
+            .fold(String::with_capacity(64), |mut hex, byte| {
+                let _ = write!(hex, "{byte:02x}");
+                hex
+            });
         Ok(Self {
             root,
             source,
@@ -1608,6 +1615,19 @@ mod tests {
             Err(PluginError::MissingCommandActivation(command))
                 if command == "nulis.example.hello"
         ));
+    }
+
+    #[test]
+    fn package_digest_is_lowercase_hex_sha256_of_manifest_and_source() {
+        // Stored grants name this digest, so its text must not change between
+        // sha2 versions. Expected value from Python's hashlib over the same bytes.
+        let root = tempfile::tempdir().expect("root");
+        write_package(root.path(), "function activate() {}");
+        let package = super::PluginPackage::load(root.path()).expect("package");
+        assert_eq!(
+            package.digest,
+            "2af847de286914877ff5c2072c9e8f2331d0db9117ab308c7294d19ded20661a"
+        );
     }
 
     #[test]
