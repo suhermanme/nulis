@@ -145,6 +145,7 @@ const theme = {
   "terminal.background": "#101418",
   "terminal.foreground": "#e7e4df",
   "terminal.cursor": "#e88974",
+  "editor.selection": "#39566b",
   panel: "#151920",
   muted: "#969da7",
 };
@@ -201,6 +202,9 @@ test("starts a shell in a grid drawn with the app's monospace face", async () =>
     cursor: theme["terminal.cursor"],
     // The glyph under a block cursor has to read on the panel's own ground colour.
     cursorAccent: theme["terminal.background"],
+    // xterm's own selection is translucent white, lost on a light panel.
+    selectionBackground: theme["editor.selection"],
+    selectionInactiveBackground: theme["editor.selection"],
   });
   expect(vi.mocked(executeCommand)).toHaveBeenCalledWith(expect.objectContaining({
     id: "terminal.create",

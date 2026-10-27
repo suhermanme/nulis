@@ -32,6 +32,22 @@ const MAX_LINE_HEIGHT = 1.25;
 /** Below this the host is a collapsed panel, not a terminal worth fitting. */
 const MIN_FIT_SIZE = 24;
 
+/** The grid's colors from the app theme. */
+function terminalColors(theme: Record<string, string>) {
+  return {
+    background: theme["terminal.background"],
+    foreground: theme["terminal.foreground"],
+    cursor: theme["terminal.cursor"],
+    // A block cursor paints over the glyph it covers, so the glyph needs the
+    // panel's own ground colour to stay readable under it.
+    cursorAccent: theme["terminal.background"],
+    // xterm's default selection is translucent white, which a light panel hides;
+    // the editor's selection color is made for the theme's ground.
+    selectionBackground: theme["editor.selection"],
+    selectionInactiveBackground: theme["editor.selection"],
+  };
+}
+
 function terminalLineHeight(lineHeight: number): number {
   return Number.isFinite(lineHeight) ? Math.min(MAX_LINE_HEIGHT, Math.max(1, lineHeight)) : 1;
 }
@@ -57,14 +73,7 @@ export function TerminalPanel({ theme, font, height, hidden, focusSignal, onClos
 
   useEffect(() => {
     if (!terminalRef.current) return;
-    terminalRef.current.options.theme = {
-      background: theme["terminal.background"],
-      foreground: theme["terminal.foreground"],
-      cursor: theme["terminal.cursor"],
-      // A block cursor paints over the glyph it covers, so the glyph needs the
-      // panel's own ground colour to stay readable under it.
-      cursorAccent: theme["terminal.background"],
-    };
+    terminalRef.current.options.theme = terminalColors(theme);
   }, [theme]);
 
   useEffect(() => {
@@ -120,12 +129,7 @@ export function TerminalPanel({ theme, font, height, hidden, focusSignal, onClos
           // xterm lifts the text's contrast against the panel ground up to this ratio,
           // so a theme that pairs a dim foreground with a dark panel stays readable.
           minimumContrastRatio: 4,
-          theme: {
-            background: colors["terminal.background"],
-            foreground: colors["terminal.foreground"],
-            cursor: colors["terminal.cursor"],
-            cursorAccent: colors["terminal.background"],
-          },
+          theme: terminalColors(colors),
         });
         terminalRef.current = terminal;
         const fit = new FitAddon();
