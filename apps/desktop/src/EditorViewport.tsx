@@ -333,6 +333,15 @@ export function EditorViewport({
   const [currentCursor, setCurrentCursor] = useState<ViewportCursor>(FIRST_CURSOR);
   const [pageHistory, setPageHistory] = useState<ViewportCursor[]>([]);
   const [dropTargetByte, setDropTargetByte] = useState<string | null>(null);
+  // The pointer while selected text is pressed or dragged: move, copy, or no drop here.
+  const [textDragCursor, setTextDragCursor] = useState<"move" | "copy" | "invalid" | null>(null);
+  useEffect(() => {
+    if (!textDragCursor) return;
+    // On the root, so the pointer keeps its shape outside the editor too.
+    const root = window.document.documentElement;
+    root.dataset.textDrag = textDragCursor;
+    return () => { delete root.dataset.textDrag; };
+  }, [textDragCursor]);
   const [highlightMatches, setHighlightMatches] = useState(false);
   const [columnMode, setColumnMode] = useState(false);
   const [goToOpen, setGoToOpen] = useState(false);
@@ -912,6 +921,7 @@ export function EditorViewport({
       if (!drag || drag.pointerId !== event.pointerId) return;
       dragSelectionRef.current = null;
       setDropTargetByte(null);
+      setTextDragCursor(null);
       if (drag.move) {
         const move = drag.move;
         if (event.type === "pointercancel") return;
@@ -956,6 +966,7 @@ export function EditorViewport({
       if (event.target instanceof Node && !surfaceRef.current?.contains(event.target)) {
         move.validDrop = false;
         setDropTargetByte(null);
+        setTextDragCursor("invalid");
       }
     };
     window.addEventListener("pointermove", trackOutside);
@@ -1891,6 +1902,7 @@ export function EditorViewport({
       event.preventDefault();
       dragSelectionRef.current = null;
       setDropTargetByte(null);
+      setTextDragCursor(null);
       onStatus("Text move canceled");
       return;
     }
@@ -2639,6 +2651,7 @@ export function EditorViewport({
                           destinationByte: offset, started: false, validDrop: false,
                         },
                       };
+                      setTextDragCursor(copyModifierHeld(event) ? "copy" : "move");
                       return;
                     }
                     const relativeByte = Number(BigInt(offset) - BigInt(line.startByte));
@@ -2693,6 +2706,7 @@ export function EditorViewport({
                       ) < 4) return;
                       move.started = true;
                       move.validDrop = true;
+                      setTextDragCursor(copyModifierHeld(event) ? "copy" : "move");
                       move.destinationByte = pointerOffset(event, lineIndex);
                       setDropTargetByte(move.destinationByte);
                       return;

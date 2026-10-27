@@ -2143,3 +2143,29 @@ test("moves Down one wrapped row instead of one logical line", async () => {
     delete (document as { caretRangeFromPoint?: unknown }).caretRangeFromPoint;
   }
 });
+
+test("pressing selected text shows a grab pointer until the drag ends", async () => {
+  vi.mocked(getViewport).mockResolvedValueOnce(selectedFirstWordViewport());
+  const { lines, codes } = await renderPointerEditor();
+  const root = document.documentElement;
+
+  fireEvent.pointerDown(codes[0], { button: 0, pointerId: 3, clientX: 72, clientY: 10 });
+  expect(root.dataset.textDrag).toBe("move");
+  fireEvent.pointerMove(lines[1], { buttons: 1, pointerId: 3, clientX: 80, clientY: 32, altKey: true, ctrlKey: true });
+  expect(root.dataset.textDrag).toBe("copy");
+  fireEvent.pointerMove(document.body, { buttons: 1, pointerId: 3, clientX: 900, clientY: 900 });
+  expect(root.dataset.textDrag).toBe("invalid");
+  fireEvent.pointerUp(window, { pointerId: 3 });
+
+  await waitFor(() => expect(root.dataset.textDrag).toBeUndefined());
+});
+
+test("pressing outside the selection keeps the text pointer", async () => {
+  vi.mocked(getViewport).mockResolvedValueOnce(selectedFirstWordViewport());
+  const { lines } = await renderPointerEditor();
+
+  fireEvent.pointerDown(lines[1], { button: 0, pointerId: 4, clientX: 72, clientY: 32 });
+
+  expect(document.documentElement.dataset.textDrag).toBeUndefined();
+  fireEvent.pointerUp(window, { pointerId: 4 });
+});

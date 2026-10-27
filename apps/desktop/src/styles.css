@@ -80,6 +80,10 @@ button { color: inherit; font: inherit; }
 .workbench.sidebar-hidden { grid-template-columns: 0 minmax(0, 1fr); }
 .workbench.sidebar-hidden .sidebar { visibility: hidden; }
 .workbench.resizing, .workbench.resizing * { cursor: col-resize !important; user-select: none !important; }
+/* Pressing or dragging selected text in the editor. */
+:root[data-text-drag="move"], :root[data-text-drag="move"] * { cursor: grabbing !important; }
+:root[data-text-drag="copy"], :root[data-text-drag="copy"] * { cursor: copy !important; }
+:root[data-text-drag="invalid"], :root[data-text-drag="invalid"] * { cursor: no-drop !important; }
 
 .titlebar {
   grid-column: 1 / -1; display: flex; align-items: center; gap: 12px;
