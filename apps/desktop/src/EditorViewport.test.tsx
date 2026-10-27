@@ -1575,7 +1575,11 @@ test("a second view reloads in place when another pane edits the same document",
 
 test("a zero-width column shows a caret on every row and stays active while typing", async () => {
   const column = { anchorByte: "1", activeByte: "5", anchorLine: "1", activeLine: "2", anchorColumn: "1", activeColumn: "1" };
-  vi.mocked(getViewport).mockResolvedValueOnce({
+  // Each phase answers every viewport request the same way, so an extra
+  // reload under load, or a one-time answer left by an earlier test, cannot
+  // put a different view on screen.
+  useTwoLineViewport();
+  vi.mocked(getViewport).mockResolvedValue({
     ...selectedFirstWordViewport(), selections: [{ anchorByte: "5", activeByte: "5" }], rectangularSelection: column,
   });
   const { container, editor } = await renderPointerEditor();
@@ -1584,7 +1588,7 @@ test("a zero-width column shows a caret on every row and stays active while typi
   expect(screen.getByText("Rectangular selection")).toBeInTheDocument();
 
   // The core keeps the column after an insert, so the refreshed view still has both carets.
-  vi.mocked(getViewport).mockResolvedValueOnce({
+  vi.mocked(getViewport).mockResolvedValue({
     documentId: "document-1", revision: "1", documentByteLen: "9", encoding: "utf8",
     lines: [
       { line: "1", startByte: "0", endByte: "5", text: "oxne", sourceByteWidths: [1, 1, 1, 1], continuation: false, truncated: false },
@@ -1597,6 +1601,7 @@ test("a zero-width column shows a caret on every row and stays active while typi
   expect(await screen.findByText("oxne")).toBeInTheDocument();
   expect(container.querySelectorAll(".editor-line .caret")).toHaveLength(2);
   expect(screen.getByText("Rectangular selection")).toBeInTheDocument();
+  useTwoLineViewport();
 });
 
 test("a Search panel request runs find, replace, and replace all with its own options", async () => {
