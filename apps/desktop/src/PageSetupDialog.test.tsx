@@ -15,7 +15,10 @@ test("for Markdown in View mode the preview shows the formatted page, not the so
   const shown = screen.getByLabelText("Preview of the first page");
   expect(await screen.findByRole("heading", { name: "Architecture" })).toBeInTheDocument();
   expect(shown.querySelector(".print-markdown")).not.toBeNull();
-  expect(shown.querySelector(".print-markdown-sheet")).toHaveStyle({ width: "297mm", height: "210mm" });
+  // Inline sizes, as set: jsdom 30 reports computed lengths in px.
+  const sheet = shown.querySelector<HTMLElement>(".print-markdown-sheet");
+  expect(sheet?.style.width).toBe("297mm");
+  expect(sheet?.style.height).toBe("210mm");
   expect(screen.getByText(/Only paper, orientation, and margins apply/)).toBeInTheDocument();
   // The core still checks the settings.
   await waitFor(() => expect(preview).toHaveBeenCalled());

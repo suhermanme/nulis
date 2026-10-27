@@ -61,13 +61,16 @@ test("Print Preview reads the prepared pages in batches and draws each piece at 
   expect(executeCommand).toHaveBeenCalledTimes(2);
   expect(executeCommand.mock.calls[1][0].arguments).toEqual({ start: PAGE_BATCH, count: PAGE_BATCH });
   const first = screen.getByRole("region", { name: "Page 1 of 53" });
-  expect(first).toHaveStyle({ width: "297mm", "--page-height": "210mm" });
+  // Inline sizes, as set: jsdom 30 reports computed lengths in px.
+  expect(first.style.width).toBe("297mm");
+  expect(first.style.getPropertyValue("--page-height")).toBe("210mm");
   // Document text that looks like HTML stays text.
   expect(first).toHaveTextContent("<script>alert(1)</script></section>");
   expect(first.querySelector("script")).toBeNull();
   const keyword = screen.getAllByText("fn")[0];
-  expect(keyword).toHaveStyle({ left: `${4 * 5.4}pt`, fontWeight: "700", color: "#9a3b2b" });
-  expect(first.querySelector(".print-rule")).toHaveStyle({ top: `${60 + 1.5 * 11.7}pt` });
+  expect(keyword.style.left).toBe(`${4 * 5.4}pt`);
+  expect(keyword).toHaveStyle({ fontWeight: "700", color: "#9a3b2b" });
+  expect(first.querySelector<HTMLElement>(".print-rule")?.style.top).toBe(`${60 + 1.5 * 11.7}pt`);
   expect(screen.getByRole("status")).toHaveTextContent("53 pages");
 
   fireEvent.click(screen.getByRole("button", { name: "Print…" }));

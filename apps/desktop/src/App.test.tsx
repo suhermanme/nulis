@@ -370,7 +370,7 @@ test("saves an existing file from the visible File menu", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Open a file" }));
   await screen.findByText("example.txt editor");
   fireEvent.click(screen.getByRole("button", { name: "Open File menu" }));
-  fireEvent.click(screen.getByRole("menuitem", { name: /^Save (?:⌘|Ctrl\+)S$/ }));
+  fireEvent.click(screen.getByRole("menuitem", { name: /^Save ?(?:⌘|Ctrl\+)S$/ }));
 
   await waitFor(() => expect(executeCommand).toHaveBeenCalledWith({
     id: "file.save", context: { windowId: "main", documentId: "document-1" },
