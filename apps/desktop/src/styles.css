@@ -503,6 +503,9 @@ kbd { padding: 2px 6px; border: 1px solid #373e48; border-radius: 4px; color: #b
 .document-map-change.unsaved { background: var(--lci-unsaved); }
 .document-map-change.unsavedDeletion, .document-map-change.savedDeletion { height: 2px; background: var(--lci-deleted); }
 .editor-line code { position: relative; min-width: 1ch; padding-right: 32px; color: var(--editor-fg); font: inherit; }
+/* A zero-width space gives an empty line, which holds only the caret marker,
+   a full line box; without text the browser collapses it to no height. */
+.editor-line code::after { content: "\200b"; }
 .editor-surface {
   --gutter-width: 64px;
   --editor-whitespace: color-mix(in srgb, var(--editor-line-number) 70%, transparent);
