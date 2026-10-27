@@ -1,6 +1,6 @@
 cask "nulis" do
-  version "0.5.3"
-  sha256 "a2526cce8abfd0b61b21eae1b0b961c0e551cc675d2cf5e919a405e7f2200edd"
+  version "0.5.4"
+  sha256 "a6624baa3d3c216db130d289135d4b1afd7f3497438d2a9754e61d01e4e3b9b7"
 
   url "https://github.com/suhermanme/nulis/releases/download/v#{version}/Nulis_#{version}_universal.dmg"
   name "Nulis"
