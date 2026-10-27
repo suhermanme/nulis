@@ -23,6 +23,11 @@ Nulis 0.5.1 passed every job on all three systems (CI run 40216554644 on `1b929e
 0.5.1 `.dmg` hash and passes `brew style`; the online cask audit has not been run yet, because Homebrew
 refuses to audit a cask from an untrusted tap — trusting the tap is the owner's decision.
 
+Nulis 0.6.0 passed every job on all three systems (CI run 40509704621 on `729563d`, 2026-10-27), and the release
+run for tag `v0.6.0` (40509715573) installed and started each package before publishing it. The cask pins the published
+0.6.0 `.dmg` hash (`d38ae8cb…`, checked against a fresh download and `SHA256SUMS.txt`); `brew style` found no offenses.
+The online audit has not been run on this cask.
+
 Nulis 0.5.4 passed every job on all three systems (CI run 40421043868 on `822a1dc`, 2026-10-27), and the release
 run for tag `v0.5.4` (40421050772) installed and started each package before publishing it. The cask pins the published
 0.5.4 `.dmg` hash (`a6624baa…`, checked against a fresh download and `SHA256SUMS.txt`); `brew style` and the online audit
