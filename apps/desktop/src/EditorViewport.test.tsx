@@ -2214,3 +2214,22 @@ test("a bookmark at the start of a line marks that line only, and one at the end
   expect([...second.container.querySelectorAll(".line-number.bookmarked .line-number-text")]
     .map((node) => node.textContent)).toEqual(["2"]);
 });
+
+test("toggling a bookmark from the toolbar gives the editor focus back without scrolling", async () => {
+  render(
+    <EditorViewport
+      document={{ documentId: "document-1", name: "Untitled", byteLen: "7", revision: "0", encoding: "utf8" }}
+      onDocumentChange={() => undefined}
+      onStatus={() => undefined}
+    />,
+  );
+  const editor = await screen.findByRole("textbox", { name: "Untitled editor" });
+  // The input sits at the top of the scrolled lines, so a plain focus() would
+  // scroll the document back up to it.
+  const focus = vi.spyOn(editor, "focus");
+
+  fireEvent.click(screen.getByRole("button", { name: /Toggle bookmark/ }));
+
+  await waitFor(() => expect(focus).toHaveBeenCalled());
+  for (const call of focus.mock.calls) expect(call[0]).toEqual({ preventScroll: true });
+});

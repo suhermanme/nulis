@@ -528,7 +528,7 @@ export function EditorViewport({
   useEffect(() => {
     if (markdownMode === "view" || viewId === "secondary" || !autoFocus
       || snapshot?.documentId !== document.documentId) return;
-    inputRef.current?.focus();
+    inputRef.current?.focus({ preventScroll: true });
   }, [autoFocus, document.documentId, markdownMode, snapshot?.documentId, viewId]);
 
   const scrollCaretIntoView = useCallback((active: bigint, current: ViewportSnapshot) => {
@@ -602,7 +602,7 @@ export function EditorViewport({
       setScrollTop(0);
       if (surfaceRef.current) surfaceRef.current.scrollTop = 0;
     }
-    inputRef.current?.focus();
+    inputRef.current?.focus({ preventScroll: true });
   }, [currentCursor, document.documentId, load, scrollCaretIntoView]);
 
   // Another view of the same document (a second pane) advanced the
@@ -2229,7 +2229,7 @@ export function EditorViewport({
       {numberBarOpen ? <div className="findbar gotobar" role="group" aria-label="Insert number sequence"
         onKeyDown={(event) => {
           if (event.key === "Enter") { event.preventDefault(); void insertNumbers(); }
-          if (event.key === "Escape") { setNumberBarOpen(false); inputRef.current?.focus(); }
+          if (event.key === "Escape") { setNumberBarOpen(false); inputRef.current?.focus({ preventScroll: true }); }
         }}>
         <label>Start <input autoFocus aria-label="First number" inputMode="numeric" size={6} value={numberStart}
           onChange={(event) => setNumberStart(event.currentTarget.value)} /></label>
@@ -2248,7 +2248,7 @@ export function EditorViewport({
           onChange={(event) => setGoToLine(event.currentTarget.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") { event.preventDefault(); runGoToLine(); }
-            if (event.key === "Escape") { setGoToOpen(false); inputRef.current?.focus(); }
+            if (event.key === "Escape") { setGoToOpen(false); inputRef.current?.focus({ preventScroll: true }); }
           }} />
         <button type="button" onClick={runGoToLine}>Go</button>
         <IconButton icon="close" label="Close go to line" shortcut="Escape" onClick={() => setGoToOpen(false)} />
