@@ -1,11 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "settings",
-  "description": "Narrow capability set for the separate Settings window: events and a theme file picker only",
+  "description": "Narrow capability set for the separate Settings window: events, a theme file picker, and the window's light or dark appearance",
   "windows": ["settings"],
   "permissions": [
     "core:event:allow-listen",
     "core:event:allow-unlisten",
-    "dialog:allow-open"
+    "dialog:allow-open",
+    "core:window:allow-set-theme"
   ]
 }

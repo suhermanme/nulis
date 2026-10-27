@@ -1,10 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "help",
-  "description": "Narrow capability set for the separate Help window: events only, to follow theme changes",
+  "description": "Narrow capability set for the separate Help window: events to follow theme changes, and the window's light or dark appearance",
   "windows": ["help"],
   "permissions": [
     "core:event:allow-listen",
-    "core:event:allow-unlisten"
+    "core:event:allow-unlisten",
+    "core:window:allow-set-theme"
   ]
 }

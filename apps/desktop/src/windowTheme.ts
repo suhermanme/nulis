@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { listen } from "@tauri-apps/api/event";
-import type { CustomizationState, EditorPreferences, ThemeRecord } from "./contracts";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import type { CustomizationState, EditorPreferences, ThemeKind, ThemeRecord } from "./contracts";
 import { executeCommand, windowReady } from "./ipc";
 import { preferenceCssVariables, preferenceWindowTheme, type WindowThemePayload } from "./preferences";
 
@@ -26,6 +27,19 @@ export function useShowWhenReady(ready: boolean): void {
   }, [ready]);
 }
 
+
+/**
+ * Gives the native window the theme's light or dark appearance. Without it the
+ * title bar and the open list of a dropdown, which the system draws, follow the
+ * system setting instead of the chosen theme.
+ */
+function setWindowAppearance(kind: ThemeKind): void {
+  try {
+    void getCurrentWindow().setTheme(kind).catch(() => undefined);
+  } catch {
+    // Outside the desktop shell (a browser or a test) there is no native window.
+  }
+}
 
 /**
  * Paints the exported theme colors on a window root as CSS custom properties.
@@ -58,13 +72,18 @@ export function exportWindowTheme(
   const prior = new Map<string, string | null>();
   for (const key of Object.keys(vars)) prior.set(key, element.style.getPropertyValue(key));
   const priorCustom = element.dataset.custom ?? null;
+  const priorScheme = element.style.getPropertyValue("color-scheme");
   for (const [key, value] of Object.entries(vars)) element.style.setProperty(key, value);
+  // Native controls in the page (scrollbars, checkboxes) follow the theme too.
+  element.style.setProperty("color-scheme", payload.kind);
+  setWindowAppearance(payload.kind);
   if (userTheme) element.dataset.custom = "true"; else delete element.dataset.custom;
   return () => {
     for (const [key, value] of prior) {
       if (value === null) element.style.removeProperty(key); else element.style.setProperty(key, value);
     }
     if (priorCustom === null) delete element.dataset.custom; else element.dataset.custom = priorCustom;
+    if (priorScheme) element.style.setProperty("color-scheme", priorScheme); else element.style.removeProperty("color-scheme");
   };
 }
 
