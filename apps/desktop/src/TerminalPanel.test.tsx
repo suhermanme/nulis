@@ -1,4 +1,5 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeAll, beforeEach, expect, test, vi } from "vitest";
 import type { ExecuteCommandRequest, TerminalOutput, TerminalSummary } from "./contracts";
@@ -17,6 +18,9 @@ const grids = vi.hoisted(() => {
     written: string[];
     focusCalls: number;
     disposed: boolean;
+    selection: string;
+    pasted: string[];
+    actions: string[];
   }
   const created: Grid[] = [];
   const fits: number[] = [];
@@ -45,6 +49,9 @@ const grids = vi.hoisted(() => {
     written: string[] = [];
     focusCalls = 0;
     disposed = false;
+    selection = "";
+    pasted: string[] = [];
+    actions: string[] = [];
 
     constructor(options: Record<string, unknown>) {
       this.options = { ...options };
@@ -76,6 +83,11 @@ const grids = vi.hoisted(() => {
       this.written.push(typeof data === "string" ? data : new TextDecoder().decode(data));
     }
 
+    getSelection() { return this.selection; }
+    paste(text: string) { this.pasted.push(text); }
+    selectAll() { this.actions.push("selectAll"); }
+    clear() { this.actions.push("clear"); }
+
     dispose() {
       this.disposed = true;
       this.input?.remove();
@@ -95,6 +107,10 @@ const grids = vi.hoisted(() => {
 vi.mock("@xterm/xterm", () => ({ Terminal: grids.FakeTerminal }));
 vi.mock("@xterm/addon-fit", () => ({ FitAddon: grids.FakeFitAddon }));
 vi.mock("./ipc", () => ({ executeCommand: vi.fn() }));
+vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({
+  readText: vi.fn(),
+  writeText: vi.fn(),
+}));
 
 beforeAll(() => { vi.stubGlobal("ResizeObserver", grids.ResizeObserverStub); });
 afterEach(() => {
@@ -107,6 +123,9 @@ beforeEach(() => {
   grids.fits.length = 0;
   grids.observerCallbacks.length = 0;
   vi.mocked(executeCommand).mockReset();
+  vi.mocked(readText).mockReset().mockResolvedValue("echo pasted");
+  vi.mocked(writeText).mockReset().mockResolvedValue(undefined);
+  onStatus.mockReset();
   vi.mocked(executeCommand).mockImplementation((request: ExecuteCommandRequest) => {
     if (request.id === "terminal.create") {
       return Promise.resolve({
@@ -303,4 +322,48 @@ test("closing the panel ends the shell", async () => {
     id: "terminal.close",
     arguments: { terminalId: "term-1" },
   }));
+});
+
+function openMenu() {
+  fireEvent.contextMenu(panel().querySelector(".terminal-body") as HTMLElement, { clientX: 40, clientY: 50 });
+  return screen.getByRole("menu", { name: "Terminal" });
+}
+
+test("the right-click menu copies the terminal's selected text", async () => {
+  render(element());
+  const created = await started();
+  created.selection = "total 48";
+
+  fireEvent.click(within(openMenu()).getByRole("menuitem", { name: "Copy" }));
+
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith("total 48"));
+  expect(screen.queryByRole("menu", { name: "Terminal" })).not.toBeInTheDocument();
+  expect(onStatus).toHaveBeenCalledWith("Copied terminal text");
+});
+
+test("Copy is off when nothing in the terminal is selected", async () => {
+  render(element());
+  await started();
+
+  expect(within(openMenu()).getByRole("menuitem", { name: "Copy" })).toBeDisabled();
+});
+
+test("the right-click menu pastes the clipboard into the shell", async () => {
+  render(element());
+  const created = await started();
+
+  fireEvent.click(within(openMenu()).getByRole("menuitem", { name: "Paste" }));
+
+  await waitFor(() => expect(created.pasted).toEqual(["echo pasted"]));
+});
+
+test("the right-click menu selects all and clears the terminal", async () => {
+  render(element());
+  const created = await started();
+
+  fireEvent.click(within(openMenu()).getByRole("menuitem", { name: "Select All" }));
+  fireEvent.click(within(openMenu()).getByRole("menuitem", { name: "Clear" }));
+
+  expect(created.actions).toEqual(["selectAll", "clear"]);
+  expect(created.focusCalls).toBeGreaterThan(1);
 });

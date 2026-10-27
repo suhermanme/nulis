@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import "@xterm/xterm/css/xterm.css";
+import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import type { Terminal as XtermTerminal } from "@xterm/xterm";
 import type { TerminalOutput, TerminalSummary } from "./contracts";
 import { adoptStyleElements } from "./adoptedStyles";
 import { executeCommand } from "./ipc";
+import { ContextMenu, type MenuItem } from "./Toolbar";
 
 export interface TerminalFont {
   family: string;
@@ -46,6 +48,12 @@ export function TerminalPanel({ theme, font, height, hidden, focusSignal, onClos
   const hiddenRef = useRef(hidden);
   hiddenRef.current = hidden;
   const [focused, setFocused] = useState(false);
+  // The right-click menu, with the text selected when it opened.
+  const [menu, setMenu] = useState<{ x: number; y: number; selection: string } | null>(null);
+  const closeMenu = useCallback(() => {
+    setMenu(null);
+    terminalRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     if (!terminalRef.current) return;
@@ -233,11 +241,39 @@ export function TerminalPanel({ theme, font, height, hidden, focusSignal, onClos
     if (focusSignal > 0) terminalRef.current?.focus();
   }, [focusSignal]);
 
+  const menuItems: MenuItem[] = menu ? [
+    {
+      label: "Copy",
+      disabled: menu.selection.length === 0,
+      onSelect: () => void writeText(menu.selection)
+        .then(() => onStatus("Copied terminal text"))
+        .catch(() => onStatus("Could not copy terminal text")),
+    },
+    {
+      label: "Paste",
+      // xterm's paste goes through the shell input, with bracketed paste when the shell asks for it.
+      onSelect: () => void readText()
+        .then((text) => {
+          if (text) terminalRef.current?.paste(text);
+          else onStatus("The clipboard has no text");
+        })
+        .catch(() => onStatus("Could not read the clipboard")),
+    },
+    { label: "Select All", onSelect: () => terminalRef.current?.selectAll() },
+    { kind: "separator" },
+    { label: "Clear", onSelect: () => terminalRef.current?.clear() },
+  ] : [];
+
   return <section className={`terminal-panel${focused ? " focused" : ""}`} aria-label="Integrated terminal" hidden={hidden}
     style={{ height }}>
     <header><span>TERMINAL</span><button type="button" aria-label="Close terminal" onClick={onClose}>×</button></header>
-    <div className="terminal-body" onPointerDown={() => terminalRef.current?.focus()}>
+    <div className="terminal-body" onPointerDown={() => terminalRef.current?.focus()}
+      onContextMenu={(event) => {
+        event.preventDefault();
+        setMenu({ x: event.clientX, y: event.clientY, selection: terminalRef.current?.getSelection() ?? "" });
+      }}>
       <div className="terminal-host" ref={hostRef} />
     </div>
+    {menu ? <ContextMenu x={menu.x} y={menu.y} label="Terminal" items={menuItems} onClose={closeMenu} /> : null}
   </section>;
 }
