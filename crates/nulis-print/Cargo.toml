@@ -11,7 +11,7 @@ miniz_oxide = "0.8"
 nulis-syntax = { path = "../nulis-syntax" }
 pdf-writer = "=0.15.0"
 serde.workspace = true
-subsetter = "=0.1.1"
+subsetter = "=0.2.6"
 fontdb = { version = "=0.23.0", default-features = false, features = ["std", "fs", "memmap"] }
 thiserror.workspace = true
 ttf-parser = "=0.25.1"
