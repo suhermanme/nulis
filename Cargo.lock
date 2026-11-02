@@ -2822,7 +2822,7 @@ name = "nulis-print"
 version = "0.6.0"
 dependencies = [
  "fontdb",
- "miniz_oxide 0.8.9",
+ "miniz_oxide 0.9.1",
  "nulis-syntax",
  "pdf-writer",
  "serde",
